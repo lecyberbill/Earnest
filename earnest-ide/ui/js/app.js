@@ -2677,7 +2677,8 @@ document.addEventListener('DOMContentLoaded', () => {
                 const hData = await hRes.json();
                 const runs = Array.isArray(hData) ? hData : (hData.runs || []);
                 if (runs.length > 0 && typeof restoreRunTraces === 'function') {
-                    await restoreRunTraces(runs[0].id, runs[0].prompt);
+                    const latest = runs[runs.length - 1];
+                    await restoreRunTraces(latest.id, latest.prompt);
                     restored = true;
                 }
             }

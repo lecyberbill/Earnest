@@ -1388,74 +1388,74 @@
                 <span>📁 GESTIONNAIRE DE PROJETS</span>
             </div>
             <button id="btn-toggle-new-project" class="btn-primary" style="padding: 2px 8px; font-size: 0.72rem;">+
-                Nouveau Projet</button>
+                New Project</button>
         </div>
 
-        <!-- Formulaire Création Projet -->
+        <!-- New Project Form -->
         <div id="new-project-form"
-            style="display: none; padding: 0.75rem 1rem; border-bottom: 1px solid var(--border-subtle); background: rgba(15, 23, 42, 0.8); flex-direction: column; gap: 0.4rem; font-family: var(--font-mono); font-size: 0.75rem;">
+            style="display: none; padding: 0.85rem 1rem; border-bottom: 1px solid var(--border-subtle); background: var(--bg-surface, #121316); flex-direction: column; gap: 0.5rem; font-family: var(--font-mono); font-size: 0.75rem;">
             <div>
-                <label style="color: var(--text-muted); font-size: 0.7rem;">Nom du projet</label>
-                <input type="text" id="proj-name-input" placeholder="ex: Mon App Web, Backend API"
+                <label style="color: var(--text-muted); font-size: 0.7rem;">Project Name</label>
+                <input type="text" id="proj-name-input" placeholder="e.g. My Web App, Backend API"
                     style="width: 100%; box-sizing: border-box; background: #0b0f19; border: 1px solid var(--border-subtle); color: #fff; padding: 4px 6px; font-size: 0.75rem; border-radius: 4px;" />
             </div>
             <div>
-                <label style="color: var(--text-muted); font-size: 0.7rem;">Chemin dossier racine (relatif ou
-                    absolu)</label>
-                <input type="text" id="proj-root-input" placeholder="ex: . ou /path/to/project"
+                <label style="color: var(--text-muted); font-size: 0.7rem;">Root Directory Path (relative or
+                    absolute)</label>
+                <input type="text" id="proj-root-input" placeholder="e.g. . or /path/to/project"
                     style="width: 100%; box-sizing: border-box; background: #0b0f19; border: 1px solid var(--border-subtle); color: #fff; padding: 4px 6px; font-size: 0.75rem; border-radius: 4px;" />
             </div>
 
-            <!-- Choix des 3 Modalités de démarrage (Gouvernance d'agent) -->
+            <!-- Agent Governance Mode Selection -->
             <div style="margin-top: 0.4rem;">
                 <label
                     style="color: var(--accent-cyan); font-weight: 700; font-size: 0.72rem; display: block; margin-bottom: 0.35rem;">
-                    🛡️ Modalité de Gouvernance de l'Agent :
+                    🛡️ Agent Governance Mode:
                 </label>
                 <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 0.4rem;">
                     <label class="gov-mode-card"
-                        style="border: 1px solid var(--border-subtle); border-radius: 4px; padding: 0.45rem; background: rgba(30, 41, 59, 0.4); cursor: pointer; display: flex; flex-direction: column; gap: 0.2rem;">
+                        style="border: 1px solid var(--border-subtle); border-radius: 4px; padding: 0.45rem; background: rgba(255, 255, 255, 0.03); cursor: pointer; display: flex; flex-direction: column; gap: 0.2rem;">
                         <div style="display: flex; align-items: center; gap: 0.3rem;">
                             <input type="radio" name="proj-gov-mode" value="normal" checked />
                             <strong style="color: #fff; font-size: 0.72rem;">1. Normal</strong>
                         </div>
-                        <span style="color: var(--text-muted); font-size: 0.65rem;">Outils ouverts standards (read,
+                        <span style="color: var(--text-muted); font-size: 0.65rem;">Standard open tools (read,
                             write, terminal)</span>
                     </label>
 
                     <label class="gov-mode-card"
-                        style="border: 1px solid var(--border-subtle); border-radius: 4px; padding: 0.45rem; background: rgba(30, 41, 59, 0.4); cursor: pointer; display: flex; flex-direction: column; gap: 0.2rem;">
+                        style="border: 1px solid var(--border-subtle); border-radius: 4px; padding: 0.45rem; background: rgba(255, 255, 255, 0.03); cursor: pointer; display: flex; flex-direction: column; gap: 0.2rem;">
                         <div style="display: flex; align-items: center; gap: 0.3rem;">
                             <input type="radio" name="proj-gov-mode" value="architecture" />
                             <strong style="color: #38bdf8; font-size: 0.72rem;">3. Archi Spec-First</strong>
                         </div>
-                        <span style="color: var(--text-muted); font-size: 0.65rem;">Zéro code écrit. Spécification
-                            d'invariants & validation humaine</span>
+                        <span style="color: var(--text-muted); font-size: 0.65rem;">Zero code written. Invariant
+                            specification &amp; human approval</span>
                     </label>
 
                     <label class="gov-mode-card"
-                        style="border: 1px solid var(--border-subtle); border-radius: 4px; padding: 0.45rem; background: rgba(30, 41, 59, 0.4); cursor: pointer; display: flex; flex-direction: column; gap: 0.2rem;">
+                        style="border: 1px solid var(--border-subtle); border-radius: 4px; padding: 0.45rem; background: rgba(255, 255, 255, 0.03); cursor: pointer; display: flex; flex-direction: column; gap: 0.2rem;">
                         <div style="display: flex; align-items: center; gap: 0.3rem;">
                             <input type="radio" name="proj-gov-mode" value="constrained" />
-                            <strong style="color: #4ade80; font-size: 0.72rem;">2. Contraint</strong>
+                            <strong style="color: #4ade80; font-size: 0.72rem;">2. Constrained</strong>
                         </div>
-                        <span style="color: var(--text-muted); font-size: 0.65rem;">write_code sous contrôle Shadow
-                            Sandbox & lock SHA-256</span>
+                        <span style="color: var(--text-muted); font-size: 0.65rem;">write_code under Shadow
+                            Sandbox &amp; SHA-256 lock</span>
                     </label>
                 </div>
             </div>
             <div style="display: flex; gap: 0.5rem; margin-top: 0.25rem;">
                 <button id="btn-submit-new-project" class="btn-primary"
-                    style="flex: 1; padding: 4px; font-size: 0.72rem;">Créer & Basculer</button>
+                    style="flex: 1; padding: 4px; font-size: 0.72rem;">Create &amp; Switch</button>
                 <button id="btn-cancel-new-project" class="icon-btn"
-                    style="border: 1px solid var(--border-subtle); padding: 4px 8px; font-size: 0.72rem;">Annuler</button>
+                    style="border: 1px solid var(--border-subtle); padding: 4px 8px; font-size: 0.72rem;">Cancel</button>
             </div>
         </div>
 
         <div class="palette-list" id="project-list" style="padding: 0.5rem;"></div>
         <div
             style="padding: 0.4rem 1rem; border-top: 1px solid var(--border-subtle); background: var(--surface-dim); display: flex; justify-content: flex-end;">
-            <button id="btn-close-project-modal" class="icon-btn" style="font-size: 0.72rem;">Fermer (Échap)</button>
+            <button id="btn-close-project-modal" class="icon-btn" style="font-size: 0.72rem;">Close (Esc)</button>
         </div>
     </div>
 

@@ -1434,6 +1434,30 @@ Garde l'indentation appropriée.";
             return;
         }
 
+        if path == "/api/ide/browse_folder" {
+            let output = std::process::Command::new("powershell")
+                .args([
+                    "-NoProfile",
+                    "-STA",
+                    "-Command",
+                    "Add-Type -AssemblyName System.Windows.Forms; $d = New-Object System.Windows.Forms.FolderBrowserDialog; $d.Description = 'Select Project Root Folder'; if ($d.ShowDialog() -eq 'OK') { Write-Output $d.SelectedPath }",
+                ])
+                .output();
+            let resp = match output {
+                Ok(out) => {
+                    let selected = String::from_utf8_lossy(&out.stdout).trim().to_string();
+                    if selected.is_empty() {
+                        serde_json::json!({ "status": "cancelled" })
+                    } else {
+                        serde_json::json!({ "status": "ok", "path": selected })
+                    }
+                }
+                Err(e) => serde_json::json!({ "status": "error", "error": e.to_string() }),
+            };
+            let _ = req.respond(tiny_http::Response::from_string(resp.to_string()).with_header(json_header));
+            return;
+        }
+
         if path == "/api/ide/governance/set_mode" {
             let root_str = payload["root"].as_str().unwrap_or(".");
             let mode_str = payload["mode"].as_str().unwrap_or("architecture");

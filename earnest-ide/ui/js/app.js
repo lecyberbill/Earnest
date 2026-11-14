@@ -2556,6 +2556,26 @@ document.addEventListener('DOMContentLoaded', () => {
     const newProjectForm = document.getElementById('new-project-form');
     const projNameInput = document.getElementById('proj-name-input');
     const projRootInput = document.getElementById('proj-root-input');
+    const btnBrowseProjRoot = document.getElementById('btn-browse-proj-root');
+    if (btnBrowseProjRoot && projRootInput) {
+        btnBrowseProjRoot.addEventListener('click', async () => {
+            btnBrowseProjRoot.disabled = true;
+            try {
+                const res = await fetch('/api/ide/browse_folder');
+                if (res.ok) {
+                    const data = await res.json();
+                    if (data.status === 'ok' && data.path) {
+                        projRootInput.value = data.path;
+                        if (projNameInput && !projNameInput.value.trim()) {
+                            const parts = data.path.replace(/[\\/]+$/, '').split(/[\\/]/);
+                            projNameInput.value = parts[parts.length - 1] || '';
+                        }
+                    }
+                }
+            } catch (e) { }
+            finally { btnBrowseProjRoot.disabled = false; }
+        });
+    }
     const btnSubmitNewProject = document.getElementById('btn-submit-new-project');
     const btnCancelNewProject = document.getElementById('btn-cancel-new-project');
     const btnCloseProjectModal = document.getElementById('btn-close-project-modal');

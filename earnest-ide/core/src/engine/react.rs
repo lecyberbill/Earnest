@@ -199,7 +199,52 @@ impl<'a> ReActEngine<'a> {
 
             // 2. submit_invariants (Mode 3 Architecture)
             "submit_invariants" => {
-                let invariants_val = &args["invariants"];
+                let mut invariants_val = args["invariants"].clone();
+                if let Some(obj) = invariants_val.as_object_mut() {
+                    if !obj.contains_key("schema_version") {
+                        obj.insert("schema_version".into(), serde_json::json!("1.0"));
+                    }
+                    if let Some(contracts) = obj.get_mut("contracts").and_then(|c| c.as_array_mut()) {
+                        for (c_idx, c) in contracts.iter_mut().enumerate() {
+                            if let Some(c_obj) = c.as_object_mut() {
+                                let cid = c_obj.get("id").and_then(|v| v.as_str()).map(|s| s.to_string()).unwrap_or_else(|| format!("C{}", c_idx + 1));
+                                if !c_obj.contains_key("title") {
+                                    if let Some(name) = c_obj.get("name").cloned() {
+                                        c_obj.insert("title".into(), name);
+                                    } else {
+                                        c_obj.insert("title".into(), serde_json::json!(cid));
+                                    }
+                                }
+                                if !c_obj.contains_key("statement") {
+                                    if let Some(desc) = c_obj.get("description").cloned() {
+                                        c_obj.insert("statement".into(), desc);
+                                    }
+                                }
+                                if !c_obj.contains_key("probes") {
+                                    if let Some(probs) = c_obj.remove("probs") {
+                                        c_obj.insert("probes".into(), probs);
+                                    }
+                                }
+                                if let Some(probes) = c_obj.get_mut("probes").and_then(|p| p.as_array_mut()) {
+                                    for (p_idx, p) in probes.iter_mut().enumerate() {
+                                        if let Some(p_obj) = p.as_object_mut() {
+                                            if !p_obj.contains_key("probe_id") {
+                                                p_obj.insert("probe_id".into(), serde_json::json!(format!("{}-P{}", cid, p_idx + 1)));
+                                            }
+                                            if let Some(r) = p_obj.get("runner").and_then(|v| v.as_str()).map(|s| s.to_string()) {
+                                                if r.contains('|') {
+                                                    let fixed = if r.contains("cargo_test") { "cargo_test" } else { "static" };
+                                                    p_obj.insert("runner".into(), serde_json::json!(fixed));
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+                let invariants_val = &invariants_val;
                 if let Err(e) = serde_json::from_value::<InvariantsFile>(invariants_val.clone()) {
                     return (serde_json::json!({
                         "status": "error",

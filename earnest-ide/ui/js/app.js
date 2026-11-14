@@ -1144,7 +1144,7 @@ document.addEventListener('DOMContentLoaded', () => {
                     const mRes = await fetch('/api/ide/models');
                     if (mRes.ok) {
                         const mList = await mRes.json();
-                        state.models = Array.isArray(mList) ? mList : (mList.models || []);
+                        state.models = Array.isArray(mList) ? mList : (mList.models || mList.providers || mList.data || []);
                         renderModelsList();
                     }
                 } catch (e) {}

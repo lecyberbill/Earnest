@@ -1396,7 +1396,8 @@ Garde l'indentation appropriée.";
                     }
                     Err(e) => serde_json::json!({ "status": "error", "error": e.to_string() }),
                 };
-                let _ = req.respond(tiny_http::Response::from_string(resp.to_string()).with_header(json_header));
+                let cors = tiny_http::Header::from_bytes(&b"Access-Control-Allow-Origin"[..], &b"*"[..]).unwrap();
+                let _ = req.respond(tiny_http::Response::from_string(resp.to_string()).with_header(json_header).with_header(cors));
                 return;
             } else if req.method().as_str() == "POST" {
                 let mut body = String::new();
@@ -1411,7 +1412,8 @@ Garde l'indentation appropriée.";
                     },
                     Err(e) => serde_json::json!({ "status": "error", "error": e.to_string() }),
                 };
-                let _ = req.respond(tiny_http::Response::from_string(resp.to_string()).with_header(json_header));
+                let cors = tiny_http::Header::from_bytes(&b"Access-Control-Allow-Origin"[..], &b"*"[..]).unwrap();
+                let _ = req.respond(tiny_http::Response::from_string(resp.to_string()).with_header(json_header).with_header(cors));
                 return;
             }
         }
@@ -1430,7 +1432,8 @@ Garde l'indentation appropriée.";
                 "last_project_id": last_project_id,
                 "ui_lang": ui_lang,
             });
-            let _ = req.respond(tiny_http::Response::from_string(resp.to_string()).with_header(json_header));
+            let cors = tiny_http::Header::from_bytes(&b"Access-Control-Allow-Origin"[..], &b"*"[..]).unwrap();
+            let _ = req.respond(tiny_http::Response::from_string(resp.to_string()).with_header(json_header).with_header(cors));
             return;
         }
 
@@ -1454,7 +1457,8 @@ Garde l'indentation appropriée.";
                 }
                 Err(e) => serde_json::json!({ "status": "error", "error": e.to_string() }),
             };
-            let _ = req.respond(tiny_http::Response::from_string(resp.to_string()).with_header(json_header));
+            let cors = tiny_http::Header::from_bytes(&b"Access-Control-Allow-Origin"[..], &b"*"[..]).unwrap();
+            let _ = req.respond(tiny_http::Response::from_string(resp.to_string()).with_header(json_header).with_header(cors));
             return;
         }
 

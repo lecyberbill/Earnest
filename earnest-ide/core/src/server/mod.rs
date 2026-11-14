@@ -1416,6 +1416,24 @@ Garde l'indentation appropriée.";
             }
         }
 
+        if path == "/api/ide/bootstrap" {
+            let wal_path = std::path::Path::new(".ide").join("ide_state.wal");
+            let (last_project_id, ui_lang) = match kv_wal_engine::Engine::open(&wal_path) {
+                Ok(engine) => (
+                    engine.get(b"earnest_last_project_id").map(|b| String::from_utf8_lossy(b).to_string()),
+                    engine.get(b"earnest_ui_lang").map(|b| String::from_utf8_lossy(b).to_string()),
+                ),
+                Err(_) => (None, None),
+            };
+            let resp = serde_json::json!({
+                "status": "ok",
+                "last_project_id": last_project_id,
+                "ui_lang": ui_lang,
+            });
+            let _ = req.respond(tiny_http::Response::from_string(resp.to_string()).with_header(json_header));
+            return;
+        }
+
         if path == "/api/ide/governance/set_mode" {
             let root_str = payload["root"].as_str().unwrap_or(".");
             let mode_str = payload["mode"].as_str().unwrap_or("architecture");

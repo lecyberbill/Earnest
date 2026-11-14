@@ -2561,16 +2561,16 @@ document.addEventListener('DOMContentLoaded', () => {
             renderProjectsModal();
             if (!state.hasRestoredLastProject && Array.isArray(state.projects)) {
                 state.hasRestoredLastProject = true;
-                let lastId = localStorage.getItem('earnest_last_project_id');
-                if (!lastId) {
-                    try {
-                        const kvRes = await fetch('/api/ide/kv_state?key=earnest_last_project_id');
-                        if (kvRes.ok) {
-                            const kvData = await kvRes.json();
-                            if (kvData && kvData.value) lastId = kvData.value;
-                        }
-                    } catch (e) {}
-                }
+                let lastId = null;
+                try {
+                    const bootRes = await fetch('/api/ide/bootstrap');
+                    if (bootRes.ok) {
+                        const bootData = await bootRes.json();
+                        if (bootData.last_project_id) lastId = bootData.last_project_id;
+                        if (bootData.ui_lang && typeof setLang === 'function') setLang(bootData.ui_lang);
+                    }
+                } catch (e) {}
+                if (!lastId) lastId = localStorage.getItem('earnest_last_project_id');
                 const saved = lastId && state.projects.find(p => p.id === lastId || p.name === lastId);
                 if (saved) {
                     await switchProject(saved);

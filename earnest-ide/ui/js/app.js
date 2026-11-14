@@ -1137,9 +1137,19 @@ document.addEventListener('DOMContentLoaded', () => {
             const data = await res.json();
             if (data.default_model) {
                 prefDefaultModel.value = data.default_model;
-                const cms = document.getElementById('chat-model-select');
-                if (cms) cms.value = data.default_model;
             }
+            const cms = document.getElementById('chat-model-select');
+            if (cms && cms.options.length === 0) {
+                try {
+                    const mRes = await fetch('/api/ide/models');
+                    if (mRes.ok) {
+                        const mList = await mRes.json();
+                        state.models = Array.isArray(mList) ? mList : (mList.models || []);
+                        renderModelsList();
+                    }
+                } catch (e) {}
+            }
+            if (cms && data.default_model) cms.value = data.default_model;
             if (data.python_interpreter) prefPythonPath.value = data.python_interpreter;
             if (data.editor_font_size) {
                 prefEditorFontSize.value = data.editor_font_size;

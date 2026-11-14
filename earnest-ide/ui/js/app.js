@@ -151,6 +151,13 @@ document.addEventListener('DOMContentLoaded', () => {
     const actBtnKb = document.getElementById('act-btn-kb');
     const actBtnSettings = document.getElementById('act-btn-settings');
     const btnOpenSettings = document.getElementById('btn-open-settings');
+    const btnCloseSettings = document.getElementById('btn-close-settings');
+    if (btnCloseSettings) {
+        btnCloseSettings.addEventListener('click', () => {
+            const explorerBtn = document.getElementById('act-btn-explorer');
+            if (explorerBtn) explorerBtn.click();
+        });
+    }
 
     const viewExplorer = document.getElementById('view-explorer');
     const viewSearch = document.getElementById('view-search');

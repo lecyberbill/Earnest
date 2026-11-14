@@ -1032,9 +1032,10 @@
                     </div>
 
                     <!-- View E: Preferences & Model Settings -->
-                    <div class="sidebar-view" id="view-settings">
-                        <div class="tree-header">
+                    <div class="sidebar-view" id="view-settings" style="position: fixed; inset: 48px 40px 32px 54px; z-index: 950; background: #0b0f19; border: 1px solid var(--border-subtle); border-radius: 8px; box-shadow: 0 24px 60px rgba(0,0,0,0.75); max-width: 960px; margin: 0 auto;">
+                        <div class="tree-header" style="display: flex; justify-content: space-between; align-items: center; padding: 0.75rem 1rem; border-bottom: 1px solid var(--border-subtle);">
                             <span>AI CONFIGURATION &amp; MODELS</span>
+                            <button class="icon-btn" id="btn-close-settings" title="Close Preferences" style="font-size: 0.85rem; padding: 2px 8px;">✕</button>
                         </div>
                         <div class="sidebar-body"
                             style="padding: 0.85rem; display: flex; flex-direction: column; gap: 1rem; font-family: var(--font-mono); font-size: 0.76rem; overflow-y: auto;">

@@ -151,6 +151,17 @@ document.addEventListener('DOMContentLoaded', () => {
     const actBtnKb = document.getElementById('act-btn-kb');
     const actBtnSettings = document.getElementById('act-btn-settings');
     const btnOpenSettings = document.getElementById('btn-open-settings');
+    const btnAgentStop = document.getElementById('btn-agent-stop');
+    if (btnAgentStop) {
+        btnAgentStop.addEventListener('click', () => {
+            if (typeof currentEventSource !== 'undefined' && currentEventSource) {
+                try { currentEventSource.close(); } catch (e) {}
+                currentEventSource = null;
+            }
+            if (btnAgentSend) btnAgentSend.disabled = false;
+            btnAgentStop.style.display = 'none';
+        });
+    }
     const chatModelSel = document.getElementById('chat-model-select');
     if (chatModelSel) {
         chatModelSel.addEventListener('change', async () => {
@@ -2178,6 +2189,8 @@ document.addEventListener('DOMContentLoaded', () => {
 
         agentPrompt.value = '';
         btnAgentSend.disabled = true;
+        const stopBtn = document.getElementById('btn-agent-stop');
+        if (stopBtn) stopBtn.style.display = 'inline-block';
 
         // Bulle utilisateur
         const userBubble = document.createElement('div');
@@ -2393,6 +2406,8 @@ document.addEventListener('DOMContentLoaded', () => {
             clearInterval(hbTimer);
             hbEl.remove();
             btnAgentSend.disabled = false;
+        const stopBtnEnd = document.getElementById('btn-agent-stop');
+        if (stopBtnEnd) stopBtnEnd.style.display = 'none';
         }
     }
 

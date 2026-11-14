@@ -1149,7 +1149,12 @@ document.addEventListener('DOMContentLoaded', () => {
                     }
                 } catch (e) {}
             }
-            if (cms && data.default_model) cms.value = data.default_model;
+            if (cms && prefDefaultModel) {
+                if (cms.options.length === 0 && prefDefaultModel.options.length > 0) {
+                    cms.innerHTML = prefDefaultModel.innerHTML;
+                }
+                if (data.default_model) cms.value = data.default_model;
+            }
             if (data.python_interpreter) prefPythonPath.value = data.python_interpreter;
             if (data.editor_font_size) {
                 prefEditorFontSize.value = data.editor_font_size;

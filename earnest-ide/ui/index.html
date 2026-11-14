@@ -1343,12 +1343,24 @@
                         </div>
                     </div>
 
-                    <div class="agent-input-box">
-                        <div style="display: flex; gap: 0.5rem;">
-                            <input type="text" id="agent-prompt" data-i18n-placeholder="chat.placeholder" placeholder="Development instruction..."
-                                style="flex: 1; font-size: 0.8rem;" />
-                            <button id="btn-agent-send" class="btn-primary"
-                                style="padding: 0.4rem 0.85rem; font-size: 0.78rem;" data-i18n="btn.run">Run</button>
+                    <div class="agent-input-box" style="padding: 0.5rem;">
+                        <div style="display: flex; flex-direction: column; gap: 0.45rem; background: rgba(255, 255, 255, 0.03); border: 1px solid var(--border-subtle); border-radius: 8px; padding: 0.5rem;">
+                            <textarea id="agent-prompt" rows="3" data-i18n-placeholder="chat.placeholder" placeholder="Development instruction..."
+                                style="width: 100%; box-sizing: border-box; background: transparent; border: none; color: #fff; font-size: 0.82rem; resize: vertical; outline: none; font-family: inherit; line-height: 1.4;"></textarea>
+                            <div style="display: flex; justify-content: space-between; align-items: center; gap: 0.4rem; border-top: 1px solid rgba(255,255,255,0.06); padding-top: 0.35rem;">
+                                <div style="display: flex; align-items: center; gap: 0.35rem; min-width: 0; flex: 1;">
+                                    <select id="chat-model-select" title="Active Model"
+                                        style="max-width: 170px; background: transparent; border: 1px solid var(--border-subtle); color: var(--text-secondary); font-size: 0.7rem; padding: 2px 6px; border-radius: 4px; font-family: var(--font-mono); text-overflow: ellipsis;"></select>
+                                    <select id="chat-effort-select" title="Reasoning Effort"
+                                        style="background: transparent; border: 1px solid var(--border-subtle); color: var(--text-secondary); font-size: 0.7rem; padding: 2px 6px; border-radius: 4px; font-family: var(--font-mono);">
+                                        <option value="low">Low</option>
+                                        <option value="medium" selected>Medium</option>
+                                        <option value="high">High</option>
+                                    </select>
+                                </div>
+                                <button id="btn-agent-send" class="btn-primary"
+                                    style="padding: 0.35rem 0.85rem; font-size: 0.76rem; border-radius: 6px;" data-i18n="btn.run">Run</button>
+                            </div>
                         </div>
                     </div>
                 </section>

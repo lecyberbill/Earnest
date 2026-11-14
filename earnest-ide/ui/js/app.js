@@ -151,6 +151,35 @@ document.addEventListener('DOMContentLoaded', () => {
     const actBtnKb = document.getElementById('act-btn-kb');
     const actBtnSettings = document.getElementById('act-btn-settings');
     const btnOpenSettings = document.getElementById('btn-open-settings');
+    const chatModelSel = document.getElementById('chat-model-select');
+    if (chatModelSel) {
+        chatModelSel.addEventListener('change', async () => {
+            const val = chatModelSel.value;
+            if (prefDefaultModel) prefDefaultModel.value = val;
+            try {
+                await fetch('/api/ide/settings', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ default_model: val })
+                });
+                const badge = document.getElementById('status-active-model');
+                if (badge) badge.textContent = `Model: ${val}`;
+            } catch (e) {}
+        });
+    }
+    const chatEffortSel = document.getElementById('chat-effort-select');
+    if (chatEffortSel) {
+        const savedEffort = localStorage.getItem('earnest_effort_level');
+        if (savedEffort) chatEffortSel.value = savedEffort;
+        chatEffortSel.addEventListener('change', () => {
+            localStorage.setItem('earnest_effort_level', chatEffortSel.value);
+            fetch('/api/ide/kv_state', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ key: 'earnest_effort_level', value: chatEffortSel.value })
+            }).catch(() => {});
+        });
+    }
     const btnCloseSettings = document.getElementById('btn-close-settings');
     if (btnCloseSettings) {
         btnCloseSettings.addEventListener('click', () => {
@@ -1123,6 +1152,8 @@ document.addEventListener('DOMContentLoaded', () => {
         if (!modelsCardsList) return;
         modelsCardsList.innerHTML = '';
         prefDefaultModel.innerHTML = '';
+        const chatModelSelect = document.getElementById('chat-model-select');
+        if (chatModelSelect) chatModelSelect.innerHTML = '';
 
         if (!state.models || state.models.length === 0) {
             modelsCardsList.innerHTML = '<div style="color:var(--text-muted); font-size:0.72rem; text-align:center; padding:0.5rem;">Aucun modèle configuré</div>';
@@ -1135,6 +1166,10 @@ document.addEventListener('DOMContentLoaded', () => {
             opt.value = m.id;
             opt.textContent = `${m.name} (${m.model || m.provider_type})`;
             prefDefaultModel.appendChild(opt);
+            if (chatModelSelect) {
+                const cOpt = opt.cloneNode(true);
+                chatModelSelect.appendChild(cOpt);
+            }
 
             // Carte du modèle dans la liste
             const card = document.createElement('div');

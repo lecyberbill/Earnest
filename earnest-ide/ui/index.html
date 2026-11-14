@@ -1391,9 +1391,11 @@
                 New Project</button>
         </div>
 
-        <!-- New Project Form -->
-        <div id="new-project-form"
-            style="display: none; padding: 0.85rem 1rem; border-bottom: 1px solid var(--border-subtle); background: var(--bg-surface, #121316); flex-direction: column; gap: 0.5rem; font-family: var(--font-mono); font-size: 0.75rem;">
+        <!-- 2-Column Body: Left = New Project, Right = Existing Projects -->
+        <div style="display: grid; grid-template-columns: 1.2fr 1fr; gap: 1rem; padding: 0.85rem 1rem; align-items: start; max-height: 70vh; overflow-y: auto;">
+            <!-- Left Column: New Project Form -->
+            <div id="new-project-form"
+                style="display: none; padding: 0.75rem; border: 1px solid var(--border-subtle); border-radius: 6px; background: var(--bg-surface, #121316); flex-direction: column; gap: 0.5rem; font-family: var(--font-mono); font-size: 0.75rem;">
             <div>
                 <label style="color: var(--text-muted); font-size: 0.7rem;">Project Name</label>
                 <input type="text" id="proj-name-input" placeholder="e.g. My Web App, Backend API"
@@ -1448,17 +1450,23 @@
                     </label>
                 </div>
             </div>
-            <div style="display: flex; gap: 0.5rem; margin-top: 0.25rem;">
-                <button id="btn-submit-new-project" class="btn-primary"
-                    style="flex: 1; padding: 4px; font-size: 0.72rem;">Create &amp; Switch</button>
-                <button id="btn-cancel-new-project" class="icon-btn"
-                    style="border: 1px solid var(--border-subtle); padding: 4px 8px; font-size: 0.72rem;">Cancel</button>
+                <div style="display: flex; gap: 0.5rem; margin-top: 0.5rem; justify-content: flex-end;">
+                    <button id="btn-cancel-new-project" class="icon-btn"
+                        style="border: 1px solid var(--border-subtle); padding: 4px 10px; font-size: 0.72rem;">Cancel</button>
+                    <button id="btn-submit-new-project" class="btn-primary"
+                        style="padding: 4px 14px; font-size: 0.72rem;">Create &amp; Switch</button>
+                </div>
+            </div>
+
+            <!-- Right Column: Existing Projects -->
+            <div style="display: flex; flex-direction: column; gap: 0.4rem;">
+                <div style="font-size: 0.72rem; font-weight: 700; color: var(--text-muted); font-family: var(--font-mono); text-transform: uppercase;">Existing Projects</div>
+                <div class="palette-list" id="project-list" style="padding: 0; max-height: 55vh; overflow-y: auto;"></div>
             </div>
         </div>
 
-        <div class="palette-list" id="project-list" style="padding: 0.5rem;"></div>
         <div
-            style="padding: 0.4rem 1rem; border-top: 1px solid var(--border-subtle); background: var(--surface-dim); display: flex; justify-content: flex-end;">
+            style="padding: 0.5rem 1rem; border-top: 1px solid var(--border-subtle); background: var(--surface-dim); display: flex; justify-content: flex-end;">
             <button id="btn-close-project-modal" class="icon-btn" style="font-size: 0.72rem;">Close (Esc)</button>
         </div>
     </div>

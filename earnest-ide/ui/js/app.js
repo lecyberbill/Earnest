@@ -2567,9 +2567,9 @@ document.addEventListener('DOMContentLoaded', () => {
                     assistantBubble.appendChild(d);
                 } else if (tr.step_type === 'answer') {
                     const d = document.createElement('div');
+                    d.className = 'markdown-body';
                     d.style.color = 'var(--text-primary)';
-                    d.style.whiteSpace = 'pre-wrap';
-                    d.textContent = tr.payload;
+                    d.innerHTML = typeof marked !== 'undefined' ? marked.parse(tr.payload || '') : escapeHtml(tr.payload || '');
                     assistantBubble.appendChild(d);
                 }
             });

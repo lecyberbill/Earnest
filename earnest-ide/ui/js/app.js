@@ -2636,6 +2636,33 @@ document.addEventListener('DOMContentLoaded', () => {
     const topProjectName = document.getElementById('top-project-name');
 
     loadProjectsList();
+    (async function syncChatModels() {
+        const cms = document.getElementById('chat-model-select');
+        if (!cms) return;
+        try {
+            const [mRes, sRes] = await Promise.all([
+                fetch('/api/ide/models'),
+                fetch('/api/ide/settings')
+            ]);
+            if (mRes.ok) {
+                const mData = await mRes.json();
+                const list = Array.isArray(mData) ? mData : (mData.models || mData.providers || mData.data || []);
+                cms.innerHTML = '';
+                list.forEach(m => {
+                    const opt = document.createElement('option');
+                    opt.value = m.id;
+                    opt.textContent = `${m.name} (${m.model || m.provider_type || ''})`;
+                    cms.appendChild(opt);
+                });
+            }
+            if (sRes.ok) {
+                const sData = await sRes.json();
+                if (sData.default_model) cms.value = sData.default_model;
+            }
+        } catch (e) {
+            console.warn('syncChatModels error:', e);
+        }
+    })();
 
     async function loadProjectsList() {
         try {
@@ -2715,6 +2742,33 @@ document.addEventListener('DOMContentLoaded', () => {
                         if (topProjectName) topProjectName.textContent = 'Aucun projet';
                     }
                     loadProjectsList();
+    (async function syncChatModels() {
+        const cms = document.getElementById('chat-model-select');
+        if (!cms) return;
+        try {
+            const [mRes, sRes] = await Promise.all([
+                fetch('/api/ide/models'),
+                fetch('/api/ide/settings')
+            ]);
+            if (mRes.ok) {
+                const mData = await mRes.json();
+                const list = Array.isArray(mData) ? mData : (mData.models || mData.providers || mData.data || []);
+                cms.innerHTML = '';
+                list.forEach(m => {
+                    const opt = document.createElement('option');
+                    opt.value = m.id;
+                    opt.textContent = `${m.name} (${m.model || m.provider_type || ''})`;
+                    cms.appendChild(opt);
+                });
+            }
+            if (sRes.ok) {
+                const sData = await sRes.json();
+                if (sData.default_model) cms.value = sData.default_model;
+            }
+        } catch (e) {
+            console.warn('syncChatModels error:', e);
+        }
+    })();
                 });
             }
 
@@ -2781,6 +2835,33 @@ document.addEventListener('DOMContentLoaded', () => {
         projectModal.classList.add('open');
         newProjectForm.style.display = 'none';
         loadProjectsList();
+    (async function syncChatModels() {
+        const cms = document.getElementById('chat-model-select');
+        if (!cms) return;
+        try {
+            const [mRes, sRes] = await Promise.all([
+                fetch('/api/ide/models'),
+                fetch('/api/ide/settings')
+            ]);
+            if (mRes.ok) {
+                const mData = await mRes.json();
+                const list = Array.isArray(mData) ? mData : (mData.models || mData.providers || mData.data || []);
+                cms.innerHTML = '';
+                list.forEach(m => {
+                    const opt = document.createElement('option');
+                    opt.value = m.id;
+                    opt.textContent = `${m.name} (${m.model || m.provider_type || ''})`;
+                    cms.appendChild(opt);
+                });
+            }
+            if (sRes.ok) {
+                const sData = await sRes.json();
+                if (sData.default_model) cms.value = sData.default_model;
+            }
+        } catch (e) {
+            console.warn('syncChatModels error:', e);
+        }
+    })();
     }
 
     function closeProjectModal() {

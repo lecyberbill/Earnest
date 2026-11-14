@@ -402,6 +402,66 @@ fn handle_request(mut req: tiny_http::Request) {
             return;
         }
 
+        if path == "/api/ide/bootstrap" {
+            let wal_path = std::path::Path::new(".ide").join("ide_state.wal");
+            let (last_project_id, ui_lang) = match kv_wal_engine::Engine::open(&wal_path) {
+                Ok(engine) => (
+                    engine.get(b"earnest_last_project_id").map(|b| String::from_utf8_lossy(b).to_string()),
+                    engine.get(b"earnest_ui_lang").map(|b| String::from_utf8_lossy(b).to_string()),
+                ),
+                Err(_) => (None, None),
+            };
+            let resp = serde_json::json!({
+                "status": "ok",
+                "last_project_id": last_project_id,
+                "ui_lang": ui_lang,
+            });
+            let cors = tiny_http::Header::from_bytes(&b"Access-Control-Allow-Origin"[..], &b"*"[..]).unwrap();
+            let _ = req.respond(tiny_http::Response::from_string(resp.to_string()).with_header(json_header).with_header(cors));
+            return;
+        }
+
+        if path == "/api/ide/kv_state" {
+            let wal_path = std::path::Path::new(".ide").join("ide_state.wal");
+            let key = req.url().split("key=").nth(1).unwrap_or("").split('&').next().unwrap_or("");
+            let key_decoded = urlencoding::decode(key).unwrap_or_default();
+            let resp = match kv_wal_engine::Engine::open(&wal_path) {
+                Ok(engine) => {
+                    let val = engine.get(key_decoded.as_bytes()).map(|b| String::from_utf8_lossy(b).to_string());
+                    serde_json::json!({ "status": "ok", "key": key_decoded, "value": val })
+                }
+                Err(e) => serde_json::json!({ "status": "error", "error": e.to_string() }),
+            };
+            let cors = tiny_http::Header::from_bytes(&b"Access-Control-Allow-Origin"[..], &b"*"[..]).unwrap();
+            let _ = req.respond(tiny_http::Response::from_string(resp.to_string()).with_header(json_header).with_header(cors));
+            return;
+        }
+
+        if path == "/api/ide/browse_folder" {
+            let output = std::process::Command::new("powershell")
+                .args([
+                    "-NoProfile",
+                    "-STA",
+                    "-Command",
+                    "Add-Type -AssemblyName System.Windows.Forms; $d = New-Object System.Windows.Forms.FolderBrowserDialog; $d.Description = 'Select Project Root Folder'; if ($d.ShowDialog() -eq 'OK') { Write-Output $d.SelectedPath }",
+                ])
+                .output();
+            let resp = match output {
+                Ok(out) => {
+                    let selected = String::from_utf8_lossy(&out.stdout).trim().to_string();
+                    if selected.is_empty() {
+                        serde_json::json!({ "status": "cancelled" })
+                    } else {
+                        serde_json::json!({ "status": "ok", "path": selected })
+                    }
+                }
+                Err(e) => serde_json::json!({ "status": "error", "error": e.to_string() }),
+            };
+            let cors = tiny_http::Header::from_bytes(&b"Access-Control-Allow-Origin"[..], &b"*"[..]).unwrap();
+            let _ = req.respond(tiny_http::Response::from_string(resp.to_string()).with_header(json_header).with_header(cors));
+            return;
+        }
+
         if path == "/api/ide/projects" {
             let conn = get_connection(None).unwrap();
             let mut list = Vec::new();
@@ -1058,6 +1118,66 @@ Garde l'indentation appropriée.";
                 .with_header(json_header)
                 .with_header(cors_header);
             req.respond(resp).ok();
+            return;
+        }
+
+        if path == "/api/ide/bootstrap" {
+            let wal_path = std::path::Path::new(".ide").join("ide_state.wal");
+            let (last_project_id, ui_lang) = match kv_wal_engine::Engine::open(&wal_path) {
+                Ok(engine) => (
+                    engine.get(b"earnest_last_project_id").map(|b| String::from_utf8_lossy(b).to_string()),
+                    engine.get(b"earnest_ui_lang").map(|b| String::from_utf8_lossy(b).to_string()),
+                ),
+                Err(_) => (None, None),
+            };
+            let resp = serde_json::json!({
+                "status": "ok",
+                "last_project_id": last_project_id,
+                "ui_lang": ui_lang,
+            });
+            let cors = tiny_http::Header::from_bytes(&b"Access-Control-Allow-Origin"[..], &b"*"[..]).unwrap();
+            let _ = req.respond(tiny_http::Response::from_string(resp.to_string()).with_header(json_header).with_header(cors));
+            return;
+        }
+
+        if path == "/api/ide/kv_state" {
+            let wal_path = std::path::Path::new(".ide").join("ide_state.wal");
+            let key = req.url().split("key=").nth(1).unwrap_or("").split('&').next().unwrap_or("");
+            let key_decoded = urlencoding::decode(key).unwrap_or_default();
+            let resp = match kv_wal_engine::Engine::open(&wal_path) {
+                Ok(engine) => {
+                    let val = engine.get(key_decoded.as_bytes()).map(|b| String::from_utf8_lossy(b).to_string());
+                    serde_json::json!({ "status": "ok", "key": key_decoded, "value": val })
+                }
+                Err(e) => serde_json::json!({ "status": "error", "error": e.to_string() }),
+            };
+            let cors = tiny_http::Header::from_bytes(&b"Access-Control-Allow-Origin"[..], &b"*"[..]).unwrap();
+            let _ = req.respond(tiny_http::Response::from_string(resp.to_string()).with_header(json_header).with_header(cors));
+            return;
+        }
+
+        if path == "/api/ide/browse_folder" {
+            let output = std::process::Command::new("powershell")
+                .args([
+                    "-NoProfile",
+                    "-STA",
+                    "-Command",
+                    "Add-Type -AssemblyName System.Windows.Forms; $d = New-Object System.Windows.Forms.FolderBrowserDialog; $d.Description = 'Select Project Root Folder'; if ($d.ShowDialog() -eq 'OK') { Write-Output $d.SelectedPath }",
+                ])
+                .output();
+            let resp = match output {
+                Ok(out) => {
+                    let selected = String::from_utf8_lossy(&out.stdout).trim().to_string();
+                    if selected.is_empty() {
+                        serde_json::json!({ "status": "cancelled" })
+                    } else {
+                        serde_json::json!({ "status": "ok", "path": selected })
+                    }
+                }
+                Err(e) => serde_json::json!({ "status": "error", "error": e.to_string() }),
+            };
+            let cors = tiny_http::Header::from_bytes(&b"Access-Control-Allow-Origin"[..], &b"*"[..]).unwrap();
+            let _ = req.respond(tiny_http::Response::from_string(resp.to_string()).with_header(json_header).with_header(cors));
             return;
         }
 

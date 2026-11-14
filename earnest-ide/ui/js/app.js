@@ -1135,7 +1135,11 @@ document.addEventListener('DOMContentLoaded', () => {
             // 2. Charger les paramètres généraux
             const res = await fetch('/api/ide/settings');
             const data = await res.json();
-            if (data.default_model) prefDefaultModel.value = data.default_model;
+            if (data.default_model) {
+                prefDefaultModel.value = data.default_model;
+                const cms = document.getElementById('chat-model-select');
+                if (cms) cms.value = data.default_model;
+            }
             if (data.python_interpreter) prefPythonPath.value = data.python_interpreter;
             if (data.editor_font_size) {
                 prefEditorFontSize.value = data.editor_font_size;

@@ -197,6 +197,64 @@ impl<'a> ReActEngine<'a> {
                 }
             }
 
+            // 2a. add_invariant (Formulaire plat — Mode 3 Architecture)
+            "add_invariant" => {
+                let inv_path = self.workspace_root.join(&policy.invariants_file);
+                if let Some(parent) = inv_path.parent() {
+                    std::fs::create_dir_all(parent).ok();
+                }
+                let mut inv_val: serde_json::Value = std::fs::read_to_string(&inv_path)
+                    .ok()
+                    .and_then(|s| serde_json::from_str(&s).ok())
+                    .unwrap_or_else(|| serde_json::json!({
+                        "schema_version": "1.0",
+                        "project_id": self.workspace_root.file_name().and_then(|n| n.to_str()).unwrap_or("project"),
+                        "contracts": []
+                    }));
+
+                let existing_len = inv_val["contracts"].as_array().map(|a| a.len()).unwrap_or(0);
+                let cid = args["id"].as_str().filter(|s| !s.is_empty())
+                    .map(|s| s.to_string())
+                    .unwrap_or_else(|| format!("C{}", existing_len + 1));
+                let title = args["title"].as_str().unwrap_or(&cid).to_string();
+                let statement = args["statement"].as_str().or_else(|| args["description"].as_str()).unwrap_or(&title).to_string();
+                let target_file = args["target_file"].as_str().unwrap_or("src/lib.rs").to_string();
+                let test_query = args["test_query"].as_str().or_else(|| args["query"].as_str()).unwrap_or(&title).to_string();
+                let runner = args["runner"].as_str().filter(|r| *r == "cargo_test" || *r == "static").unwrap_or("cargo_test").to_string();
+                let criticality = args["criticality"].as_str().unwrap_or("high").to_string();
+
+                let contract = serde_json::json!({
+                    "id": cid,
+                    "title": title,
+                    "statement": statement,
+                    "criticality": criticality,
+                    "target_file": target_file,
+                    "probes": [{
+                        "probe_id": format!("{}-P1", cid),
+                        "runner": runner,
+                        "query": test_query,
+                        "command": serde_json::Value::Null,
+                        "expect": "pass"
+                    }]
+                });
+                if let Some(arr) = inv_val.get_mut("contracts").and_then(|c| c.as_array_mut()) {
+                    if let Some(pos) = arr.iter().position(|c| c["id"].as_str() == Some(cid.as_str())) {
+                        arr[pos] = contract;
+                    } else {
+                        arr.push(contract);
+                    }
+                }
+                let total = inv_val["contracts"].as_array().map(|a| a.len()).unwrap_or(0);
+                let json_str = serde_json::to_string_pretty(&inv_val).unwrap_or_default();
+                let _ = std::fs::write(&inv_path, json_str);
+                return (serde_json::json!({
+                    "status": "ok",
+                    "contract_id": cid,
+                    "total_contracts": total,
+                    "message": "Contract added to invariants.json. Call request_architecture_review when all contracts are ready."
+                }).to_string(), None);
+            }
+
             // 2. submit_invariants (Mode 3 Architecture)
             "submit_invariants" => {
                 let mut invariants_val = args["invariants"].clone();
@@ -615,7 +673,7 @@ impl<'a> ReActEngine<'a> {
             // Contrainte 2 : kb_search et consultation autorisés
             GovernanceMode::Architecture => {
                 let allowed_std = ["read_file", "list_files", "grep_search", "web_search", "web_fetch", "store_memory", "recall_memory", "kb_search"];
-                let allowed_gov = ["submit_invariants", "request_architecture_review"];
+                let allowed_gov = ["add_invariant", "submit_invariants", "request_architecture_review"];
 
                 let mut tools: Vec<Value> = std_tools.into_iter()
                     .filter(|t| allowed_std.contains(&t["function"]["name"].as_str().unwrap_or("")))
@@ -679,7 +737,7 @@ impl<'a> ReActEngine<'a> {
         // Prompt système adapté selon le Mode de gouvernance
         let mode_desc = match policy.mode {
             GovernanceMode::Normal => "MODE 1 (NORMAL) : Tu as un accès libre aux outils de développement usuels.",
-            GovernanceMode::Architecture => "MODE 3 (ARCHITECTURE / SPEC-FIRST) : Interdiction FORMELLE d'écrire ou modifier du code source directement. Tu dois concevoir l'architecture et formaliser les contrats d'invariants avec 'submit_invariants' puis demander la validation humaine via 'request_architecture_review'.",
+            GovernanceMode::Architecture => "MODE 3 (ARCHITECTURE / SPEC-FIRST) : Interdiction FORMELLE d'écrire ou modifier du code source directement. Tu dois concevoir l'architecture et formaliser les contrats d'invariants (préfère l'outil plat 'add_invariant' avec id, title, statement, target_file, test_query) puis demander la validation humaine via 'request_architecture_review'.",
             GovernanceMode::Constrained => "MODE 2 (CONTRAINT PAR INVARIANTS) : Toute modification de code passe IMPÉRATIVEMENT par 'write_code' et est validée en sandbox isolée (shadow worktree) par les sondes cryptographiques scellées. Sur un nouveau projet, le shadow worktree est réinitialisé à chaque 'write_code' : inclus dans le même appel (via 'files') le manifeste/config du langage, le point d'entrée, le module cible et son test pour que la sonde compile et s'exécute dès le premier essai. Si tu es bloqué par un contrat, utilise 'request_contract_mutation'.",
         };
 

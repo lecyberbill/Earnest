@@ -1316,6 +1316,10 @@ Garde l'indentation appropriée.";
                         "INSERT INTO app_settings (key, value, is_secret, updated_at) VALUES (?, ?, ?, CURRENT_TIMESTAMP) ON CONFLICT(key) DO UPDATE SET value=excluded.value, updated_at=CURRENT_TIMESTAMP",
                         rusqlite::params![k, str_val, is_sec],
                     ).ok();
+                    if k == "default_model" && !str_val.is_empty() {
+                        let _ = conn.execute("UPDATE model_providers SET priority = 10 WHERE id != ?", rusqlite::params![str_val]);
+                        let _ = conn.execute("UPDATE model_providers SET priority = 0 WHERE id = ?", rusqlite::params![str_val]);
+                    }
                 }
             }
             let resp = Response::from_string(serde_json::json!({"status": "ok"}).to_string())

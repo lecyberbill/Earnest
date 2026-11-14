@@ -2554,6 +2554,8 @@ document.addEventListener('DOMContentLoaded', () => {
     const btnCloseProjectModal = document.getElementById('btn-close-project-modal');
     const topProjectName = document.getElementById('top-project-name');
 
+    loadProjectsList();
+
     async function loadProjectsList() {
         try {
             const res = await fetch('/api/ide/projects');

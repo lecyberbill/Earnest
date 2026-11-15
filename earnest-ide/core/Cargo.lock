@@ -246,6 +246,10 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "a6ef517f0926dd24a1582492c791b6a4818a4d94e789a334894aa15b0d12f55c"
 
 [[package]]
+name = "context-trimmer"
+version = "0.1.0"
+
+[[package]]
 name = "core-foundation"
 version = "0.9.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -377,6 +381,7 @@ version = "0.1.0"
 dependencies = [
  "chrono",
  "clap",
+ "context-trimmer",
  "ignore",
  "kv-wal-engine",
  "regex",

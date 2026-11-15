@@ -308,6 +308,17 @@ impl<'a> ReActEngine<'a> {
                                     }
                                 }
                                 let default_target = c_obj.get("target_file").and_then(|v| v.as_str()).unwrap_or("src/lib.rs").to_string();
+                                if let Some(syms) = c_obj.get_mut("symbols").and_then(|s| s.as_array_mut()) {
+                                    for sym in syms.iter_mut() {
+                                        if let Some(s) = sym.as_str().map(|s| s.to_string()) {
+                                            *sym = serde_json::json!({
+                                                "name": s,
+                                                "kind": "function",
+                                                "file": default_target
+                                            });
+                                        }
+                                    }
+                                }
                                 if let Some(probes) = c_obj.get_mut("probes").and_then(|p| p.as_array_mut()) {
                                     for (p_idx, p) in probes.iter_mut().enumerate() {
                                         if let Some(s) = p.as_str().map(|s| s.to_string()) {

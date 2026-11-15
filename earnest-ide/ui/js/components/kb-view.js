@@ -1,5 +1,3 @@
-import { t } from '../i18n.js';
-
 export class KbView {
     constructor(containerId) {
         this.container = document.getElementById(containerId);
@@ -302,7 +300,7 @@ export class KbView {
             this.entries = data.entries || [];
             const badge = this.container.querySelector('#kb-count-badge');
             if (badge) badge.textContent = `${this.entries.length} vérités`;
-            
+
             if (this.entries.length > 0 && !this.selectedEntryId) {
                 this.selectedEntryId = this.entries[0].entry_id;
             }
@@ -326,7 +324,7 @@ export class KbView {
         }
         if (this.searchQuery) {
             const q = this.searchQuery.toLowerCase();
-            filtered = filtered.filter(e => 
+            filtered = filtered.filter(e =>
                 (e.title && e.title.toLowerCase().includes(q)) ||
                 (e.symptom && e.symptom.toLowerCase().includes(q)) ||
                 (e.cause && e.cause.toLowerCase().includes(q)) ||

@@ -324,9 +324,23 @@ impl<'a> ReActEngine<'a> {
                                         }
                                         if let Some(p_obj) = p.as_object_mut() {
                                             if !p_obj.contains_key("probe_id") {
-                                                p_obj.insert("probe_id".into(), serde_json::json!(format!("{}-P{}", cid, p_idx + 1)));
+                                                let pid = p_obj.get("id").and_then(|v| v.as_str()).map(|s| s.to_string())
+                                                    .unwrap_or_else(|| format!("{}-P{}", cid, p_idx + 1));
+                                                p_obj.insert("probe_id".into(), serde_json::json!(pid));
                                             }
-                                            if let Some(r) = p_obj.get("runner").and_then(|v| v.as_str()).map(|s| s.to_string()) {
+                                            if !p_obj.contains_key("test_query") {
+                                                if let Some(q) = p_obj.get("query").cloned() {
+                                                    p_obj.insert("test_query".into(), q);
+                                                }
+                                            }
+                                            if !p_obj.contains_key("target_file") {
+                                                p_obj.insert("target_file".into(), serde_json::json!(default_target));
+                                            }
+                                            if !p_obj.contains_key("runner") {
+                                                let kind = p_obj.get("kind").and_then(|v| v.as_str()).unwrap_or("");
+                                                let r = if kind.contains("static") { "static" } else { "cargo_test" };
+                                                p_obj.insert("runner".into(), serde_json::json!(r));
+                                            } else if let Some(r) = p_obj.get("runner").and_then(|v| v.as_str()).map(|s| s.to_string()) {
                                                 if r.contains('|') {
                                                     let fixed = if r.contains("cargo_test") { "cargo_test" } else { "static" };
                                                     p_obj.insert("runner".into(), serde_json::json!(fixed));

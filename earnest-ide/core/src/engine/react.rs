@@ -140,6 +140,49 @@ impl<'a> ReActEngine<'a> {
 
                 // Exécution dans le shadow worktree (mono-fichier ou multi-fichiers atomique via `files`)
                 let runner = ShadowRunner::new(&self.workspace_root, &policy.shadow_env.path, policy.shadow_env.timeout_ms);
+                if args["stage_only"].as_bool().unwrap_or(false) {
+                    if let Err(e) = runner.prepare_shadow_worktree() {
+                        return (serde_json::json!({"status": "error", "error": e}).to_string(), None);
+                    }
+                    let shadow_root = self.workspace_root.join(&policy.shadow_env.path);
+                    let mut staged = Vec::new();
+                    if let Some(files_arr) = args["files"].as_array().filter(|a| !a.is_empty()) {
+                        for item in files_arr {
+                            let f = item["target_file"].as_str().or_else(|| item["path"].as_str()).unwrap_or("");
+                            let p = item["patch"].as_str().or_else(|| item["content"].as_str()).unwrap_or("");
+                            if !f.is_empty() {
+                                match resolve_patch(f, p, item) {
+                                    Ok(resolved) => {
+                                        let dest = shadow_root.join(f);
+                                        if let Some(parent) = dest.parent() { std::fs::create_dir_all(parent).ok(); }
+                                        if let Err(e) = std::fs::write(&dest, resolved) {
+                                            return (serde_json::json!({"status": "error", "error": e.to_string()}).to_string(), None);
+                                        }
+                                        staged.push(f.to_string());
+                                    }
+                                    Err(e) => return (serde_json::json!({"status": "error", "error": e}).to_string(), None),
+                                }
+                            }
+                        }
+                    } else if !target_file.is_empty() {
+                        match resolve_patch(target_file, patch, args) {
+                            Ok(resolved) => {
+                                let dest = shadow_root.join(target_file);
+                                if let Some(parent) = dest.parent() { std::fs::create_dir_all(parent).ok(); }
+                                if let Err(e) = std::fs::write(&dest, resolved) {
+                                    return (serde_json::json!({"status": "error", "error": e.to_string()}).to_string(), None);
+                                }
+                                staged.push(target_file.to_string());
+                            }
+                            Err(e) => return (serde_json::json!({"status": "error", "error": e}).to_string(), None),
+                        }
+                    }
+                    return (serde_json::json!({
+                        "status": "STAGED",
+                        "staged_files": staged,
+                        "message": "Fichier(s) écrit(s) dans le shadow worktree sans exécution des sondes. Appelez write_code sans stage_only pour valider et fusionner."
+                    }).to_string(), None);
+                }
                 let exec_result = if let Some(files_arr) = args["files"].as_array().filter(|a| !a.is_empty()) {
                     let mut owned_pairs: Vec<(String, String)> = Vec::with_capacity(files_arr.len());
                     for item in files_arr {

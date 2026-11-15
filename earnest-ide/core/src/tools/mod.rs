@@ -217,6 +217,7 @@ pub fn get_governance_tools_schemas() -> Vec<Value> {
                         "patch": { "type": "string", "description": "Diff unifié ou contenu complet à écrire (mode mono-fichier)" },
                         "target": { "type": "string", "description": "Bloc exact à remplacer dans target_file (édition ciblée, alternatif à patch)" },
                         "replacement": { "type": "string", "description": "Nouveau bloc de remplacement (utilisé avec target)" },
+                        "stage_only": { "type": "boolean", "description": "Si true, écrit dans le shadow worktree sans lancer les sondes (permet d'écrire fichier par fichier avant la validation finale)" },
                         "files": {
                             "type": "array",
                             "description": "Liste de fichiers à écrire atomiquement en une seule validation shadow (mode multi-fichiers)",

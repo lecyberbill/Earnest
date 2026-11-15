@@ -172,6 +172,7 @@ impl<'a> ReActEngine<'a> {
                     for p in &target_contract.probes {
                         failure_counts.remove(&p.probe_id);
                     }
+                    self.run_ide_hooks("post_write_code");
                     (serde_json::json!({
                         "status": "SUCCESS",
                         "contract_id": target_contract_id,
@@ -1081,6 +1082,8 @@ impl<'a> ReActEngine<'a> {
             println!("  ✅ [IDE GOVERNANCE] Run completed ({} steps, {}ms)", step_order, duration_ms);
         }
 
+        self.run_ide_hooks("on_run_complete");
+
         self.conn.execute(
             "UPDATE runs SET status = 'success', completed_at = CURRENT_TIMESTAMP, duration_ms = ?1, total_tokens = ?2 WHERE id = ?3",
             params![duration_ms as i64, total_tokens as i64, run_id],
@@ -1098,6 +1101,27 @@ impl<'a> ReActEngine<'a> {
 
     pub fn run(&self, prompt: &str) -> Result<ReActResult, String> {
         self.run_with_callback(prompt, |_, _, _, _, _, _| {})
+    }
+
+    fn run_ide_hooks(&self, event: &str) {
+        let hooks_path = self.workspace_root.join(".ide/hooks.json");
+        let Ok(content) = std::fs::read_to_string(&hooks_path) else { return };
+        let Ok(val) = serde_json::from_str::<Value>(&content) else { return };
+        let Some(cmds) = val[event].as_array() else { return };
+        for cmd_val in cmds {
+            let Some(cmd) = cmd_val.as_str() else { continue };
+            println!("  🪝 [HOOK {}] {}", event, cmd);
+            let status = if cfg!(target_os = "windows") {
+                std::process::Command::new("cmd").args(["/C", cmd]).current_dir(&self.workspace_root).status()
+            } else {
+                std::process::Command::new("sh").args(["-c", cmd]).current_dir(&self.workspace_root).status()
+            };
+            if let Ok(s) = status {
+                if !s.success() {
+                    println!("  ⚠️ [HOOK {}] '{}' exited with {}", event, cmd, s);
+                }
+            }
+        }
     }
 }
 

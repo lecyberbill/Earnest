@@ -773,6 +773,28 @@ impl<'a> ReActEngine<'a> {
     where
         F: FnMut(&str, usize, &str, Option<&str>, &str, &str),
     {
+        if prompt.trim() == "/recall" {
+            let out = std::process::Command::new("git")
+                .args(["checkout", "earnest-checkpoint-latest", "--", "."])
+                .current_dir(&self.workspace_root)
+                .output()
+                .map_err(|e| format!("Erreur /recall git: {}", e))?;
+            let msg = if out.status.success() {
+                "⏪ Checkpoint restauré (`earnest-checkpoint-latest`).".to_string()
+            } else {
+                format!("⚠️ Aucun checkpoint trouvé ou erreur git: {}", String::from_utf8_lossy(&out.stderr))
+            };
+            return Ok(ReActResult {
+                run_id: uuid::Uuid::new_v4().to_string(),
+                status: "success".to_string(),
+                answer: msg,
+                steps_count: 0,
+                total_tokens: 0,
+                duration_ms: 0,
+            });
+        }
+
+        self.create_checkpoint();
         let start = Instant::now();
         let run_id = format!("run_{}", &uuid::Uuid::new_v4().to_string().replace('-', "")[..12]);
 
@@ -1101,6 +1123,25 @@ impl<'a> ReActEngine<'a> {
 
     pub fn run(&self, prompt: &str) -> Result<ReActResult, String> {
         self.run_with_callback(prompt, |_, _, _, _, _, _| {})
+    }
+
+    fn create_checkpoint(&self) {
+        if !self.workspace_root.join(".git").exists() {
+            return;
+        }
+        if let Ok(out) = std::process::Command::new("git")
+            .args(["stash", "create", "earnest-checkpoint"])
+            .current_dir(&self.workspace_root)
+            .output()
+        {
+            let hash = String::from_utf8_lossy(&out.stdout).trim().to_string();
+            let target = if hash.is_empty() { "HEAD" } else { hash.as_str() };
+            let _ = std::process::Command::new("git")
+                .args(["tag", "-f", "earnest-checkpoint-latest", target])
+                .current_dir(&self.workspace_root)
+                .output();
+            println!("  🔖 [CHECKPOINT] Sauvegardé ({})", target);
+        }
     }
 
     fn run_ide_hooks(&self, event: &str) {

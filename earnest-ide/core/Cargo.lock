@@ -393,6 +393,7 @@ dependencies = [
  "sha2 0.10.9",
  "similar",
  "tiny_http",
+ "tool-output-cache",
  "urlencoding",
  "uuid",
  "walkdir",
@@ -1669,6 +1670,10 @@ dependencies = [
  "pin-project-lite",
  "tokio",
 ]
+
+[[package]]
+name = "tool-output-cache"
+version = "0.1.0"
 
 [[package]]
 name = "tower"

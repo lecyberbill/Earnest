@@ -15,3 +15,6 @@ tiny_http = "0.12"
 rust-embed = "8.2"
 regex = "1.10"
 urlencoding = "2.1"
+context-trimmer = { path = "../../context-trimmer" }
+tool-output-cache = { path = "../../tool-output-cache" }
+retry-budget = { path = "../../retry-budget" }

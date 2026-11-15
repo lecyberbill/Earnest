@@ -137,9 +137,23 @@ Quand ta mission est accomplie, fournis directement ta réponse finale sans appe
         let mut total_tokens = 0;
         let mut final_answer = String::new();
         let mut active_backend_name = String::from("rust-native");
+        let mut tool_cache = tool_output_cache::ToolCache::new(64);
+        let mut llm_budget = retry_budget::RetryBudget::new(10, 5);
 
         for _ in 0..self.max_steps {
-            let (chat_res, active_backend) = self.router.chat_completion_with_fallback(&messages, Some(&tools))?;
+            if !llm_budget.is_retry_allowed() {
+                return Err("Circuit breaker LLM ouvert : trop d'échecs consécutifs dans la fenêtre glissante.".to_string());
+            }
+            let (chat_res, active_backend) = match self.router.chat_completion_with_fallback(&messages, Some(&tools)) {
+                Ok(res) => {
+                    llm_budget.record_success();
+                    res
+                }
+                Err(e) => {
+                    llm_budget.record_failure();
+                    return Err(e);
+                }
+            };
             active_backend_name = active_backend;
             total_tokens += chat_res.total_tokens;
 
@@ -168,7 +182,23 @@ Quand ta mission est accomplie, fournis directement ta réponse finale sans appe
                 step_order += 1;
 
                 println!("  ⚡ [OUTIL RUST] {} {:?}", fn_name, fn_args);
-                let tool_output = self.dispatch_tool(fn_name, fn_args, &run_id);
+                let args_key = fn_args.to_string();
+                let is_cacheable_read = matches!(fn_name.as_str(), "recall_memory" | "read_file" | "list_files" | "web_fetch");
+                let raw_output = if is_cacheable_read {
+                    if let Some(cached) = tool_cache.get(fn_name, &args_key) {
+                        println!("  ♻️ [TOOL CACHE] HIT {} {}", fn_name, args_key);
+                        cached.to_string()
+                    } else {
+                        self.dispatch_tool(fn_name, fn_args, &run_id)
+                    }
+                } else {
+                    self.dispatch_tool(fn_name, fn_args, &run_id)
+                };
+                let tool_output = context_trimmer::truncate_tool_output(&raw_output, 16_000);
+                if is_cacheable_read {
+                    let path_hint = fn_args["path"].as_str().or_else(|| fn_args["key"].as_str());
+                    tool_cache.insert(fn_name, &args_key, tool_output.clone(), path_hint);
+                }
 
                 self.record_trace(&run_id, step_order, "tool_output", Some(fn_name), &tool_output);
                 on_trace(&run_id, step_order, "tool_output", Some(fn_name), &tool_output, &active_backend_name);

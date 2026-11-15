@@ -1,3 +1,5 @@
+import { t } from '../i18n.js';
+
 export class KbView {
     constructor(containerId) {
         this.container = document.getElementById(containerId);
@@ -24,8 +26,8 @@ export class KbView {
                         <span style="font-size: 1.4rem;">🧠</span>
                         <div>
                             <div style="display: flex; align-items: center; gap: 0.5rem;">
-                                <span style="font-weight: 800; font-family: var(--font-mono); font-size: 0.95rem; color: #fff;">BASE DE CONNAISSANCES D'EXPÉRIENCE</span>
-                                <span id="kb-count-badge" style="background: rgba(99, 102, 241, 0.25); color: var(--accent-cyan); font-family: var(--font-mono); font-size: 0.72rem; padding: 2px 8px; border-radius: 12px; border: 1px solid rgba(99, 102, 241, 0.4); font-weight: 700;">0 vérités</span>
+                                <span style="font-weight: 800; font-family: var(--font-mono); font-size: 0.95rem; color: #fff;">${t('kb.title')}</span>
+                                <span id="kb-count-badge" style="background: rgba(99, 102, 241, 0.25); color: var(--accent-cyan); font-family: var(--font-mono); font-size: 0.72rem; padding: 2px 8px; border-radius: 12px; border: 1px solid rgba(99, 102, 241, 0.4); font-weight: 700;">0 ${t('kb.truths')}</span>
                             </div>
                             <div style="font-size: 0.72rem; color: var(--text-muted);">
                                 Retours d'essais, pièges découverts et règles d'or scellées consultés automatiquement par les agents.

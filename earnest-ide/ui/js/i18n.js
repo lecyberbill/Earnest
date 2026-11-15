@@ -9,6 +9,8 @@
             'nav.search': 'Search',
             'nav.git': 'Source Control',
             'nav.kb': 'Knowledge Base',
+        'kb.title': 'EXPERIENCE KNOWLEDGE BASE',
+        'kb.truths': 'truths',
             'nav.settings': 'Settings',
             'btn.save': 'Save',
             'btn.run': 'Run',
@@ -33,6 +35,8 @@
             'nav.search': 'Recherche',
             'nav.git': 'Contrôle de source',
             'nav.kb': 'Base de connaissances',
+        'kb.title': 'BASE DE CONNAISSANCES D\'EXPÉRIENCE',
+        'kb.truths': 'vérités',
             'nav.settings': 'Paramètres',
             'btn.save': 'Sauvegarder',
             'btn.run': 'Exécuter',
@@ -70,7 +74,7 @@
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ key: 'earnest_lang', value: lang })
-        }).catch(() => {});
+        }).catch(() => { });
         window.applyI18n();
     };
 

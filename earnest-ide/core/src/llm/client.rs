@@ -93,7 +93,8 @@ impl LLMClient {
         let mut body = serde_json::json!({
             "model": self.model,
             "messages": messages,
-            "stream": false
+            "stream": false,
+            "think": false
         });
 
         if let Some(t) = tools {

@@ -307,8 +307,21 @@ impl<'a> ReActEngine<'a> {
                                         c_obj.insert("probes".into(), probs);
                                     }
                                 }
+                                let default_target = c_obj.get("target_file").and_then(|v| v.as_str()).unwrap_or("src/lib.rs").to_string();
                                 if let Some(probes) = c_obj.get_mut("probes").and_then(|p| p.as_array_mut()) {
                                     for (p_idx, p) in probes.iter_mut().enumerate() {
+                                        if let Some(s) = p.as_str().map(|s| s.to_string()) {
+                                            let is_static = s.starts_with("static");
+                                            let q = s.trim_start_matches("cargo test ").trim_start_matches("test::").trim().to_string();
+                                            *p = serde_json::json!({
+                                                "probe_id": format!("{}-P{}", cid, p_idx + 1),
+                                                "kind": "unit",
+                                                "target_file": default_target,
+                                                "test_query": q,
+                                                "runner": if is_static { "static" } else { "cargo_test" },
+                                                "expected": "pass"
+                                            });
+                                        }
                                         if let Some(p_obj) = p.as_object_mut() {
                                             if !p_obj.contains_key("probe_id") {
                                                 p_obj.insert("probe_id".into(), serde_json::json!(format!("{}-P{}", cid, p_idx + 1)));

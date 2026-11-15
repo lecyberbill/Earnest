@@ -836,12 +836,25 @@ impl<'a> ReActEngine<'a> {
         let mut context_budget_chars: usize = 120_000;
         let mut failure_counts: HashMap<String, usize> = HashMap::new();
         let mut tool_cache = tool_output_cache::ToolCache::new(64);
+        let mut llm_budget = retry_budget::RetryBudget::new(10, 5);
         let mut last_tool_sig: Option<String> = None;
         let mut repeat_count: usize = 0;
 
         for _ in 0..self.max_steps {
+            if !llm_budget.is_retry_allowed() {
+                return Err("Circuit breaker LLM ouvert : trop d'échecs consécutifs dans la fenêtre glissante.".to_string());
+            }
             compact_messages_if_needed(&mut messages, context_budget_chars);
-            let (chat_res, active_backend) = self.router.chat_completion_with_fallback(&messages, Some(&tools))?;
+            let (chat_res, active_backend) = match self.router.chat_completion_with_fallback(&messages, Some(&tools)) {
+                Ok(res) => {
+                    llm_budget.record_success();
+                    res
+                }
+                Err(e) => {
+                    llm_budget.record_failure();
+                    return Err(e);
+                }
+            };
             if active_backend != active_backend_name {
                 context_budget_chars = self.router.estimate_context_chars(&active_backend);
                 println!("  🤖 [LLM] Backend actif : {} (budget contexte: {} chars)", active_backend, context_budget_chars);

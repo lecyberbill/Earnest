@@ -22,5 +22,6 @@ sha2 = "0.10"
 kv-wal-engine = { path = "../../../kv-wal-engine" }
 context-trimmer = { path = "../../../context-trimmer" }
 tool-output-cache = { path = "../../../tool-output-cache" }
+retry-budget = { path = "../../../retry-budget" }
 
 

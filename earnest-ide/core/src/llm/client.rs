@@ -39,7 +39,7 @@ pub struct LLMClient {
 impl LLMClient {
     pub fn new(provider_type: &str, base_url: &str, model: &str, api_key: Option<String>) -> Self {
         let client = Client::builder()
-            .timeout(Duration::from_secs(90))
+            .timeout(Duration::from_secs(300))
             .build()
             .unwrap_or_else(|_| Client::new());
 

@@ -208,15 +208,27 @@ pub fn get_governance_tools_schemas() -> Vec<Value> {
             "type": "function",
             "function": {
                 "name": "write_code",
-                "description": "Applique un patch de code sur le projet. Le patch est immédiatement testé contre les sondes d'invariants dans un environnement isolé (shadow sandbox git worktree) avant d'être validé.",
+                "description": "Applique un patch de code sur le projet (mono-fichier via target_file+patch, ou multi-fichiers atomique via files). Le patch est immédiatement testé contre les sondes d'invariants dans un environnement isolé (shadow sandbox git worktree) avant d'être validé.",
                 "parameters": {
                     "type": "object",
                     "properties": {
                         "target_contract_id": { "type": "string", "description": "Identifiant du contrat d'invariant satisfait (ex: 'contract_allocator', 'C1')" },
-                        "target_file": { "type": "string", "description": "Fichier source cible" },
-                        "patch": { "type": "string", "description": "Diff unifié ou contenu complet à écrire" }
+                        "target_file": { "type": "string", "description": "Fichier source cible (mode mono-fichier)" },
+                        "patch": { "type": "string", "description": "Diff unifié ou contenu complet à écrire (mode mono-fichier)" },
+                        "files": {
+                            "type": "array",
+                            "description": "Liste de fichiers à écrire atomiquement en une seule validation shadow (mode multi-fichiers)",
+                            "items": {
+                                "type": "object",
+                                "properties": {
+                                    "target_file": { "type": "string", "description": "Chemin du fichier cible" },
+                                    "patch": { "type": "string", "description": "Contenu complet ou diff unifié" }
+                                },
+                                "required": ["target_file", "patch"]
+                            }
+                        }
                     },
-                    "required": ["target_contract_id", "target_file", "patch"]
+                    "required": ["target_contract_id"]
                 }
             }
         }),

@@ -844,8 +844,15 @@ impl<'a> ReActEngine<'a> {
                     };
                     tool_cache.insert(fn_name, &args_key, tool_output.clone(), path_hint);
                 } else if matches!(fn_name.as_str(), "write_code" | "edit_file" | "write_file") {
-                    if let Some(path) = fn_args["path"].as_str() {
+                    if let Some(path) = fn_args["path"].as_str().or_else(|| fn_args["target_file"].as_str()) {
                         tool_cache.invalidate_path(path);
+                    }
+                    if let Some(files_arr) = fn_args["files"].as_array() {
+                        for item in files_arr {
+                            if let Some(p) = item["target_file"].as_str().or_else(|| item["path"].as_str()) {
+                                tool_cache.invalidate_path(p);
+                            }
+                        }
                     }
                 }
 

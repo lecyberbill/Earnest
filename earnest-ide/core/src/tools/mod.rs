@@ -215,6 +215,8 @@ pub fn get_governance_tools_schemas() -> Vec<Value> {
                         "target_contract_id": { "type": "string", "description": "Identifiant du contrat d'invariant satisfait (ex: 'contract_allocator', 'C1')" },
                         "target_file": { "type": "string", "description": "Fichier source cible (mode mono-fichier)" },
                         "patch": { "type": "string", "description": "Diff unifié ou contenu complet à écrire (mode mono-fichier)" },
+                        "target": { "type": "string", "description": "Bloc exact à remplacer dans target_file (édition ciblée, alternatif à patch)" },
+                        "replacement": { "type": "string", "description": "Nouveau bloc de remplacement (utilisé avec target)" },
                         "files": {
                             "type": "array",
                             "description": "Liste de fichiers à écrire atomiquement en une seule validation shadow (mode multi-fichiers)",
@@ -222,9 +224,11 @@ pub fn get_governance_tools_schemas() -> Vec<Value> {
                                 "type": "object",
                                 "properties": {
                                     "target_file": { "type": "string", "description": "Chemin du fichier cible" },
-                                    "patch": { "type": "string", "description": "Contenu complet ou diff unifié" }
+                                    "patch": { "type": "string", "description": "Contenu complet ou diff unifié" },
+                                    "target": { "type": "string", "description": "Bloc exact à remplacer (édition ciblée)" },
+                                    "replacement": { "type": "string", "description": "Nouveau bloc de remplacement" }
                                 },
-                                "required": ["target_file", "patch"]
+                                "required": ["target_file"]
                             }
                         }
                     },

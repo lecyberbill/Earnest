@@ -122,17 +122,37 @@ impl<'a> ReActEngine<'a> {
                     }).to_string(), None),
                 };
 
+                let resolve_patch = |file_rel: &str, raw_patch: &str, item: &Value| -> Result<String, String> {
+                    if !raw_patch.is_empty() {
+                        return Ok(raw_patch.to_string());
+                    }
+                    if let (Some(target), Some(replacement)) = (item["target"].as_str(), item["replacement"].as_str()) {
+                        let abs_path = self.workspace_root.join(file_rel);
+                        let existing = std::fs::read_to_string(&abs_path)
+                            .map_err(|e| format!("Édition ciblée impossible sur '{}': {}", file_rel, e))?;
+                        if !existing.contains(target) {
+                            return Err(format!("Bloc 'target' introuvable dans '{}' pour l'édition ciblée.", file_rel));
+                        }
+                        return Ok(existing.replacen(target, replacement, 1));
+                    }
+                    Ok(String::new())
+                };
+
                 // Exécution dans le shadow worktree (mono-fichier ou multi-fichiers atomique via `files`)
                 let runner = ShadowRunner::new(&self.workspace_root, &policy.shadow_env.path, policy.shadow_env.timeout_ms);
                 let exec_result = if let Some(files_arr) = args["files"].as_array().filter(|a| !a.is_empty()) {
-                    let mut pairs: Vec<(&str, &str)> = Vec::with_capacity(files_arr.len());
+                    let mut owned_pairs: Vec<(String, String)> = Vec::with_capacity(files_arr.len());
                     for item in files_arr {
                         let f = item["target_file"].as_str().or_else(|| item["path"].as_str()).unwrap_or("");
                         let p = item["patch"].as_str().or_else(|| item["content"].as_str()).unwrap_or("");
                         if !f.is_empty() {
-                            pairs.push((f, p));
+                            match resolve_patch(f, p, item) {
+                                Ok(resolved) => owned_pairs.push((f.to_string(), resolved)),
+                                Err(e) => return (serde_json::json!({"status": "error", "error": e}).to_string(), None),
+                            }
                         }
                     }
+                    let pairs: Vec<(&str, &str)> = owned_pairs.iter().map(|(f, p)| (f.as_str(), p.as_str())).collect();
                     let primary = if !target_file.is_empty() {
                         target_file
                     } else {
@@ -140,7 +160,11 @@ impl<'a> ReActEngine<'a> {
                     };
                     runner.execute_contract_patches(target_contract, &pairs, primary)
                 } else {
-                    runner.execute_contract_patch(target_contract, target_file, patch)
+                    let resolved_patch = match resolve_patch(target_file, patch, args) {
+                        Ok(p) => p,
+                        Err(e) => return (serde_json::json!({"status": "error", "error": e}).to_string(), None),
+                    };
+                    runner.execute_contract_patch(target_contract, target_file, &resolved_patch)
                 };
 
                 if exec_result.success {
@@ -774,7 +798,22 @@ impl<'a> ReActEngine<'a> {
             }
         }
 
-        messages.push(ChatMessage { role: "user".to_string(), content: prompt.to_string(), images: None });
+        let mut preload_ctx = String::new();
+        if let Ok(files_val) = list_files(&self.workspace_root.to_string_lossy(), Some(2)) {
+            let files_str = context_trimmer::truncate_tool_output(&files_val.to_string(), 3_000);
+            preload_ctx.push_str(&format!("\n\n[CONTEXTE PROJET PRÉ-CHARGÉ — list_files depth=2]\n{}", files_str));
+        }
+        for manifest in ["Cargo.toml", "package.json", "pyproject.toml"] {
+            let mpath = self.workspace_root.join(manifest);
+            if mpath.exists() {
+                if let Ok(mcontent) = std::fs::read_to_string(&mpath) {
+                    let trimmed = context_trimmer::truncate_tool_output(&mcontent, 2_000);
+                    preload_ctx.push_str(&format!("\n\n[MANIFESTE {}]\n{}", manifest, trimmed));
+                }
+            }
+        }
+
+        messages.push(ChatMessage { role: "user".to_string(), content: format!("{}{}", prompt, preload_ctx), images: None });
 
         let tools = self.get_tools_for_policy(&policy);
         let mut step_order = 1;
@@ -784,6 +823,8 @@ impl<'a> ReActEngine<'a> {
         let mut context_budget_chars: usize = 120_000;
         let mut failure_counts: HashMap<String, usize> = HashMap::new();
         let mut tool_cache = tool_output_cache::ToolCache::new(64);
+        let mut last_tool_sig: Option<String> = None;
+        let mut repeat_count: usize = 0;
 
         for _ in 0..self.max_steps {
             compact_messages_if_needed(&mut messages, context_budget_chars);
@@ -810,8 +851,70 @@ impl<'a> ReActEngine<'a> {
                 break;
             }
 
-            // Exécution des outils demandés
-            for call in chat_res.tool_calls {
+            // Exécution des outils demandés (parallèle si plusieurs appels read-only non-cachés)
+            let all_readonly_batch = chat_res.tool_calls.len() > 1
+                && chat_res.tool_calls.iter().all(|c| matches!(c.name.as_str(), "read_file" | "list_files" | "grep_search"));
+
+            let batch_results: Vec<(String, Option<String>)> = if all_readonly_batch {
+                let mut results: Vec<Option<(String, Option<String>)>> = vec![None; chat_res.tool_calls.len()];
+                let mut misses: Vec<(usize, &str, &Value)> = Vec::new();
+                for (idx, call) in chat_res.tool_calls.iter().enumerate() {
+                    let args_key = call.arguments.to_string();
+                    if let Some(cached) = tool_cache.get(&call.name, &args_key) {
+                        println!("  ♻️ [TOOL CACHE] HIT {} {}", call.name, args_key);
+                        results[idx] = Some((cached.to_string(), None));
+                    } else {
+                        misses.push((idx, call.name.as_str(), &call.arguments));
+                    }
+                }
+                if !misses.is_empty() {
+                    let computed: Vec<(usize, (String, Option<String>))> = std::thread::scope(|s| {
+                        let handles: Vec<_> = misses.into_iter().map(|(idx, name, args)| {
+                            s.spawn(move || {
+                                let out = match name {
+                                    "read_file" => {
+                                        let path = args["path"].as_str().unwrap_or("");
+                                        let start_line = args["start_line"].as_u64().map(|v| v as usize);
+                                        let end_line = args["end_line"].as_u64().map(|v| v as usize);
+                                        match read_file(path, start_line, end_line) {
+                                            Ok(res) => res.to_string(),
+                                            Err(e) => serde_json::json!({"status": "error", "error": e}).to_string(),
+                                        }
+                                    }
+                                    "grep_search" => {
+                                        let query = args["query"].as_str().unwrap_or("");
+                                        let root = args["root_path"].as_str().unwrap_or(".");
+                                        let max = args["max_results"].as_u64().map(|v| v as usize);
+                                        match grep_search(root, query, max) {
+                                            Ok(res) => res.to_string(),
+                                            Err(e) => serde_json::json!({"status": "error", "error": e}).to_string(),
+                                        }
+                                    }
+                                    "list_files" => {
+                                        let root = args["root_path"].as_str().unwrap_or(".");
+                                        let depth = args["max_depth"].as_u64().map(|v| v as usize);
+                                        match list_files(root, depth) {
+                                            Ok(res) => res.to_string(),
+                                            Err(e) => serde_json::json!({"status": "error", "error": e}).to_string(),
+                                        }
+                                    }
+                                    _ => String::new(),
+                                };
+                                (idx, (out, None))
+                            })
+                        }).collect();
+                        handles.into_iter().map(|h| h.join().unwrap_or_else(|_| (0, ("{\"status\":\"error\",\"error\":\"thread panic\"}".to_string(), None)))).collect()
+                    });
+                    for (idx, res) in computed {
+                        results[idx] = Some(res);
+                    }
+                }
+                results.into_iter().map(|r| r.unwrap_or_else(|| (String::new(), None))).collect()
+            } else {
+                Vec::new()
+            };
+
+            for (call_idx, call) in chat_res.tool_calls.into_iter().enumerate() {
                 let fn_name = &call.name;
                 let fn_args = &call.arguments;
 
@@ -821,9 +924,19 @@ impl<'a> ReActEngine<'a> {
 
                 println!("  ⚡ [GOUVERNANCE IDE] {} {:?}", fn_name, fn_args);
                 let args_key = fn_args.to_string();
+                let sig = format!("{}:{}", fn_name, args_key);
+                if last_tool_sig.as_deref() == Some(&sig) {
+                    repeat_count += 1;
+                } else {
+                    last_tool_sig = Some(sig);
+                    repeat_count = 1;
+                }
+
                 let is_cacheable_read = matches!(fn_name.as_str(), "read_file" | "list_files" | "grep_search");
 
-                let (raw_output, interrupt_action) = if is_cacheable_read {
+                let (raw_output, interrupt_action) = if all_readonly_batch {
+                    batch_results[call_idx].clone()
+                } else if is_cacheable_read {
                     if let Some(cached) = tool_cache.get(fn_name, &args_key) {
                         println!("  ♻️ [TOOL CACHE] HIT {} {}", fn_name, args_key);
                         (cached.to_string(), None)
@@ -834,7 +947,11 @@ impl<'a> ReActEngine<'a> {
                     self.dispatch_tool(fn_name, fn_args, &policy, &mut failure_counts)
                 };
 
-                let tool_output = context_trimmer::truncate_tool_output(&raw_output, 16_000);
+                let mut tool_output = context_trimmer::truncate_tool_output(&raw_output, 16_000);
+                if repeat_count >= 3 {
+                    tool_output.push_str("\n\n[ANTI-LOOP] Attention : tu viens de répéter exactement le même appel 3 fois de suite. Change d'approche, passe à l'étape suivante ou conclus.");
+                    repeat_count = 0;
+                }
 
                 if is_cacheable_read && interrupt_action.is_none() {
                     let path_hint = match fn_name.as_str() {

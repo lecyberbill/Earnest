@@ -43,3 +43,13 @@
 - `tests/validate_invariants.py` : Script de certification continue garantissant la conformité stricte à 100%.
 
 
+
+### D. Crates Utilitaires Zéro-Dépendance intégrés à `earnest-ide/core` (2026-11-15)
+- `context-trimmer` (`D:\Projet\context-trimmer`) : Troncature bornée des sorties d'outils (`truncate_tool_output`, limite 16 000 chars) et gestion du budget de contexte dans `react.rs`.
+- `tool-output-cache` (`D:\Projet\tool-output-cache`) : Cache LRU en mémoire (`ToolCache::new(64)`) pour `read_file`, `list_files`, `grep_search`, avec invalidation ciblée sur `write_code`, `edit_file`, `write_file`.
+- `retry-budget` (`D:\Projet\retry-budget`) : Circuit-breaker à fenêtre glissante (`RetryBudget::new(10, 5)`) protégeant les appels `LLMRouter::chat_completion_with_fallback`.
+
+### E. Optimisations du Moteur ReAct & Gouvernance (`earnest-ide/core/src/engine/react.rs`)
+- **Mode 3 (Spec-First)** : Outil `add_invariant` (formulaire plat) + auto-healing dans `submit_invariants` (conversion automatique des `probes` chaînes vers `ProbeSpec`, normalisation `runner`/`probe_id`).
+- **Mode 2 (Shadow Worktree)** : `write_code` supporte le mode multi-fichiers atomique (`files[]`) et l'édition ciblée (`target` + `replacement`) ; worktree incrémental réutilisé par run.
+- **Performance & Fiabilité** : Pré-chargement tour 0 (`list_files` depth 2 + manifestes), exécution parallèle des lots read-only via `std::thread::scope`, et détection anti-loop (`[ANTI-LOOP]` après 3 appels identiques consécutifs).

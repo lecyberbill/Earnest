@@ -28,3 +28,7 @@ Hash de gel : `3e9040714380fb182237bc698e4bc5cb3790186e613449e4955866fb5db6be79`
 - 2026-11-03 : Implémentation du client LLM unifié et du moteur ReAct Run-to-Completion (`earnest/engine/react.py`).
 - 2026-11-03 : Implémentation de l'interface cockpit Vanilla Web Components dans `ui/`.
 - 2026-11-03 : Validation intégrale de la suite de 13 tests unitaires et des 10 sondes d'invariants.
+
+- 2026-11-15 : Intégration de `context-trimmer` (`truncate_tool_output`), `tool-output-cache` (`ToolCache` LRU + invalidation sur écriture) et `retry-budget` (`RetryBudget` circuit-breaker) dans `earnest-ide/core`.
+- 2026-11-15 : Améliorations `ReActEngine` : `write_code` multi-fichiers (`files[]`) et édition ciblée (`target`/`replacement`), pré-chargement tour 0, exécution parallèle read-only (`std::thread::scope`), détection `[ANTI-LOOP]`, et auto-healing `submit_invariants` / `add_invariant`.
+- 2026-11-15 : Benchmarks Qwen 3.8 documentés dans `docs/BENCHMARK_QWEN38_CONTEXT_TRIMMER.md`, `docs/BENCHMARK_QWEN38_TOOL_OUTPUT_CACHE.md` et `docs/BENCHMARK_QWEN38_RETRY_BUDGET.md` (`cargo test` 5/5 sur `earnest-ide-core`).

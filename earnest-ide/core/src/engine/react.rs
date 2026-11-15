@@ -783,6 +783,7 @@ impl<'a> ReActEngine<'a> {
         let mut active_backend_name = String::new();
         let mut context_budget_chars: usize = 120_000;
         let mut failure_counts: HashMap<String, usize> = HashMap::new();
+        let mut tool_cache = tool_output_cache::ToolCache::new(64);
 
         for _ in 0..self.max_steps {
             compact_messages_if_needed(&mut messages, context_budget_chars);
@@ -819,7 +820,34 @@ impl<'a> ReActEngine<'a> {
                 step_order += 1;
 
                 println!("  ⚡ [GOUVERNANCE IDE] {} {:?}", fn_name, fn_args);
-                let (tool_output, interrupt_action) = self.dispatch_tool(fn_name, fn_args, &policy, &mut failure_counts);
+                let args_key = fn_args.to_string();
+                let is_cacheable_read = matches!(fn_name.as_str(), "read_file" | "list_files" | "grep_search");
+
+                let (raw_output, interrupt_action) = if is_cacheable_read {
+                    if let Some(cached) = tool_cache.get(fn_name, &args_key) {
+                        println!("  ♻️ [TOOL CACHE] HIT {} {}", fn_name, args_key);
+                        (cached.to_string(), None)
+                    } else {
+                        self.dispatch_tool(fn_name, fn_args, &policy, &mut failure_counts)
+                    }
+                } else {
+                    self.dispatch_tool(fn_name, fn_args, &policy, &mut failure_counts)
+                };
+
+                let tool_output = context_trimmer::truncate_tool_output(&raw_output, 16_000);
+
+                if is_cacheable_read && interrupt_action.is_none() {
+                    let path_hint = match fn_name.as_str() {
+                        "read_file" => fn_args["path"].as_str(),
+                        "list_files" | "grep_search" => fn_args["root_path"].as_str().or(Some(".")),
+                        _ => None,
+                    };
+                    tool_cache.insert(fn_name, &args_key, tool_output.clone(), path_hint);
+                } else if matches!(fn_name.as_str(), "write_code" | "edit_file" | "write_file") {
+                    if let Some(path) = fn_args["path"].as_str() {
+                        tool_cache.invalidate_path(path);
+                    }
+                }
 
                 self.record_trace(&run_id, step_order, "tool_output", Some(fn_name), &tool_output);
                 on_trace(&run_id, step_order, "tool_output", Some(fn_name), &tool_output, &active_backend_name);

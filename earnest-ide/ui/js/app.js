@@ -2221,7 +2221,7 @@ document.addEventListener('DOMContentLoaded', () => {
             flex-direction: column;
             gap: 0.5rem;
         `;
-        assistantBubble.innerHTML = `<div style="color:var(--accent-cyan); font-weight:600;">⚡ Earnest Copilote réfléchit...</div>`;
+        assistantBubble.innerHTML = `<div style="color:var(--accent-cyan); font-weight:600;">⚡ ${t('chat.thinking')}</div>`;
         const hbEl = document.createElement('div');
         hbEl.className = 'agent-heartbeat';
         hbEl.style.cssText = 'font-size:0.75rem; color:var(--text-muted); font-style:italic; margin-top:0.25rem;';

@@ -220,3 +220,8 @@ Dual-licensed under either of:
 
 at your option.
 
+
+## Benchmarks & Stress-Tests (Qwen 3.8 Local)
+- [Context Trimmer](docs/BENCHMARK_QWEN38_CONTEXT_TRIMMER.md) — Bounded tool-output truncation & history trimming
+- [Tool Output Cache](docs/BENCHMARK_QWEN38_TOOL_OUTPUT_CACHE.md) — Zero-dependency LRU cache with path invalidation
+- [Retry Budget](docs/BENCHMARK_QWEN38_RETRY_BUDGET.md) — Sliding-window retry budget & circuit-breaker

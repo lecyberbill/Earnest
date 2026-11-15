@@ -1012,6 +1012,12 @@ impl<'a> ReActEngine<'a> {
                 // Contrainte 5 : Interruption propre de la boucle ReAct si une action humaine est requise
                 if let Some(action) = interrupt_action {
                     let duration_ms = start.elapsed().as_millis();
+        let cache_stats = tool_cache.stats();
+        let budget_stats = llm_budget.stats();
+        println!(
+            "  📊 [TELEMETRY] ToolCache(hits={}, misses={}, len={}) | RetryBudget(failures={}, open={})",
+            cache_stats.hits, cache_stats.misses, cache_stats.len, budget_stats.failures, budget_stats.is_open
+        );
                     println!("  ⏸️ [GOUVERNANCE IDE] Interruption (awaiting_approval:{}, {}ms)", action, duration_ms);
                     self.conn.execute(
                         "UPDATE runs SET status = 'awaiting_approval', completed_at = CURRENT_TIMESTAMP, duration_ms = ?1, total_tokens = ?2 WHERE id = ?3",
@@ -1031,6 +1037,12 @@ impl<'a> ReActEngine<'a> {
         }
 
         let duration_ms = start.elapsed().as_millis();
+        let cache_stats = tool_cache.stats();
+        let budget_stats = llm_budget.stats();
+        println!(
+            "  📊 [TELEMETRY] ToolCache(hits={}, misses={}, len={}) | RetryBudget(failures={}, open={})",
+            cache_stats.hits, cache_stats.misses, cache_stats.len, budget_stats.failures, budget_stats.is_open
+        );
 
         if final_answer.is_empty() {
             final_answer = format!(

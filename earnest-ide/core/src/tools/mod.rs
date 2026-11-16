@@ -150,6 +150,20 @@ pub fn get_ide_tools_schemas() -> Vec<Value> {
         serde_json::json!({
             "type": "function",
             "function": {
+                "name": "recall_recent_runs",
+                "description": "Consulte ou recherche dans l'historique des runs passés et leurs traces (outils, erreurs, réponses) pour ce projet.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "query": { "type": "string", "description": "Mot-clé optionnel pour filtrer les runs/traces" },
+                        "limit": { "type": "integer", "description": "Nombre max de runs à retourner (défaut: 5, max: 20)" }
+                    }
+                }
+            }
+        }),
+        serde_json::json!({
+            "type": "function",
+            "function": {
                 "name": "invoke_subagent",
                 "description": "Délègue une sous-tâche spécialisée à un agent autonome secondaire pour isoler le contexte (ex: recherche documentaire approfondie, exploration de code complexe ou validation de tests). Retourne le rapport de synthèse du sous-agent.",
                 "parameters": {

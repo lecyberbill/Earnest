@@ -1203,6 +1203,9 @@ Garde l'indentation appropriée.";
         if path == "/api/ide/projects/delete" {
             let conn = get_connection(None).unwrap();
             let p_id = payload["id"].as_str().unwrap_or("");
+            conn.execute("DELETE FROM traces WHERE run_id IN (SELECT id FROM runs WHERE project_id = ?)", [p_id]).ok();
+            conn.execute("DELETE FROM runs WHERE project_id = ?", [p_id]).ok();
+            conn.execute("DELETE FROM memories WHERE project_id = ?", [p_id]).ok();
             conn.execute("DELETE FROM projects WHERE id = ?", [p_id]).ok();
             let resp = Response::from_string(serde_json::json!({"status": "deleted", "id": p_id}).to_string())
                 .with_header(json_header)

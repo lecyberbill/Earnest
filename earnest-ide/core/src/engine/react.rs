@@ -670,6 +670,46 @@ impl<'a> ReActEngine<'a> {
                     Err(e) => (serde_json::json!({"status": "error", "error": e.to_string()}).to_string(), None),
                 }
             }
+            "recall_recent_runs" => {
+                let query = args["query"].as_str().unwrap_or("").trim();
+                let limit = args["limit"].as_u64().unwrap_or(5).clamp(1, 20) as i64;
+                let mut results = Vec::new();
+                if query.is_empty() {
+                    if let Ok(mut stmt) = self.conn.prepare(
+                        "SELECT id, status, prompt, COALESCE(final_answer, ''), created_at FROM runs WHERE project_id = ?1 ORDER BY rowid DESC LIMIT ?2"
+                    ) {
+                        if let Ok(rows) = stmt.query_map(params![self.project_id, limit], |r| {
+                            Ok(serde_json::json!({
+                                "run_id": r.get::<_, String>(0)?,
+                                "status": r.get::<_, String>(1)?,
+                                "prompt": context_trimmer::truncate_tool_output(&r.get::<_, String>(2)?, 300),
+                                "final_answer": context_trimmer::truncate_tool_output(&r.get::<_, String>(3)?, 500),
+                                "created_at": r.get::<_, String>(4)?,
+                            }))
+                        }) {
+                            for item in rows.flatten() { results.push(item); }
+                        }
+                    }
+                } else {
+                    let pattern = format!("%{}%", query);
+                    if let Ok(mut stmt) = self.conn.prepare(
+                        "SELECT DISTINCT r.id, r.status, r.prompt, COALESCE(r.final_answer, ''), r.created_at FROM runs r LEFT JOIN traces t ON t.run_id = r.id WHERE r.project_id = ?1 AND (r.prompt LIKE ?2 OR r.final_answer LIKE ?2 OR t.content LIKE ?2) ORDER BY r.rowid DESC LIMIT ?3"
+                    ) {
+                        if let Ok(rows) = stmt.query_map(params![self.project_id, pattern, limit], |r| {
+                            Ok(serde_json::json!({
+                                "run_id": r.get::<_, String>(0)?,
+                                "status": r.get::<_, String>(1)?,
+                                "prompt": context_trimmer::truncate_tool_output(&r.get::<_, String>(2)?, 300),
+                                "final_answer": context_trimmer::truncate_tool_output(&r.get::<_, String>(3)?, 500),
+                                "created_at": r.get::<_, String>(4)?,
+                            }))
+                        }) {
+                            for item in rows.flatten() { results.push(item); }
+                        }
+                    }
+                }
+                (serde_json::json!({"status": "success", "count": results.len(), "runs": results}).to_string(), None)
+            }
             "invoke_subagent" => {
                 let role = args["role"].as_str().unwrap_or("Specialized Subagent");
                 let task = args["task"].as_str().unwrap_or("");
@@ -778,7 +818,7 @@ impl<'a> ReActEngine<'a> {
             // Mode 3 (Architecture / Spec-First) : STRICTEMENT AUCUN write_file / edit_file / terminal_exec
             // Contrainte 2 : kb_search et consultation autorisés
             GovernanceMode::Architecture => {
-                let allowed_std = ["read_file", "list_files", "grep_search", "web_search", "web_fetch", "store_memory", "recall_memory", "kb_search"];
+                let allowed_std = ["read_file", "list_files", "grep_search", "web_search", "web_fetch", "store_memory", "recall_memory", "recall_recent_runs", "kb_search"];
                 let allowed_gov = ["add_invariant", "submit_invariants", "request_architecture_review"];
 
                 let mut tools: Vec<Value> = std_tools.into_iter()
@@ -795,7 +835,7 @@ impl<'a> ReActEngine<'a> {
 
             // Mode 2 (Contraint / Invariants & Shadow Sandbox)
             GovernanceMode::Constrained => {
-                let allowed_std = ["read_file", "list_files", "grep_search", "web_search", "web_fetch", "store_memory", "recall_memory", "kb_search", "kb_propose"];
+                let allowed_std = ["read_file", "list_files", "grep_search", "web_search", "web_fetch", "store_memory", "recall_memory", "recall_recent_runs", "kb_search", "kb_propose"];
                 let allowed_gov = ["write_code", "query_invariants", "request_contract_mutation", "report_checkpoint_status"];
 
                 let mut tools: Vec<Value> = std_tools.into_iter()
@@ -888,7 +928,7 @@ impl<'a> ReActEngine<'a> {
 
         // Injection de l'historique multi-tours récent (5 derniers runs réussis du projet)
         if let Ok(mut stmt) = self.conn.prepare(
-            "SELECT prompt, final_answer FROM runs WHERE project_id = ?1 AND status = 'success' AND final_answer IS NOT NULL AND final_answer != '' ORDER BY rowid DESC LIMIT 5"
+            "SELECT prompt, final_answer FROM runs WHERE project_id = ?1 AND status = 'success' AND final_answer IS NOT NULL AND final_answer != '' ORDER BY rowid DESC LIMIT 12"
         ) {
             if let Ok(rows) = stmt.query_map(params![self.project_id], |row| {
                 Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))

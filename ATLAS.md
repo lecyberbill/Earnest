@@ -44,12 +44,13 @@
 
 
 
-### D. Crates Utilitaires Zéro-Dépendance intégrés à `earnest-ide/core` (2026-11-15)
+### D. Crates Utilitaires Zéro-Dépendance intégrés à `earnest-ide/core` (2026-11-15 → 2026-11-17)
 - `context-trimmer` (`D:\Projet\context-trimmer`) : Troncature bornée des sorties d'outils (`truncate_tool_output`, limite 16 000 chars) et gestion du budget de contexte dans `react.rs`.
-- `tool-output-cache` (`D:\Projet\tool-output-cache`) : Cache LRU en mémoire (`ToolCache::new(64)`) pour `read_file`, `list_files`, `grep_search`, avec invalidation ciblée sur `write_code`, `edit_file`, `write_file`.
+- `tool-output-cache` (`D:\Projet\tool-output-cache`) : Cache LRU persistant (`OnceLock`, `ToolCache::new(128)`) pour `read_file`, `list_files`, `grep_search`, avec normalisation des chemins et invalidation ciblée sur `write_code`, `edit_file`, `write_file`.
 - `retry-budget` (`D:\Projet\retry-budget`) : Circuit-breaker à fenêtre glissante (`RetryBudget::new(10, 5)`) protégeant les appels `LLMRouter::chat_completion_with_fallback`.
+- `json-repair` (`D:\Projet\json-repair`) : Réparation chirurgicale et totale de JSON malformés/tronqués (BOM, fences Markdown, extraction hors prose, automate LIFO, validateur strict RFC 8259 itératif jusqu'à 100k niveaux). Intégré dans `earnest-ide/core/src/llm/client.rs` (`parse_tool_args_with_repair`).
 
-### E. Optimisations du Moteur ReAct & Gouvernance (`earnest-ide/core/src/engine/react.rs`)
+### E. Optimisations du Moteur ReAct & Gouvernance (`earnest-ide/core/src/engine/react.rs`, `governance/shadow.rs`, `llm/client.rs`)
 - **Mode 3 (Spec-First)** : Outil `add_invariant` (formulaire plat) + auto-healing dans `submit_invariants` (conversion automatique des `probes` chaînes vers `ProbeSpec`, normalisation `runner`/`probe_id`).
-- **Mode 2 (Shadow Worktree)** : `write_code` supporte le mode multi-fichiers atomique (`files[]`) et l'édition ciblée (`target` + `replacement`) ; worktree incrémental réutilisé par run.
-- **Performance & Fiabilité** : Pré-chargement tour 0 (`list_files` depth 2 + manifestes), exécution parallèle des lots read-only via `std::thread::scope`, et détection anti-loop (`[ANTI-LOOP]` après 3 appels identiques consécutifs).
+- **Mode 2 (Shadow Worktree)** : `write_code` supporte le mode multi-fichiers atomique (`files[]`), `stage_only: true`, la validation directe sans patch, et l'édition ciblée (`target` + `replacement`) avec lecture prioritaire dans `shadow_worktree` ; synchronisation `git status --porcelain -uall` (nouveaux dossiers `src/`/`tests/` inclus) et fusion complète des fichiers stagés.
+- **Streaming & Résilience** : Streaming SSE complet (Ollama + OpenAI/DeepSeek) avec `CANCEL_LLM`, sélecteur dynamique d'effort (`#chat-effort-select`), bouton Stop (`#btn-agent-stop`), `empty_tool_nudges` consécutif (réinitialisé à chaque appel d'outil), pré-chargement tour 0 (`!has_history`), exécution parallèle read-only (`std::thread::scope`), détection `[ANTI-LOOP]`, `/recall` et `recall_recent_runs`.

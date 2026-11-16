@@ -209,7 +209,12 @@ impl LLMClient {
                 for call in arr {
                     let func = &call["function"];
                     let name = func["name"].as_str().unwrap_or("").to_string();
-                    let args = func["arguments"].clone();
+                    let raw = &func["arguments"];
+                    let args = if let Some(s) = raw.as_str() {
+                        parse_tool_args_with_repair(&name, s, "")
+                    } else {
+                        raw.clone()
+                    };
                     let call_id = format!("call_{}", &uuid::Uuid::new_v4().to_string().replace('-', "")[..8]);
                     tool_calls.push(ToolCallItem { id: call_id, name, arguments: args });
                 }
@@ -352,16 +357,7 @@ impl LLMClient {
 
         let mut tool_calls = Vec::new();
         for (_idx, (call_id, name, raw_args)) in tc_acc {
-            let args_to_parse = if raw_args.trim().is_empty() { "{}" } else { raw_args.as_str() };
-            let parsed_args: Value = match serde_json::from_str(args_to_parse) {
-                Ok(v) => v,
-                Err(_) => {
-                    println!("  ⚠️ [OPENAI] Tool '{}' arguments tronqués (finish_reason={}, {} chars)", name, finish_reason, raw_args.len());
-                    serde_json::json!({
-                        "__truncated_error": format!("Arguments JSON tronqués ({} chars, finish_reason={}). Utilise stage_only: true et écris UN seul fichier à la fois.", raw_args.len(), finish_reason)
-                    })
-                }
-            };
+            let parsed_args = parse_tool_args_with_repair(&name, &raw_args, &finish_reason);
             let final_id = if call_id.is_empty() { "call_gen".to_string() } else { call_id };
             tool_calls.push(ToolCallItem { id: final_id, name, arguments: parsed_args });
         }
@@ -374,6 +370,74 @@ impl LLMClient {
             total_tokens: prompt_tokens + completion_tokens,
             reasoning_content: if reasoning.is_empty() { None } else { Some(reasoning) },
         })
+    }
+}
+
+/// Parse les arguments JSON d'un appel d'outil avec réparation chirurgicale via `json-repair`
+/// si `serde_json` échoue (sauf pour un `write_code` tronqué par `finish_reason=length`, afin
+/// de ne jamais écrire un fichier tronqué).
+pub fn parse_tool_args_with_repair(name: &str, raw_args: &str, finish_reason: &str) -> Value {
+    let trimmed = raw_args.trim();
+    if trimmed.is_empty() {
+        return serde_json::json!({});
+    }
+    if let Ok(v) = serde_json::from_str::<Value>(trimmed) {
+        return v;
+    }
+    if !(finish_reason == "length" && name == "write_code") {
+        let repaired = json_repair::repair(trimmed);
+        if let Ok(v) = serde_json::from_str::<Value>(&repaired) {
+            if v.is_object() {
+                println!(
+                    "  🩹 [JSON-REPAIR] Arguments réparés pour '{}' ({} -> {} chars)",
+                    name,
+                    raw_args.len(),
+                    repaired.len()
+                );
+                return v;
+            }
+        }
+    }
+    println!(
+        "  ⚠️ [OPENAI] Tool '{}' arguments tronqués (finish_reason={}, {} chars)",
+        name,
+        finish_reason,
+        raw_args.len()
+    );
+    serde_json::json!({
+        "__truncated_error": format!(
+            "Arguments JSON tronqués ({} chars, finish_reason={}). Utilise stage_only: true et écris UN seul fichier à la fois.",
+            raw_args.len(),
+            finish_reason
+        )
+    })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::parse_tool_args_with_repair;
+
+    #[test]
+    fn repairs_trailing_comma_and_fences_in_tool_args() {
+        let raw = "```json\n{\"path\": \"src/lib.rs\", \"start_line\": 1,}\n```";
+        let v = parse_tool_args_with_repair("read_file", raw, "stop");
+        assert_eq!(v["path"], "src/lib.rs");
+        assert_eq!(v["start_line"], 1);
+    }
+
+    #[test]
+    fn repairs_truncated_readonly_tool_args() {
+        let raw = r#"{"query": "repair_structural", "root_path": "src"#;
+        let v = parse_tool_args_with_repair("grep_search", raw, "length");
+        assert_eq!(v["query"], "repair_structural");
+        assert_eq!(v["root_path"], "src");
+    }
+
+    #[test]
+    fn rejects_length_truncated_write_code_to_avoid_partial_files() {
+        let raw = r#"{"target_file": "src/lib.rs", "patch": "fn main() {"#;
+        let v = parse_tool_args_with_repair("write_code", raw, "length");
+        assert!(v.get("__truncated_error").is_some());
     }
 }
 

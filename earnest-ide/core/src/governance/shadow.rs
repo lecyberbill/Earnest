@@ -105,7 +105,7 @@ impl ShadowRunner {
     fn sync_active_changes_to_shadow(&self) -> Result<(), String> {
         let mut shadow_dirty = std::collections::HashSet::new();
         if let Ok(sh_out) = Command::new("git")
-            .args(["status", "--porcelain"])
+            .args(["status", "--porcelain", "-uall"])
             .current_dir(&self.shadow_path)
             .output()
         {
@@ -119,7 +119,7 @@ impl ShadowRunner {
         }
 
         let status_out = Command::new("git")
-            .args(["status", "--porcelain"])
+            .args(["status", "--porcelain", "-uall"])
             .current_dir(&self.workspace_root)
             .output()
             .map_err(|e| format!("git status failed: {}", e))?;
@@ -128,7 +128,7 @@ impl ShadowRunner {
         for line in status_str.lines() {
             if line.len() > 3 {
                 let file_rel = line[3..].trim().trim_matches('"');
-                if file_rel.starts_with(".git") || file_rel.starts_with(".ide") {
+                if file_rel.starts_with(".git") || file_rel.starts_with(".ide") || file_rel.starts_with("target/") || file_rel.starts_with("target\\") {
                     continue;
                 }
                 if shadow_dirty.contains(&file_rel.replace('\\', "/")) {
@@ -380,7 +380,7 @@ impl ShadowRunner {
                 .filter(|p| !p.is_empty())
                 .collect();
             if let Ok(sh_out) = Command::new("git")
-                .args(["status", "--porcelain"])
+                .args(["status", "--porcelain", "-uall"])
                 .current_dir(&self.shadow_path)
                 .output()
             {
@@ -388,7 +388,7 @@ impl ShadowRunner {
                 for line in sh_str.lines() {
                     if line.len() > 3 {
                         let rel = line[3..].trim().trim_matches('"').to_string();
-                        if !rel.is_empty() && !rel.starts_with(".git") {
+                        if !rel.is_empty() && !rel.starts_with(".git") && !rel.starts_with("target/") && !rel.starts_with("target\\") {
                             to_merge.insert(rel);
                         }
                     }

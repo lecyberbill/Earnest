@@ -1053,10 +1053,10 @@ impl<'a> ReActEngine<'a> {
             if chat_res.tool_calls.is_empty() {
                 if policy.mode == GovernanceMode::Constrained && empty_tool_nudges < 3 {
                     empty_tool_nudges += 1;
-                    println!("  🔄 [ANTI-STALL] Texte seul en Mode 2 ({}/3), relance automatique...", empty_tool_nudges);
+                    println!("  🔄 [ANTI-STALL] Texte seul en Mode 2 ({}/3 consécutifs), relance automatique...", empty_tool_nudges);
                     messages.push(ChatMessage {
                         role: "user".to_string(),
-                        content: "Continue : utilise 'write_code' avec stage_only: true pour écrire UN seul fichier à la fois (évite les gros appels multi-fichiers).".to_string(),
+                        content: "Continue : si la tâche n'est pas encore terminée et validée, appelle immédiatement le prochain outil nécessaire (par ex. `write_code` avec `stage_only: true` pour stager un fichier à la fois, `stage_only: false` pour lancer la validation finale, ou `read_file`/`grep_search`). Si la tâche est vraiment terminée et validée, donne ta réponse finale.".to_string(),
                         images: None,
                     });
                     continue;
@@ -1066,6 +1066,7 @@ impl<'a> ReActEngine<'a> {
                 on_trace(&run_id, step_order, "answer", None, &final_answer, &active_backend_name);
                 break;
             }
+            empty_tool_nudges = 0;
 
             // Exécution des outils demandés (parallèle si plusieurs appels read-only non-cachés)
             let all_readonly_batch = chat_res.tool_calls.len() > 1

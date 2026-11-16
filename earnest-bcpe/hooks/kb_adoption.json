@@ -1,0 +1,5 @@
+{
+  "script_extensions": [".jsx", ".aml", ".xml", ".js", ".ps1", ".py", ".sh"],
+  "edit_tools": ["Write", "Edit", "MultiEdit"],
+  "check_tool_suffix": "kb_check"
+}

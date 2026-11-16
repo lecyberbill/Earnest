@@ -1,0 +1,12 @@
+# Runners de rejeu (kb revalidate). Seuls les runners déclarés ici peuvent être exécutés,
+# et seulement après approbation humaine du cas de test (kb approve-repro).
+# Aucun runner par défaut : rien ne s'exécute tant que vous n'en déclarez pas.
+#
+# Exemple :
+# runners:
+#   mon-produit-cli:
+#     program: 'C:\Outils\mon-produit.exe'   # exécuté sans shell
+#     args: ['--batch', '{file}']            # {file} = chemin du script de rejeu
+#     extension: 'jsx'                       # extension du fichier temporaire (défaut: txt)
+#     timeout_s: 60                          # délai maximal (défaut: 60)
+runners: {}

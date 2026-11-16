@@ -111,6 +111,16 @@ pub fn snapshot_entry(conn: &Connection, entry: &EntryRow) -> KbResult<EntrySnap
     })
 }
 
+/// Mode de validation exposé : `humain` ou `auto` pour une entrée `valide`
+/// (une colonne NULL sur une entrée valide désigne une validation humaine historique).
+pub fn effective_mode(status: &str, mode: Option<&str>) -> Option<String> {
+    if status == "valide" {
+        Some(mode.unwrap_or("humain").to_string())
+    } else {
+        None
+    }
+}
+
 pub fn update_fts(conn: &Connection, entry_id: i64) -> KbResult<()> {
     let entry = fetch_entry(conn, entry_id)?
         .ok_or_else(|| KbError::NotFound(format!("entrée {entry_id} introuvable")))?;
@@ -121,22 +131,42 @@ pub fn update_fts(conn: &Connection, entry_id: i64) -> KbResult<()> {
             |row| row.get(0),
         )
         .map_err(KbError::Db)?;
+    for table in ["entries_fts", "entries_fts_tri"] {
+        conn.execute(
+            &format!("DELETE FROM {table} WHERE rowid = ?1"),
+            params![entry_id],
+        )
+        .map_err(KbError::Db)?;
+        conn.execute(
+            &format!(
+                "INSERT INTO {table} (rowid, title, symptom, cause, correction, terms)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6)"
+            ),
+            params![
+                entry_id,
+                entry.title,
+                entry.symptom.clone().unwrap_or_default(),
+                entry.cause.clone().unwrap_or_default(),
+                entry.correction,
+                terms
+            ],
+        )
+        .map_err(KbError::Db)?;
+    }
+    Ok(())
+}
+
+/// Reconstruit l'index trigramme (dérivé) depuis la table des entrées.
+pub fn rebuild_trigram_index(conn: &Connection) -> KbResult<()> {
+    conn.execute("DELETE FROM entries_fts_tri", [])
+        .map_err(KbError::Db)?;
     conn.execute(
-        "DELETE FROM entries_fts WHERE rowid = ?1",
-        params![entry_id],
-    )
-    .map_err(KbError::Db)?;
-    conn.execute(
-        "INSERT INTO entries_fts (rowid, title, symptom, cause, correction, terms)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
-        params![
-            entry_id,
-            entry.title,
-            entry.symptom.unwrap_or_default(),
-            entry.cause.unwrap_or_default(),
-            entry.correction,
-            terms
-        ],
+        "INSERT INTO entries_fts_tri (rowid, title, symptom, cause, correction, terms)
+         SELECT e.entry_id, e.title, COALESCE(e.symptom, ''), COALESCE(e.cause, ''), e.correction,
+                COALESCE((SELECT GROUP_CONCAT(t.term, ' ') FROM entry_terms t
+                          WHERE t.entry_id = e.entry_id), '')
+         FROM entries e",
+        [],
     )
     .map_err(KbError::Db)?;
     Ok(())
@@ -227,7 +257,8 @@ pub fn linked_entries(
 ) -> KbResult<Vec<LinkedEntry>> {
     let mut stmt = conn
         .prepare(
-            "SELECT e.entry_id, e.subject_key, e.title, e.status, i.state, i.replaced_by, e.correction
+            "SELECT e.entry_id, e.subject_key, e.title, e.status, i.state, i.replaced_by, e.correction,
+                    e.validation_mode
              FROM identifiers i
              JOIN entries e ON e.entry_id = i.entry_id
              WHERE i.product_id = ?1 AND i.identifier = ?2 AND e.status <> 'archive'
@@ -244,13 +275,15 @@ pub fn linked_entries(
                 row.get::<_, String>(4)?,
                 row.get::<_, Option<String>>(5)?,
                 row.get::<_, String>(6)?,
+                row.get::<_, Option<String>>(7)?,
             ))
         })
         .map_err(KbError::Db)?;
     let mut output = Vec::new();
     for row in rows {
-        let (entry_id, subject_key, title, status, state, replaced_by, correction) =
+        let (entry_id, subject_key, title, status, state, replaced_by, correction, mode) =
             row.map_err(KbError::Db)?;
+        let status_copy = status.clone();
         output.push(LinkedEntry {
             entry_id,
             subject_key,
@@ -259,6 +292,7 @@ pub fn linked_entries(
             state,
             replaced_by,
             correction: Some(correction),
+            validation_mode: effective_mode(&status_copy, mode.as_deref()),
         });
     }
     Ok(output)

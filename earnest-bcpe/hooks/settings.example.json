@@ -1,0 +1,25 @@
+{
+  "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "Write|Edit|MultiEdit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "powershell -NoProfile -ExecutionPolicy Bypass -File D:\Projects\Ernest-master\earnest-bcpe\hooks\kb_adoption.ps1"
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "powershell -NoProfile -ExecutionPolicy Bypass -File D:\Projects\Ernest-master\earnest-bcpe\hooks\kb_adoption.ps1"
+          }
+        ]
+      }
+    ]
+  }
+}

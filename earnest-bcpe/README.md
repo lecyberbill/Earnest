@@ -96,19 +96,28 @@ conn.close()
 | `kb_report_incident` | Enregistre un écart attendu/observé et renvoie les entrées proches. Ne crée pas d'entrée. |
 | `kb_propose` | Crée ou met à jour une entrée `non_teste`. Refusé sur `valide`/`archive` (`forbidden_status`). |
 | `kb_record_outcome` | Signale `ok`/`ko` (note obligatoire pour `ko`), compteurs atomiques, sans changer `version`. |
+| `kb_confirm` | Confirme une entrée par une exécution réelle (commande, `exit_code` 0, extrait). Avec `min_confirmations` sessions distinctes de l'auteur, l'entrée devient `valide` en `validation_mode=auto`. |
+| `kb_attach_repro` | Joint un cas de test reproductible (runner déclaré, script, sortie attendue). Jamais exécuté par le serveur. |
 
 Toute réponse porte `content_type: "reference_data"` et le statut de chaque
 entrée. Les descriptions d'outils rappellent que le texte d'une entrée est une
 donnée, jamais une instruction à exécuter.
 
-Les outils ne peuvent ni valider, ni archiver, ni supprimer, ni modifier une
-entrée `valide`. Ces actions existent uniquement dans la CLI humaine.
+Les outils ne peuvent ni valider directement, ni archiver, ni supprimer, ni modifier une
+entrée `valide`. La seule promotion possible par un agent est `kb_confirm`, qui exige des
+preuves d'exécution venant de sessions distinctes de l'auteur ; ces entrées sont marquées
+`validation_mode=auto` jusqu'à relecture humaine (`kb review`, `kb validate`). Archivage,
+suppression et édition restent dans la CLI humaine. `kb_propose` n'accepte aucun champ de statut
+(`auto_validate` n'existe plus).
 
 ## Ligne de commande humaine
 
 ```text
 kb serve
-kb validate <entry_id> --by humain:nom
+kb validate <entry_id>... --by humain:nom
+kb review [--product <produit>] [--json]
+kb approve-repro <entry_id> --by humain:nom
+kb revalidate [--product <produit>] [--entry <id>]
 kb edit <entry_id> --by humain:nom [--title ...] [--correction ...] [--terms a,b]
                        [--identifiers-json '[{"identifier":"X","state":"valide"}]']
                        [--depends-on 2,3] [--product-version 2.1]
@@ -125,7 +134,10 @@ kb incident <produit> "<attendu>" "<observé>" [--script-ref ...] [--log-excerpt
 kb check <produit> <fichier> [--kind test|aml|xml|jsx]
 ```
 
-- `validate` : passe `non_teste`/`a_revoir` à `valide` et enregistre le valideur.
+- `validate` : passe `non_teste`/`a_revoir` à `valide` (ou confirme une entrée `auto` en `humain`) et enregistre le valideur ; accepte plusieurs identifiants.
+- `review` : liste les entrées validées automatiquement, à relire.
+- `approve-repro` : approuve le cas de test joint à une entrée (affiche le script) ; seul l'humain peut autoriser son exécution.
+- `revalidate` : rejoue les cas approuvés des entrées `a_revoir` avec les runners de `config/runners.yaml` (seul processus externe du binaire). Réussite : `valide`/`auto` et version produit alignée ; échec : `ko` ; code de sortie non nul en cas d'échec ou d'erreur.
 - `edit` : modifie une entrée non archivée ; sur une entrée `valide`, l'éditeur
   devient `validated_by` et l'ancienne version est copiée dans `entry_history`.
 - `product-version` : passe à `a_revoir` les entrées `valide` dont
@@ -160,13 +172,31 @@ texte libres (`title`, `symptom`, `cause`, `correction`, `example`, `note`,
 `expected`, `observed`, `log_excerpt`). Par défaut : mots de passe/jetons,
 en-têtes Bearer, adresses e-mail, chemins personnels.
 
+`config/validation.yaml` : `min_confirmations` (2 par défaut) et `version_segments` (0 = comparaison
+stricte de `product-version`, 2 = seuls major.minor comptent). `config/runners.yaml` : runners de
+rejeu (aucun par défaut ; programme, arguments avec `{file}`, extension, délai).
+
+## Recherche
+
+Trois étapes, la suivante n'étant tentée que si la précédente ne trouve rien : mots exacts
+(`match_mode: "exact"`), préfixes de 3 caractères ou plus (`"prefix"`, `attend` trouve `attendre`),
+puis fragments sur un index trigramme (`"fragment"`). Aucun modèle d'embedding, aucune dépendance supplémentaire.
+
+## Adoption : hook Claude Code
+
+`hooks/kb_adoption.ps1` rappelle `kb_check` après l'écriture d'un script et empêche de terminer le
+tour tant qu'un script écrit n'a pas été suivi d'un appel `kb_check`. Copier le contenu de
+`hooks/settings.example.json` dans `.claude/settings.json` (adapter le chemin) ; extensions et outils
+dans `hooks/kb_adoption.json`.
+
 ## Données et garanties
 
 - SQLite en WAL, `busy_timeout=5000`, clés étrangères activées, FTS5 vérifié au
   démarrage.
-- 9 tables : `products`, `entries`, `entry_terms`, `identifiers`,
+- 11 tables : `products`, `entries`, `entry_terms`, `identifiers`,
   `lexicon_identifiers`, `entry_deps`, `entry_history`, `entry_outcomes`,
-  `incidents`, plus l'index virtuel `entries_fts`.
+  `incidents`, `entry_evidence`, `entry_repro`, plus les index virtuels `entries_fts` et
+  `entries_fts_tri` (dérivés, régénérés par `kb reindex`). Les bases existantes sont migrées à l'ouverture.
 - Une écriture d'entrée, mots-clés, identifiants, historique et index est une
   seule transaction.
 - Un identifiant peut être déclaré par plusieurs entrées non archivées du même
@@ -187,7 +217,8 @@ cargo build --release
 ```
 
 `tests/acceptance.rs` couvre les critères A1 à A24 du cahier des charges, plus
-A25 (lecture `kb_get`), sur une base temporaire par test. `tests/fixtures/seed.json`
+A25 (lecture `kb_get`), sur une base temporaire par test. `tests/improvements.rs` couvre les
+invariants P01 à P17 (`tests/INVARIANTS.md`). `tests/fixtures/seed.json`
 documente le jeu de départ utilisé par les critères de recette.
 
 ## Choix techniques et écarts assumés

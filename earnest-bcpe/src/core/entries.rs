@@ -2,9 +2,9 @@ use rusqlite::{params, Connection, OptionalExtension};
 
 use crate::config::AppConfig;
 use crate::core::queries::{
-    ensure_product, fetch_depends_on, fetch_entry, fetch_entry_by_subject, fetch_identifiers,
-    fetch_terms, replace_depends_on, replace_identifiers, replace_terms, snapshot_entry,
-    truncate_chars, update_fts,
+    effective_mode, ensure_product, fetch_depends_on, fetch_entry, fetch_entry_by_subject,
+    fetch_identifiers, fetch_terms, replace_depends_on, replace_identifiers, replace_terms,
+    snapshot_entry, truncate_chars, update_fts,
 };
 use crate::core::redact::redact_text;
 use crate::core::time::now_iso;
@@ -208,12 +208,14 @@ fn insert_entry(
     input: &ProposeInput,
     source: &str,
     timestamp: &str,
+    proposed_by: &str,
 ) -> KbResult<i64> {
     conn.execute(
         "INSERT INTO entries
          (product_id, subject_key, kind, title, symptom, cause, correction, example,
-          status, product_version, source, use_count, fail_count, version, created_at, updated_at)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, 'non_teste', ?9, ?10, 0, 0, 1, ?11, ?11)",
+          status, product_version, source, use_count, fail_count, version, created_at, updated_at,
+          proposed_by)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, 'non_teste', ?9, ?10, 0, 0, 1, ?11, ?11, ?12)",
         params![
             product_id,
             input.subject_key,
@@ -225,7 +227,8 @@ fn insert_entry(
             input.example,
             input.product_version,
             source,
-            timestamp
+            timestamp,
+            proposed_by
         ],
     )
     .map_err(KbError::Db)?;
@@ -309,22 +312,20 @@ pub fn propose(
             let current_id = 0;
             validate_depends(&tx, &input.product_id, &input.depends_on, current_id)?;
             check_identifier_conflicts(&tx, &input.product_id, &identifiers, current_id)?;
-            let new_id = insert_entry(&tx, &input.product_id, &sanitized, &source, &timestamp)?;
+            let new_id = insert_entry(
+                &tx,
+                &input.product_id,
+                &sanitized,
+                &source,
+                &timestamp,
+                &ctx.actor,
+            )?;
             replace_terms(&tx, new_id, &sanitized.terms)?;
             replace_identifiers(&tx, new_id, &input.product_id, &identifiers)?;
             replace_depends_on(&tx, new_id, &input.depends_on)?;
             update_fts(&tx, new_id)?;
 
-            // Auto-validation immédiate si prouvé par l'agent
-            let final_status = if input.auto_validate.unwrap_or(false) {
-                tx.execute(
-                    "UPDATE entries SET status='valide', validated_by=?1, validated_at=?2, updated_at=?2 WHERE entry_id=?3",
-                    params![format!("agent:auto_test:{}", ctx.actor), timestamp, new_id],
-                ).map_err(KbError::Db)?;
-                "valide".to_string()
-            } else {
-                "non_teste".to_string()
-            };
+            let final_status = "non_teste".to_string();
 
             (new_id, 1, final_status)
         }
@@ -381,7 +382,8 @@ pub fn propose(
                 "UPDATE entries SET
                     kind = ?1, title = ?2, symptom = ?3, cause = ?4, correction = ?5,
                     example = ?6, status = 'non_teste', product_version = ?7, source = ?8,
-                    validated_by = NULL, validated_at = NULL,
+                    validated_by = NULL, validated_at = NULL, validation_mode = NULL,
+                    proposed_by = ?11,
                     version = version + 1, updated_at = ?9
                  WHERE entry_id = ?10",
                 params![
@@ -394,7 +396,8 @@ pub fn propose(
                     sanitized.product_version,
                     source,
                     timestamp,
-                    current.entry_id
+                    current.entry_id,
+                    ctx.actor
                 ],
             )
             .map_err(KbError::Db)?;
@@ -476,6 +479,7 @@ pub fn get(conn: &Connection, input: &GetInput) -> KbResult<EntryFull> {
                     .split_whitespace()
                     .collect::<Vec<_>>()
                     .join(" ");
+                let dep_mode = effective_mode(&dep.status, dep.validation_mode.as_deref());
                 summaries.push(EntrySummary {
                     entry_id: dep.entry_id,
                     subject_key: dep.subject_key,
@@ -485,6 +489,7 @@ pub fn get(conn: &Connection, input: &GetInput) -> KbResult<EntryFull> {
                     version: dep.version,
                     excerpt: truncate_chars(&excerpt, 220),
                     score: 0.0,
+                    validation_mode: dep_mode,
                 });
             }
         }

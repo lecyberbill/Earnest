@@ -185,7 +185,7 @@ END;
 
 ## Outils exposés au LLM
 
-Le serveur MCP expose six outils. Les entrées sont validées par un schéma JSON ; toute réponse est un objet JSON. Les actions réservées à l'humain (validation, édition d'une entrée validée, archivage, restauration) n'existent que dans la ligne de commande.
+Le serveur MCP expose huit outils : les six d'origine et `kb_confirm` et `kb_attach_repro` (voir la section « Évolutions »). Les entrées sont validées par un schéma JSON ; toute réponse est un objet JSON. Les actions réservées à l'humain (validation, édition d'une entrée validée, archivage, restauration) n'existent que dans la ligne de commande.
 
 | Outil | Entrées principales | Sortie |
 | --- | --- | --- |
@@ -322,7 +322,7 @@ La commande `kb log-extract <fichier>` produit l'extrait transmis à `kb_report_
 | Domaine | Exigence |
 | --- | --- |
 | Capacité | Jusqu'à 10 000 entrées et 100 000 identifiants sans dégradation mesurable. |
-| Performance | `kb_search` et `kb_get` : moins de 100 ms (95e centile) à 10 000 entrées. `kb_check` : moins de 1 s pour un script de 2 000 lignes. |
+| Performance | `kb_search` et `kb_get` : moins de 500 ms (95e centile ; seuil assoupli le 16 nov. 2026, base locale mono-utilisateur, marge pour machines modestes) à 10 000 entrées. `kb_check` : moins de 1 s pour un script de 2 000 lignes. |
 | Taille des champs | Titre 120 caractères max, `correction` 4 000, `example` 2 000, `symptom` et `cause` 1 000 chacun. Au-delà : `invalid_argument`. |
 | Intégrité | Une écriture d'entrée, de mots-clés, d'identifiants, d'historique et d'index est une seule transaction. |
 | Sauvegarde | Copie quotidienne de la base par la commande `backup` (API de sauvegarde SQLite), conservée 30 jours. La restauration se fait par copie du fichier. |
@@ -341,6 +341,41 @@ La commande `kb log-extract <fichier>` produit l'extrait transmis à `kb_report_
 **Journal du serveur**
 
 Chaque appel d'outil génère une ligne au format de la section Journalisation : nom de l'outil, produit, durée, nombre de résultats ou code d'erreur. Les arguments texte (`correction`, `log_excerpt`) n'y sont pas copiés.
+
+## Évolutions : validation sur preuve, rejeu, recherche, adoption (nov. 2026)
+
+Ces évolutions remplacent le champ `auto_validate` de `kb_propose` (supprimé : `kb_propose` ne peut plus jamais produire une entrée `valide`). Invariants et sondes : `tests/INVARIANTS.md` (P01 à P17), `tests/improvements.rs`.
+
+**Validation automatique sur preuve (outil `kb_confirm`)**
+
+- `kb_confirm` : `entry_id`, `command`, `exit_code` (doit valoir 0), `output_excerpt`, `note`?. Sans commande, sans extrait ou avec un code non nul : `invalid_argument`, aucune écriture. Un échec se signale avec `kb_record_outcome` (`ko`).
+- Chaque confirmation écrit un `ok` dans `entry_outcomes` et une ligne dans `entry_evidence` (version de l'entrée, auteur, commande, code, extrait).
+- Une entrée `non_teste` ou `a_revoir` passe à `valide` avec `validation_mode = 'auto'` et `validated_by = 'auto:<n>-sessions'` quand au moins `min_confirmations` (config/validation.yaml, 2 par défaut) sessions distinctes de son auteur (`proposed_by`) ont confirmé la version courante depuis le dernier échec. Une session = un vote ; la confirmation de l'auteur est enregistrée mais ne compte pas (`counted: false`). Identité de session : un processus `kb serve` = un acteur `agent:mcp#<pid>-<horodatage>`.
+- Un `ko`, un changement de version produit, une restauration ou une modification de contenu remettent le compteur à zéro (`entries.evidence_floor`, `entry_evidence.entry_version`).
+- Le statut reste `valide` : `valide` + `validation_mode='auto'` est exposé par `kb_search`, `kb_get` et `kb_check` (`entries_liees`). Écart au projet initial d'un statut `valide_auto` : une colonne évite la reconstruction de la table (contrainte `CHECK` sur `status`) dans les bases existantes.
+- Les entrées `valide` antérieures (`validation_mode` NULL) sont des validations humaines.
+- Humain : `kb review` liste les entrées validées automatiquement (les plus utilisées d'abord) ; `kb validate <id>...` (plusieurs identifiants) les passe en `validation_mode='humain'` ; `kb archive` les rejette.
+
+**Rejeu de cas de test (outil `kb_attach_repro`, commandes `kb approve-repro` et `kb revalidate`)**
+
+- `kb_attach_repro` : `entry_id`, `runner`, `script`, `expected_exit`?, `expected_contains`?. Le runner doit être déclaré dans `config/runners.yaml` (aucun par défaut). Le serveur MCP n'exécute jamais rien.
+- `kb approve-repro <id> --by humain:nom` affiche le script et l'approuve pour la version de contenu courante.
+- `kb revalidate [--product p] [--entry id]` rejoue, sans shell et avec délai maximal, les cas approuvés des entrées `a_revoir`. Réussite : `valide`/`auto`, `product_version` alignée sur la version courante du produit. Échec : `ko` (+1 `fail_count`). Erreur de lancement ou de délai : remontée, entrée inchangée. Code de sortie non nul s'il y a un échec ou une erreur. Les cas non approuvés ou dont l'approbation porte sur une autre version ne sont pas exécutés.
+- `src/core/repro.rs` est le seul module qui lance un processus.
+
+**Recherche**
+
+- Trois étapes, la suivante n'étant tentée que si la précédente ne trouve rien : mots exacts (`match_mode: "exact"`), préfixes pour les mots de trois caractères ou plus (`"prefix"`, `attend` trouve `attendre`), puis fragments sur un index trigramme (`entries_fts_tri`, dérivé comme `entries_fts`) (`"fragment"`). Un terme absent reste `covered: false`.
+
+**Péremption par version**
+
+- `version_segments` (config/validation.yaml) : nombre de segments comparés par `product-version` ; 0 (défaut) = comparaison stricte.
+
+**Adoption (hors binaire)**
+
+- `hooks/kb_adoption.ps1` (Claude Code) : rappel `kb_check` après l'écriture d'un script ; blocage de la fin de tour tant qu'un script écrit n'a pas été suivi d'un appel `kb_check`. Configuration : `hooks/kb_adoption.json` ; exemple de `settings.json` : `hooks/settings.example.json`.
+
+**Migration** : `kb` ajoute les colonnes et tables manquantes à l'ouverture d'une base existante et peuple l'index trigramme.
 
 ## Risques résiduels et choix assumés
 
@@ -362,7 +397,7 @@ Chaque critère correspond à un test automatisé exécuté sur une base tempora
 | A1 | `kb_propose` deux fois sur le même couple (produit, sujet). | Une seule entrée, `version` = 2, une ligne dans `entry_history`. |
 | A2 | `kb_propose` avec un `expected_version` périmé. | `version_conflict`, aucune écriture. |
 | A3 | `kb_propose` avec un champ `status`. | `invalid_argument` ; sans ce champ, l'entrée est créée `non_teste`. |
-| A4 | Liste des outils MCP. | Aucun outil ne permet de passer une entrée à `valide`, d'archiver ou de supprimer. |
+| A4 | Liste des outils MCP. | Huit outils ; aucun ne permet de passer une entrée à `valide` directement, d'archiver ou de supprimer (la promotion passe par `kb_confirm`, voir « Évolutions »). |
 | A5 | `UPDATE entries SET status='valide'` sans `validated_by`. | Échec de la contrainte `CHECK`. |
 | A6 | Entrée avec mots-clés `attendre`, `pause`, `wait` ; recherche `pause`, puis `xyzzy`. | Première recherche : l'entrée. Seconde : liste vide, `covered: false` et message « non couvert ou non validé ». |
 | A7 | Deux entrées de pertinence comparable, `valide` et `non_teste`, plus une `archive`. | La `valide` en premier (classement par statut, puis pertinence) ; l'`archive` absente. |

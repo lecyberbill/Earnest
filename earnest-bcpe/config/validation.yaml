@@ -1,0 +1,8 @@
+# Règles de promotion automatique et de péremption.
+validation:
+  # Nombre de sessions distinctes de l'auteur, chacune avec une preuve d'exécution
+  # (kb_confirm), nécessaires pour passer une entrée à valide (validation_mode=auto).
+  min_confirmations: 2
+  # Nombre de segments de version comparés pour la péremption (kb product-version).
+  # 0 = comparaison stricte de tous les segments ; 2 = seuls major.minor comptent.
+  version_segments: 0

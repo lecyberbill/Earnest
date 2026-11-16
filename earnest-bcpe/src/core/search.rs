@@ -2,7 +2,7 @@ use rusqlite::params_from_iter;
 use rusqlite::types::Value;
 use rusqlite::Connection;
 
-use crate::core::queries::{ensure_product, truncate_chars};
+use crate::core::queries::{effective_mode, ensure_product, truncate_chars};
 use crate::error::{KbError, KbResult};
 use crate::models::{EntrySummary, SearchInput, SearchResponse};
 
@@ -23,7 +23,7 @@ fn validate_kinds(kinds: &[String]) -> KbResult<()> {
     Ok(())
 }
 
-fn build_match_expression(query: Option<&str>, terms: &[String]) -> KbResult<String> {
+fn collect_tokens(query: Option<&str>, terms: &[String]) -> KbResult<Vec<String>> {
     let mut tokens: Vec<String> = Vec::new();
     if let Some(query) = query {
         for token in query.split_whitespace() {
@@ -44,11 +44,55 @@ fn build_match_expression(query: Option<&str>, terms: &[String]) -> KbResult<Str
             "query ou terms[] doit fournir au moins un mot recherché",
         ));
     }
-    let quoted: Vec<String> = tokens
+    Ok(tokens)
+}
+
+fn quote(token: &str) -> String {
+    format!("\"{}\"", token.replace('"', "\"\""))
+}
+
+/// Étape 1 : mots exacts.
+fn exact_expression(tokens: &[String]) -> String {
+    tokens
         .iter()
-        .map(|token| format!("\"{}\"", token.replace('"', "\"\"")))
+        .map(|token| quote(token))
+        .collect::<Vec<_>>()
+        .join(" OR ")
+}
+
+/// Étape 2 : préfixe dès 3 caractères (`attend` trouve `attendre`). Plus coûteux que l'étape 1,
+/// donc exécuté seulement si l'étape 1 ne trouve rien.
+fn prefix_expression(tokens: &[String]) -> Option<String> {
+    if !tokens.iter().any(|token| token.chars().count() >= 3) {
+        return None;
+    }
+    Some(
+        tokens
+            .iter()
+            .map(|token| {
+                if token.chars().count() >= 3 {
+                    format!("{}*", quote(token))
+                } else {
+                    quote(token)
+                }
+            })
+            .collect::<Vec<_>>()
+            .join(" OR "),
+    )
+}
+
+/// Étape 3 : repli sur l'index trigramme : sous-chaîne d'au moins 3 caractères.
+fn fragment_expression(tokens: &[String]) -> Option<String> {
+    let parts: Vec<String> = tokens
+        .iter()
+        .filter(|token| token.chars().count() >= 3)
+        .map(|token| quote(token))
         .collect();
-    Ok(quoted.join(" OR "))
+    if parts.is_empty() {
+        None
+    } else {
+        Some(parts.join(" OR "))
+    }
 }
 
 fn build_excerpt(correction: &str, symptom: Option<&str>) -> String {
@@ -59,6 +103,98 @@ fn build_excerpt(correction: &str, symptom: Option<&str>) -> String {
     };
     let flattened = base.split_whitespace().collect::<Vec<_>>().join(" ");
     truncate_chars(&flattened, 220)
+}
+
+struct Page {
+    results: Vec<EntrySummary>,
+    covered: bool,
+    more_available: bool,
+    total: i64,
+}
+
+fn run_query(
+    conn: &Connection,
+    table: &str,
+    match_expr: String,
+    input: &SearchInput,
+    limit: i64,
+    offset: i64,
+) -> KbResult<Page> {
+    let mut where_sql = format!("{table} MATCH ? AND e.product_id = ? AND e.status <> 'archive'");
+    let mut base_values: Vec<Value> = vec![
+        Value::Text(match_expr),
+        Value::Text(input.product_id.clone()),
+    ];
+    if !input.kinds.is_empty() {
+        let placeholders = vec!["?"; input.kinds.len()].join(", ");
+        where_sql.push_str(&format!(" AND e.kind IN ({placeholders})"));
+        for kind in &input.kinds {
+            base_values.push(Value::Text(kind.clone()));
+        }
+    }
+
+    let from_sql = format!("FROM {table} JOIN entries e ON e.entry_id = {table}.rowid");
+
+    let (total, covered): (i64, bool) = conn
+        .query_row(
+            &format!(
+                "SELECT COUNT(*), COALESCE(MAX(e.status = 'valide'), 0) {from_sql} WHERE {where_sql}"
+            ),
+            params_from_iter(base_values.iter()),
+            |row| Ok((row.get(0)?, row.get::<_, i64>(1)? != 0)),
+        )
+        .map_err(KbError::Db)?;
+
+    let mut page_values = base_values.clone();
+    page_values.push(Value::Integer(limit));
+    page_values.push(Value::Integer(offset));
+    let sql = format!(
+        "SELECT e.entry_id, e.subject_key, e.title, e.kind, e.status, e.version,
+                e.correction, e.symptom, bm25({table}) AS rank, e.validation_mode
+         {from_sql}
+         WHERE {where_sql}
+         ORDER BY CASE e.status
+                    WHEN 'valide' THEN 0
+                    WHEN 'non_teste' THEN 1
+                    WHEN 'a_revoir' THEN 2
+                    ELSE 3
+                  END,
+                  rank ASC, e.entry_id ASC
+         LIMIT ? OFFSET ?"
+    );
+    let mut stmt = conn.prepare(&sql).map_err(KbError::Db)?;
+    let rows = stmt
+        .query_map(params_from_iter(page_values.iter()), |row| {
+            let correction: String = row.get(6)?;
+            let symptom: Option<String> = row.get(7)?;
+            let rank: f64 = row.get(8)?;
+            let status: String = row.get(4)?;
+            let mode: Option<String> = row.get(9)?;
+            Ok(EntrySummary {
+                entry_id: row.get(0)?,
+                subject_key: row.get(1)?,
+                title: row.get(2)?,
+                kind: row.get(3)?,
+                validation_mode: effective_mode(&status, mode.as_deref()),
+                status,
+                version: row.get(5)?,
+                excerpt: build_excerpt(&correction, symptom.as_deref()),
+                score: -rank,
+            })
+        })
+        .map_err(KbError::Db)?;
+
+    let mut results = Vec::new();
+    for row in rows {
+        results.push(row.map_err(KbError::Db)?);
+    }
+    let more_available = total > offset + results.len() as i64;
+    Ok(Page {
+        results,
+        covered,
+        more_available,
+        total,
+    })
 }
 
 pub fn search(conn: &Connection, input: &SearchInput) -> KbResult<SearchResponse> {
@@ -80,96 +216,47 @@ pub fn search(conn: &Connection, input: &SearchInput) -> KbResult<SearchResponse
         Some(_) => return Err(KbError::invalid("offset doit être positif ou nul")),
     };
 
-    let match_expr = build_match_expression(input.query.as_deref(), &input.terms)?;
-
-    let mut where_sql =
-        String::from("entries_fts MATCH ? AND e.product_id = ? AND e.status <> 'archive'");
-    let mut base_values: Vec<Value> = vec![
-        Value::Text(match_expr),
-        Value::Text(input.product_id.clone()),
-    ];
-    if !input.kinds.is_empty() {
-        let placeholders = vec!["?"; input.kinds.len()].join(", ");
-        where_sql.push_str(&format!(" AND e.kind IN ({placeholders})"));
-        for kind in &input.kinds {
-            base_values.push(Value::Text(kind.clone()));
+    let tokens = collect_tokens(input.query.as_deref(), &input.terms)?;
+    let mut match_mode = "exact";
+    let mut page = run_query(
+        conn,
+        "entries_fts",
+        exact_expression(&tokens),
+        input,
+        limit,
+        offset,
+    )?;
+    if page.total == 0 {
+        if let Some(expression) = prefix_expression(&tokens) {
+            let fallback = run_query(conn, "entries_fts", expression, input, limit, offset)?;
+            if fallback.total > 0 {
+                page = fallback;
+                match_mode = "prefix";
+            }
+        }
+    }
+    if page.total == 0 {
+        if let Some(expression) = fragment_expression(&tokens) {
+            let fallback = run_query(conn, "entries_fts_tri", expression, input, limit, offset)?;
+            if fallback.total > 0 {
+                page = fallback;
+                match_mode = "fragment";
+            }
         }
     }
 
-    let from_sql = "FROM entries_fts JOIN entries e ON e.entry_id = entries_fts.rowid";
-
-    let total: i64 = conn
-        .query_row(
-            &format!("SELECT COUNT(*) {from_sql} WHERE {where_sql}"),
-            params_from_iter(base_values.iter()),
-            |row| row.get(0),
-        )
-        .map_err(KbError::Db)?;
-
-    let covered: bool = conn
-        .query_row(
-            &format!(
-                "SELECT EXISTS(SELECT 1 {from_sql} WHERE {where_sql} AND e.status = 'valide')"
-            ),
-            params_from_iter(base_values.iter()),
-            |row| row.get::<_, i64>(0),
-        )
-        .map_err(KbError::Db)?
-        != 0;
-
-    let mut page_values = base_values.clone();
-    page_values.push(Value::Integer(limit));
-    page_values.push(Value::Integer(offset));
-    let sql = format!(
-        "SELECT e.entry_id, e.subject_key, e.title, e.kind, e.status, e.version,
-                e.correction, e.symptom, bm25(entries_fts) AS rank
-         {from_sql}
-         WHERE {where_sql}
-         ORDER BY CASE e.status
-                    WHEN 'valide' THEN 0
-                    WHEN 'non_teste' THEN 1
-                    WHEN 'a_revoir' THEN 2
-                    ELSE 3
-                  END,
-                  rank ASC, e.entry_id ASC
-         LIMIT ? OFFSET ?"
-    );
-    let mut stmt = conn.prepare(&sql).map_err(KbError::Db)?;
-    let rows = stmt
-        .query_map(params_from_iter(page_values.iter()), |row| {
-            let correction: String = row.get(6)?;
-            let symptom: Option<String> = row.get(7)?;
-            let rank: f64 = row.get(8)?;
-            Ok(EntrySummary {
-                entry_id: row.get(0)?,
-                subject_key: row.get(1)?,
-                title: row.get(2)?,
-                kind: row.get(3)?,
-                status: row.get(4)?,
-                version: row.get(5)?,
-                excerpt: build_excerpt(&correction, symptom.as_deref()),
-                score: -rank,
-            })
-        })
-        .map_err(KbError::Db)?;
-
-    let mut results = Vec::new();
-    for row in rows {
-        results.push(row.map_err(KbError::Db)?);
-    }
-
-    let more_available = total > offset + results.len() as i64;
-    let message = if covered {
+    let message = if page.covered {
         None
     } else {
         Some(COVERED_MESSAGE.to_string())
     };
 
     Ok(SearchResponse {
-        results,
-        covered,
-        more_available,
-        total,
+        results: page.results,
+        covered: page.covered,
+        more_available: page.more_available,
+        total: page.total,
+        match_mode,
         message,
     })
 }

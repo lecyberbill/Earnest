@@ -18,6 +18,9 @@ pub struct EntrySummary {
     pub version: i64,
     pub excerpt: String,
     pub score: f64,
+    /// `humain` ou `auto` pour une entrée `valide` ; absent sinon.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub validation_mode: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -41,6 +44,10 @@ pub struct EntryRow {
     pub version: i64,
     pub created_at: String,
     pub updated_at: String,
+    #[serde(default)]
+    pub validation_mode: Option<String>,
+    #[serde(default)]
+    pub proposed_by: Option<String>,
 }
 
 impl EntryRow {
@@ -65,6 +72,8 @@ impl EntryRow {
             version: row.get("version")?,
             created_at: row.get("created_at")?,
             updated_at: row.get("updated_at")?,
+            validation_mode: row.get("validation_mode")?,
+            proposed_by: row.get("proposed_by")?,
         })
     }
 }
@@ -131,8 +140,6 @@ pub struct ProposeInput {
     pub incident_id: Option<i64>,
     #[serde(default)]
     pub expected_version: Option<i64>,
-    #[serde(default)]
-    pub auto_validate: Option<bool>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -165,6 +172,9 @@ pub struct SearchResponse {
     pub covered: bool,
     pub more_available: bool,
     pub total: i64,
+    /// `exact` (mots entiers), `prefix` (repli par préfixe) ou `fragment` (repli par sous-chaîne,
+    /// plus approximatif).
+    pub match_mode: &'static str,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub message: Option<String>,
 }
@@ -199,6 +209,8 @@ pub struct LinkedEntry {
     pub replaced_by: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub correction: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub validation_mode: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -285,5 +297,78 @@ pub struct LintFinding {
     pub entry_id: Option<i64>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub identifier: Option<String>,
+    pub detail: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct ConfirmInput {
+    pub entry_id: i64,
+    /// Commande réellement exécutée pour confirmer l'entrée.
+    pub command: String,
+    /// Code de sortie observé ; seule la valeur 0 confirme (sinon kb_record_outcome avec ko).
+    pub exit_code: i64,
+    /// Extrait de la sortie réelle (journal, résultat des contrôles internes).
+    pub output_excerpt: String,
+    #[serde(default)]
+    pub note: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct ConfirmResult {
+    pub entry_id: i64,
+    pub status: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub validation_mode: Option<String>,
+    /// Sessions distinctes de l'auteur ayant confirmé la version courante depuis le dernier échec.
+    pub confirmations: i64,
+    pub required: i64,
+    pub promoted: bool,
+    /// Faux si la confirmation vient de l'auteur de l'entrée : elle est enregistrée mais ne compte pas.
+    pub counted: bool,
+    pub use_count: i64,
+    pub version: i64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct AttachReproInput {
+    pub entry_id: i64,
+    /// Nom d'un runner déclaré dans config/runners.yaml.
+    pub runner: String,
+    /// Script minimal de rejeu (jamais exécuté par le serveur MCP).
+    pub script: String,
+    #[serde(default)]
+    pub expected_exit: Option<i64>,
+    #[serde(default)]
+    pub expected_contains: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct AttachReproResult {
+    pub entry_id: i64,
+    pub runner: String,
+    pub approved: bool,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct ReviewItem {
+    pub entry_id: i64,
+    pub product_id: String,
+    pub subject_key: String,
+    pub title: String,
+    pub validated_by: Option<String>,
+    pub validated_at: Option<String>,
+    pub use_count: i64,
+    pub fail_count: i64,
+    pub source: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct ReplayReport {
+    pub entry_id: i64,
+    pub subject_key: String,
+    /// `ok`, `echec`, `erreur`, `non_approuve` ou `approbation_perimee`.
+    pub outcome: &'static str,
     pub detail: String,
 }

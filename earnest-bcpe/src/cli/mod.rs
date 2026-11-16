@@ -8,9 +8,10 @@ use crate::config::{default_data_dir, default_db_path, AppConfig};
 use crate::core::check::check;
 use crate::core::incidents::{log_extract, report_incident};
 use crate::core::lifecycle::{
-    archive, audit_sample, backup, edit, import_lexicon, lint, product_version, reindex, restore,
-    validate, EditPatch,
+    approve_repro, archive, audit_sample, backup, edit, import_lexicon, lint, product_version_with,
+    reindex, restore, review_queue, validate, EditPatch,
 };
+use crate::core::repro::revalidate;
 use crate::core::time::now_iso;
 use crate::db;
 use crate::error::{KbError, KbResult};
@@ -36,11 +37,35 @@ struct Cli {
 enum Command {
     #[command(about = "Lance le serveur MCP sur stdin/stdout")]
     Serve,
-    #[command(about = "Valide une entree (humain)")]
+    #[command(about = "Valide une ou plusieurs entrees (humain)")]
     Validate {
+        #[arg(required = true, num_args = 1..)]
+        entry_ids: Vec<i64>,
+        #[arg(long, default_value = "humain:local")]
+        by: String,
+    },
+    #[command(about = "Liste les entrees validees automatiquement, a relire")]
+    Review {
+        #[arg(long)]
+        product: Option<String>,
+        #[arg(long)]
+        json: bool,
+    },
+    #[command(
+        name = "approve-repro",
+        about = "Approuve le cas de test joint a une entree (humain)"
+    )]
+    ApproveRepro {
         entry_id: i64,
         #[arg(long, default_value = "humain:local")]
         by: String,
+    },
+    #[command(about = "Rejoue les cas de test approuves des entrees a_revoir")]
+    Revalidate {
+        #[arg(long)]
+        product: Option<String>,
+        #[arg(long)]
+        entry: Option<i64>,
     },
     #[command(about = "Edite une entree (humain)")]
     Edit {
@@ -144,13 +169,68 @@ pub fn run() -> KbResult<()> {
             let mut server = McpServer::new(conn, config);
             server.run_stdio()
         }
-        Command::Validate { entry_id, by } => {
+        Command::Validate { entry_ids, by } => {
             let mut conn = open_db(&db_path)?;
-            let entry = validate(&mut conn, entry_id, &by)?;
+            for entry_id in entry_ids {
+                let entry = validate(&mut conn, entry_id, &by)?;
+                println!(
+                    "entree {} validee par {} (statut={})",
+                    entry.entry_id, by, entry.status
+                );
+            }
+            Ok(())
+        }
+        Command::Review { product, json } => {
+            let conn = open_db(&db_path)?;
+            let items = review_queue(&conn, product.as_deref())?;
+            if json {
+                println!("{}", serde_json::to_string_pretty(&items)?);
+            } else if items.is_empty() {
+                println!("aucune entree validee automatiquement a relire");
+            } else {
+                for item in items {
+                    println!(
+                        "{}\t{}/{}\tusages={} echecs={}\t{}",
+                        item.entry_id,
+                        item.product_id,
+                        item.subject_key,
+                        item.use_count,
+                        item.fail_count,
+                        item.title
+                    );
+                }
+            }
+            Ok(())
+        }
+        Command::ApproveRepro { entry_id, by } => {
+            let mut conn = open_db(&db_path)?;
+            let (runner, script) = approve_repro(&mut conn, entry_id, &by)?;
             println!(
-                "entree {} validee par {} (statut={})",
-                entry.entry_id, by, entry.status
+                "cas de test de l'entree {entry_id} approuve par {by} (runner={runner}).\nScript approuve:\n{script}"
             );
+            Ok(())
+        }
+        Command::Revalidate { product, entry } => {
+            let mut conn = open_db(&db_path)?;
+            let reports = revalidate(&mut conn, &config, product.as_deref(), entry)?;
+            let mut failures = 0usize;
+            for report in &reports {
+                println!(
+                    "entree {} ({}): {} - {}",
+                    report.entry_id, report.subject_key, report.outcome, report.detail
+                );
+                if matches!(report.outcome, "echec" | "erreur") {
+                    failures += 1;
+                }
+            }
+            if reports.is_empty() {
+                println!("aucun rejeu a effectuer (aucune entree a_revoir avec cas de test)");
+            }
+            if failures > 0 {
+                return Err(KbError::Internal(format!(
+                    "{failures} rejeu(x) en echec ou en erreur"
+                )));
+            }
             Ok(())
         }
         Command::Edit {
@@ -218,7 +298,12 @@ pub fn run() -> KbResult<()> {
         }
         Command::ProductVersion { product, version } => {
             let mut conn = open_db(&db_path)?;
-            let updated = product_version(&mut conn, &product, &version)?;
+            let updated = product_version_with(
+                &mut conn,
+                &product,
+                &version,
+                config.validation.version_segments,
+            )?;
             println!(
                 "version de {} = {}; {} entree(s) passee(s) a a_revoir",
                 product,

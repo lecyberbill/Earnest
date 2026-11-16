@@ -37,6 +37,24 @@ pub fn versions_equal(left: &str, right: &str) -> bool {
     normalize(left) == normalize(right)
 }
 
+/// Égalité sur les `segments` premiers segments seulement (0 = tous les segments).
+pub fn versions_match(left: &str, right: &str, segments: usize) -> bool {
+    if segments == 0 {
+        return versions_equal(left, right);
+    }
+    if !is_valid_version(left) || !is_valid_version(right) {
+        return false;
+    }
+    let truncate = |value: &str| -> String {
+        value
+            .split('.')
+            .take(segments)
+            .collect::<Vec<_>>()
+            .join(".")
+    };
+    versions_equal(&truncate(left), &truncate(right))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -49,6 +67,15 @@ mod tests {
         assert!(!is_valid_version("2.x"));
         assert!(!is_valid_version("2."));
         assert!(!is_valid_version(""));
+    }
+
+    #[test]
+    fn compares_on_significant_segments() {
+        assert!(versions_match("2.0", "2.0.5", 2));
+        assert!(versions_match("2.0.1", "2.0.9", 2));
+        assert!(!versions_match("2.0", "2.1.0", 2));
+        assert!(!versions_match("2.0", "2.0.5", 0));
+        assert!(versions_match("2", "2.0.5", 2));
     }
 
     #[test]

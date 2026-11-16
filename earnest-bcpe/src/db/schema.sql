@@ -29,6 +29,9 @@ CREATE TABLE IF NOT EXISTS entries (
   version         INTEGER NOT NULL DEFAULT 1,
   created_at      TEXT    NOT NULL,
   updated_at      TEXT    NOT NULL,
+  validation_mode TEXT    CHECK (validation_mode IN ('humain','auto')),
+  proposed_by     TEXT,
+  evidence_floor  INTEGER NOT NULL DEFAULT 0,
   UNIQUE (product_id, subject_key),
   CHECK (status <> 'valide' OR (validated_by IS NOT NULL AND validated_at IS NOT NULL))
 );
@@ -94,9 +97,40 @@ CREATE TABLE IF NOT EXISTS incidents (
   created_at  TEXT NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS entry_evidence (
+  evidence_id    INTEGER PRIMARY KEY AUTOINCREMENT,
+  entry_id       INTEGER NOT NULL REFERENCES entries(entry_id),
+  entry_version  INTEGER NOT NULL,
+  actor          TEXT    NOT NULL,
+  command        TEXT    NOT NULL,
+  exit_code      INTEGER NOT NULL,
+  output_excerpt TEXT    NOT NULL,
+  note           TEXT,
+  created_at     TEXT    NOT NULL
+);
+CREATE INDEX IF NOT EXISTS entry_evidence_entry ON entry_evidence (entry_id, entry_version);
+
+CREATE TABLE IF NOT EXISTS entry_repro (
+  entry_id          INTEGER PRIMARY KEY REFERENCES entries(entry_id),
+  runner            TEXT    NOT NULL,
+  script            TEXT    NOT NULL,
+  expected_exit     INTEGER NOT NULL DEFAULT 0,
+  expected_contains TEXT,
+  attached_by       TEXT    NOT NULL,
+  attached_at       TEXT    NOT NULL,
+  approved_by       TEXT,
+  approved_at       TEXT,
+  approved_version  INTEGER
+);
+
 CREATE VIRTUAL TABLE IF NOT EXISTS entries_fts USING fts5(
   title, symptom, cause, correction, terms,
   tokenize='unicode61 remove_diacritics 2'
+);
+
+CREATE VIRTUAL TABLE IF NOT EXISTS entries_fts_tri USING fts5(
+  title, symptom, cause, correction, terms,
+  tokenize='trigram'
 );
 
 CREATE TRIGGER IF NOT EXISTS identifiers_product_check

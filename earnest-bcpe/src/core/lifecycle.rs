@@ -4,21 +4,25 @@ use std::path::{Path, PathBuf};
 
 use chrono::Utc;
 use rusqlite::types::Value;
-use rusqlite::{params, params_from_iter, Connection};
+use rusqlite::{params, params_from_iter, Connection, OptionalExtension};
 
 use crate::config::AppConfig;
 use crate::core::entries::{
     check_identifier_conflicts, identifiers_from_inputs, validate_depends, validate_kind,
 };
+use crate::core::queries::effective_mode;
 use crate::core::queries::{
     ensure_product, fetch_depends_on, fetch_entry, replace_depends_on, replace_identifiers,
     replace_terms, snapshot_entry, update_fts,
 };
 use crate::core::redact::redact_text;
 use crate::core::time::{days_ago_iso, now_iso};
-use crate::core::version::{is_valid_version, versions_equal};
+use crate::core::version::{is_valid_version, versions_match};
 use crate::error::{KbError, KbResult};
-use crate::models::{IdentifierInput, LintFinding, OutcomeInput, OutcomeResult};
+use crate::models::{
+    AttachReproInput, AttachReproResult, ConfirmInput, ConfirmResult, IdentifierInput, LintFinding,
+    OutcomeInput, OutcomeResult, ReviewItem,
+};
 
 fn require_entry(conn: &Connection, entry_id: i64) -> KbResult<crate::models::EntryRow> {
     fetch_entry(conn, entry_id)?
@@ -31,17 +35,20 @@ pub fn validate(
     validator: &str,
 ) -> KbResult<crate::models::EntryRow> {
     let entry = require_entry(conn, entry_id)?;
-    if !matches!(entry.status.as_str(), "non_teste" | "a_revoir") {
-        return Err(KbError::ForbiddenStatus(format!(
-            "transition {} -> valide refusée; seules les entrées non_teste ou a_revoir peuvent être validées",
-            entry.status
-        )));
-    }
     if validator.trim().is_empty() {
         return Err(KbError::invalid("le nom du valideur est obligatoire"));
     }
+    let auto_validated =
+        entry.status == "valide" && entry.validation_mode.as_deref() == Some("auto");
+    if !auto_validated && !matches!(entry.status.as_str(), "non_teste" | "a_revoir") {
+        return Err(KbError::ForbiddenStatus(format!(
+            "transition {} -> valide refusée; seules les entrées non_teste, a_revoir ou validées              automatiquement (validation_mode=auto) peuvent être validées par un humain",
+            entry.status
+        )));
+    }
     conn.execute(
-        "UPDATE entries SET status='valide', validated_by=?1, validated_at=?2, updated_at=?2
+        "UPDATE entries SET status='valide', validated_by=?1, validated_at=?2, updated_at=?2,
+                validation_mode='humain'
          WHERE entry_id=?3",
         params![validator, now_iso(), entry_id],
     )
@@ -57,7 +64,7 @@ pub fn archive(conn: &mut Connection, entry_id: i64) -> KbResult<crate::models::
         ));
     }
     conn.execute(
-        "UPDATE entries SET status='archive' WHERE entry_id=?1",
+        "UPDATE entries SET status='archive', validation_mode=NULL WHERE entry_id=?1",
         params![entry_id],
     )
     .map_err(KbError::Db)?;
@@ -74,6 +81,8 @@ pub fn restore(conn: &mut Connection, entry_id: i64) -> KbResult<crate::models::
     }
     conn.execute(
         "UPDATE entries SET status='non_teste', validated_by=NULL, validated_at=NULL,
+         validation_mode=NULL,
+         evidence_floor=(SELECT COALESCE(MAX(evidence_id), 0) FROM entry_evidence),
          updated_at=?1 WHERE entry_id=?2",
         params![now_iso(), entry_id],
     )
@@ -237,6 +246,14 @@ pub fn edit(
     )
     .map_err(KbError::Db)?;
 
+    if was_valid {
+        tx.execute(
+            "UPDATE entries SET validation_mode='humain' WHERE entry_id=?1",
+            params![entry_id],
+        )
+        .map_err(KbError::Db)?;
+    }
+
     if let Some(terms) = &patch.terms {
         replace_terms(&tx, entry_id, terms)?;
     }
@@ -256,6 +273,17 @@ pub fn product_version(
     conn: &mut Connection,
     product_id: &str,
     version: &str,
+) -> KbResult<Vec<i64>> {
+    product_version_with(conn, product_id, version, 0)
+}
+
+/// Comme `product_version`, en ne comparant que les `segments` premiers segments de version
+/// (0 = comparaison stricte de tous les segments).
+pub fn product_version_with(
+    conn: &mut Connection,
+    product_id: &str,
+    version: &str,
+    segments: usize,
 ) -> KbResult<Vec<i64>> {
     ensure_product(conn, product_id)?;
     if !is_valid_version(version) {
@@ -285,7 +313,7 @@ pub fn product_version(
             .map_err(KbError::Db)?;
         for row in rows {
             let (entry_id, entry_version) = row.map_err(KbError::Db)?;
-            if !versions_equal(&entry_version, version) {
+            if !versions_match(&entry_version, version, segments) {
                 to_review.push(entry_id);
             }
         }
@@ -293,7 +321,9 @@ pub fn product_version(
     let timestamp = now_iso();
     for entry_id in &to_review {
         tx.execute(
-            "UPDATE entries SET status='a_revoir', updated_at=?1 WHERE entry_id=?2",
+            "UPDATE entries SET status='a_revoir', validation_mode=NULL, updated_at=?1,
+                    evidence_floor=(SELECT COALESCE(MAX(evidence_id), 0) FROM entry_evidence)
+             WHERE entry_id=?2",
             params![timestamp, entry_id],
         )
         .map_err(KbError::Db)?;
@@ -590,6 +620,8 @@ pub fn reindex(conn: &mut Connection) -> KbResult<usize> {
     let tx = conn.transaction().map_err(KbError::Db)?;
     tx.execute("DELETE FROM entries_fts", [])
         .map_err(KbError::Db)?;
+    tx.execute("DELETE FROM entries_fts_tri", [])
+        .map_err(KbError::Db)?;
     for entry_id in &ids {
         update_fts(&tx, *entry_id)?;
     }
@@ -678,7 +710,9 @@ pub fn record_outcome(
     } else {
         tx.execute(
             "UPDATE entries SET fail_count = fail_count + 1,
-                status = CASE WHEN status='valide' THEN 'a_revoir' ELSE status END
+                status = CASE WHEN status='valide' THEN 'a_revoir' ELSE status END,
+                validation_mode = NULL,
+                evidence_floor = (SELECT COALESCE(MAX(evidence_id), 0) FROM entry_evidence)
              WHERE entry_id = ?1",
             params![entry.entry_id],
         )
@@ -694,4 +728,256 @@ pub fn record_outcome(
         status: updated.status,
         version: updated.version,
     })
+}
+
+fn trimmed_limited(value: &str, field: &str, max: usize) -> KbResult<String> {
+    let trimmed = value.trim();
+    if trimmed.is_empty() {
+        return Err(KbError::invalid(format!("{field} ne peut pas être vide")));
+    }
+    if char_len(trimmed) > max {
+        return Err(KbError::invalid(format!(
+            "{field} limité à {max} caractères"
+        )));
+    }
+    Ok(trimmed.to_string())
+}
+
+/// Confirmation par exécution : enregistre un succès avec preuve et promeut l'entrée en
+/// `valide` (validation_mode=auto) quand assez de sessions distinctes de l'auteur ont confirmé
+/// la version courante depuis le dernier échec.
+pub fn confirm(
+    conn: &mut Connection,
+    config: &AppConfig,
+    input: &ConfirmInput,
+    actor: &str,
+) -> KbResult<ConfirmResult> {
+    let entry = require_entry(conn, input.entry_id)?;
+    if entry.status == "archive" {
+        return Err(KbError::ForbiddenStatus(
+            "l'entrée est archivée; une confirmation ne s'applique pas".to_string(),
+        ));
+    }
+    let command = redact_text(config, &trimmed_limited(&input.command, "command", 1000)?);
+    let excerpt = redact_text(
+        config,
+        &trimmed_limited(&input.output_excerpt, "output_excerpt", 2000)?,
+    );
+    if input.exit_code != 0 {
+        return Err(KbError::invalid(
+            "exit_code doit valoir 0 pour confirmer; un échec se signale avec kb_record_outcome (ko + note)",
+        ));
+    }
+    let note = input
+        .note
+        .as_ref()
+        .map(|value| redact_text(config, value))
+        .filter(|value| !value.trim().is_empty());
+    if note.as_deref().map(char_len).unwrap_or(0) > 4000 {
+        return Err(KbError::invalid("note limitée à 4000 caractères"));
+    }
+
+    let timestamp = now_iso();
+    let required = config.validation.min_confirmations;
+    let tx = conn.transaction().map_err(KbError::Db)?;
+    tx.execute(
+        "INSERT INTO entry_outcomes (entry_id, outcome, note, actor, created_at)
+         VALUES (?1, 'ok', ?2, ?3, ?4)",
+        params![entry.entry_id, note, actor, timestamp],
+    )
+    .map_err(KbError::Db)?;
+    tx.execute(
+        "UPDATE entries SET use_count = use_count + 1 WHERE entry_id = ?1",
+        params![entry.entry_id],
+    )
+    .map_err(KbError::Db)?;
+    // Relecture sous transaction : version, plancher et auteur courants au moment de l'écriture.
+    let (version, floor, status, proposed_by): (i64, i64, String, Option<String>) = tx
+        .query_row(
+            "SELECT version, evidence_floor, status, proposed_by FROM entries WHERE entry_id = ?1",
+            params![entry.entry_id],
+            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
+        )
+        .map_err(KbError::Db)?;
+    let counted = proposed_by.as_deref() != Some(actor);
+    tx.execute(
+        "INSERT INTO entry_evidence
+         (entry_id, entry_version, actor, command, exit_code, output_excerpt, note, created_at)
+         VALUES (?1, ?2, ?3, ?4, 0, ?5, ?6, ?7)",
+        params![
+            entry.entry_id,
+            version,
+            actor,
+            command,
+            excerpt,
+            note,
+            timestamp
+        ],
+    )
+    .map_err(KbError::Db)?;
+    let confirmations: i64 = tx
+        .query_row(
+            "SELECT COUNT(DISTINCT actor) FROM entry_evidence
+             WHERE entry_id = ?1 AND entry_version = ?2 AND evidence_id > ?3
+               AND (?4 IS NULL OR actor <> ?4)",
+            params![entry.entry_id, version, floor, proposed_by],
+            |row| row.get(0),
+        )
+        .map_err(KbError::Db)?;
+    let mut promoted = false;
+    if matches!(status.as_str(), "non_teste" | "a_revoir") && confirmations >= required {
+        tx.execute(
+            "UPDATE entries SET status='valide', validation_mode='auto',
+                    validated_by=?1, validated_at=?2, updated_at=?2
+             WHERE entry_id=?3",
+            params![
+                format!("auto:{confirmations}-sessions"),
+                timestamp,
+                entry.entry_id
+            ],
+        )
+        .map_err(KbError::Db)?;
+        promoted = true;
+    }
+    tx.commit().map_err(KbError::Db)?;
+
+    let updated = require_entry(conn, entry.entry_id)?;
+    Ok(ConfirmResult {
+        entry_id: updated.entry_id,
+        validation_mode: effective_mode(&updated.status, updated.validation_mode.as_deref()),
+        status: updated.status,
+        confirmations,
+        required,
+        promoted,
+        counted,
+        use_count: updated.use_count,
+        version: updated.version,
+    })
+}
+
+/// Joint un cas de test reproductible à une entrée. Rien n'est exécuté ici : l'exécution
+/// n'a lieu que par `kb revalidate`, après approbation humaine (`kb approve-repro`).
+pub fn attach_repro(
+    conn: &mut Connection,
+    config: &AppConfig,
+    input: &AttachReproInput,
+    actor: &str,
+) -> KbResult<AttachReproResult> {
+    let entry = require_entry(conn, input.entry_id)?;
+    if entry.status == "archive" {
+        return Err(KbError::ForbiddenStatus(
+            "l'entrée est archivée; restaurez-la avant d'y joindre un rejeu".to_string(),
+        ));
+    }
+    if !config.runners.contains_key(&input.runner) {
+        let declared: Vec<&str> = config.runners.keys().map(String::as_str).collect();
+        let hint = if declared.is_empty() {
+            "aucun runner n'est déclaré dans config/runners.yaml".to_string()
+        } else {
+            format!("runners déclarés: {}", declared.join(", "))
+        };
+        return Err(KbError::invalid(format!(
+            "runner '{}' non déclaré; {hint}",
+            input.runner
+        )));
+    }
+    let script = redact_text(config, &trimmed_limited(&input.script, "script", 4000)?);
+    let expected_contains = match &input.expected_contains {
+        None => None,
+        Some(value) => Some(redact_text(
+            config,
+            &trimmed_limited(value, "expected_contains", 500)?,
+        )),
+    };
+    let expected_exit = input.expected_exit.unwrap_or(0);
+    conn.execute(
+        "INSERT INTO entry_repro
+           (entry_id, runner, script, expected_exit, expected_contains, attached_by, attached_at,
+            approved_by, approved_at, approved_version)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, NULL, NULL, NULL)
+         ON CONFLICT(entry_id) DO UPDATE SET
+           runner=excluded.runner, script=excluded.script, expected_exit=excluded.expected_exit,
+           expected_contains=excluded.expected_contains, attached_by=excluded.attached_by,
+           attached_at=excluded.attached_at,
+           approved_by=NULL, approved_at=NULL, approved_version=NULL",
+        params![
+            entry.entry_id,
+            input.runner,
+            script,
+            expected_exit,
+            expected_contains,
+            actor,
+            now_iso()
+        ],
+    )
+    .map_err(KbError::Db)?;
+    Ok(AttachReproResult {
+        entry_id: entry.entry_id,
+        runner: input.runner.clone(),
+        approved: false,
+    })
+}
+
+/// Approbation humaine du cas de test d'une entrée : seule cette approbation autorise son
+/// exécution, et uniquement pour la version de contenu approuvée.
+pub fn approve_repro(
+    conn: &mut Connection,
+    entry_id: i64,
+    approver: &str,
+) -> KbResult<(String, String)> {
+    let entry = require_entry(conn, entry_id)?;
+    if approver.trim().is_empty() {
+        return Err(KbError::invalid("le nom de l'approbateur est obligatoire"));
+    }
+    let found: Option<(String, String)> = conn
+        .query_row(
+            "SELECT runner, script FROM entry_repro WHERE entry_id = ?1",
+            params![entry_id],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )
+        .optional()
+        .map_err(KbError::Db)?;
+    let (runner, script) = found.ok_or_else(|| {
+        KbError::NotFound(format!("l'entrée {entry_id} n'a pas de cas de test joint"))
+    })?;
+    conn.execute(
+        "UPDATE entry_repro SET approved_by=?1, approved_at=?2, approved_version=?3
+         WHERE entry_id=?4",
+        params![approver, now_iso(), entry.version, entry_id],
+    )
+    .map_err(KbError::Db)?;
+    Ok((runner, script))
+}
+
+/// Entrées validées automatiquement, en attente de relecture humaine, les plus utilisées d'abord.
+pub fn review_queue(conn: &Connection, product: Option<&str>) -> KbResult<Vec<ReviewItem>> {
+    let (filter, values) = product_filter(product, "e");
+    let sql = format!(
+        "SELECT e.entry_id, e.product_id, e.subject_key, e.title, e.validated_by, e.validated_at,
+                e.use_count, e.fail_count, e.source
+         FROM entries e
+         WHERE e.status='valide' AND e.validation_mode='auto'{filter}
+         ORDER BY e.use_count DESC, e.entry_id ASC"
+    );
+    let mut stmt = conn.prepare(&sql).map_err(KbError::Db)?;
+    let rows = stmt
+        .query_map(params_from_iter(values.iter()), |row| {
+            Ok(ReviewItem {
+                entry_id: row.get(0)?,
+                product_id: row.get(1)?,
+                subject_key: row.get(2)?,
+                title: row.get(3)?,
+                validated_by: row.get(4)?,
+                validated_at: row.get(5)?,
+                use_count: row.get(6)?,
+                fail_count: row.get(7)?,
+                source: row.get(8)?,
+            })
+        })
+        .map_err(KbError::Db)?;
+    let mut items = Vec::new();
+    for row in rows {
+        items.push(row.map_err(KbError::Db)?);
+    }
+    Ok(items)
 }

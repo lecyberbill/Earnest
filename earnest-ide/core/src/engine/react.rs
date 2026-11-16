@@ -888,7 +888,7 @@ impl<'a> ReActEngine<'a> {
 
         // Injection de l'historique multi-tours récent (5 derniers runs réussis du projet)
         if let Ok(mut stmt) = self.conn.prepare(
-            "SELECT prompt, final_answer FROM runs WHERE project_id = ?1 AND status = 'success' AND final_answer IS NOT NULL AND final_answer != '' ORDER BY created_at DESC LIMIT 5"
+            "SELECT prompt, final_answer FROM runs WHERE project_id = ?1 AND status = 'success' AND final_answer IS NOT NULL AND final_answer != '' ORDER BY rowid DESC LIMIT 5"
         ) {
             if let Ok(rows) = stmt.query_map(params![self.project_id], |row| {
                 Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
@@ -1162,9 +1162,10 @@ impl<'a> ReActEngine<'a> {
 
         self.run_ide_hooks("on_run_complete");
 
+        let saved_answer = context_trimmer::truncate_tool_output(&final_answer, 4_000);
         self.conn.execute(
-            "UPDATE runs SET status = 'success', completed_at = CURRENT_TIMESTAMP, duration_ms = ?1, total_tokens = ?2 WHERE id = ?3",
-            params![duration_ms as i64, total_tokens as i64, run_id],
+            "UPDATE runs SET status = 'success', completed_at = CURRENT_TIMESTAMP, duration_ms = ?1, total_tokens = ?2, final_answer = ?4 WHERE id = ?3",
+            params![duration_ms as i64, total_tokens as i64, run_id, saved_answer],
         ).ok();
 
         Ok(ReActResult {

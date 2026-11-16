@@ -1371,7 +1371,11 @@ Garde l'indentation appropriée.";
                     }
                 } else {
                     let m_low = b.model.to_lowercase();
-                    if m_low.contains("reasoner") || m_low.starts_with("o1") || m_low.starts_with("o3") || m_low.contains("thinking") {
+                    let url_low = b.base_url.to_lowercase();
+                    if url_low.contains("deepseek") || m_low.contains("deepseek") {
+                        values = vec!["off".into(), "low".into(), "medium".into(), "high".into()];
+                        default_val = if m_low.contains("reasoner") { "medium" } else { "off" }.into();
+                    } else if m_low.starts_with("o1") || m_low.starts_with("o3") || m_low.contains("thinking") {
                         values = vec!["low".into(), "medium".into(), "high".into()];
                         default_val = "medium".into();
                     }

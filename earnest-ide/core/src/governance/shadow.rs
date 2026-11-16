@@ -101,8 +101,23 @@ impl ShadowRunner {
         Ok(())
     }
 
-    /// Copie les fichiers modifiés non-commités du workspace vers la sandbox (hors .git et .ide)
+    /// Copie les fichiers modifiés non-commités du workspace vers la sandbox (hors .git, .ide et fichiers déjà modifiés dans le shadow worktree)
     fn sync_active_changes_to_shadow(&self) -> Result<(), String> {
+        let mut shadow_dirty = std::collections::HashSet::new();
+        if let Ok(sh_out) = Command::new("git")
+            .args(["status", "--porcelain"])
+            .current_dir(&self.shadow_path)
+            .output()
+        {
+            let sh_str = String::from_utf8_lossy(&sh_out.stdout);
+            for line in sh_str.lines() {
+                if line.len() > 3 {
+                    let rel = line[3..].trim().trim_matches('"').replace('\\', "/");
+                    shadow_dirty.insert(rel);
+                }
+            }
+        }
+
         let status_out = Command::new("git")
             .args(["status", "--porcelain"])
             .current_dir(&self.workspace_root)
@@ -114,6 +129,9 @@ impl ShadowRunner {
             if line.len() > 3 {
                 let file_rel = line[3..].trim().trim_matches('"');
                 if file_rel.starts_with(".git") || file_rel.starts_with(".ide") {
+                    continue;
+                }
+                if shadow_dirty.contains(&file_rel.replace('\\', "/")) {
                     continue;
                 }
                 let src_path = self.workspace_root.join(file_rel);

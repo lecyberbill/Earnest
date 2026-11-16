@@ -1332,16 +1332,74 @@ Garde l'indentation appropriée.";
             return;
         }
 
+        if path == "/api/ide/run/cancel" {
+            ReActEngine::request_cancel();
+            let resp = Response::from_string(serde_json::json!({"status": "cancelling"}).to_string())
+                .with_header(json_header)
+                .with_header(cors_header);
+            req.respond(resp).ok();
+            return;
+        }
+
         if path == "/api/ide/terminal" {
-            let cmd = payload["command"].as_str().unwrap_or("");
+            static TERMINAL_CWDS: std::sync::OnceLock<std::sync::Mutex<std::collections::HashMap<String, std::path::PathBuf>>> = std::sync::OnceLock::new();
+            let cwds = TERMINAL_CWDS.get_or_init(|| std::sync::Mutex::new(std::collections::HashMap::new()));
+            let tab_id = payload["tab_id"].as_str().unwrap_or("default").to_string();
+            let cmd = payload["command"].as_str().unwrap_or("").trim();
             let timeout = payload["timeout_secs"].as_u64().unwrap_or(30);
-            match execute_terminal(cmd, timeout) {
-                Ok(res) => {
+            let _ = timeout;
+
+            let mut cur_cwd = {
+                let mut map = cwds.lock().unwrap_or_else(|e| e.into_inner());
+                map.entry(tab_id.clone())
+                    .or_insert_with(|| std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from(".")))
+                    .clone()
+            };
+
+            if cmd == "cd" || cmd.starts_with("cd ") {
+                let target = cmd.strip_prefix("cd").unwrap_or("").trim().trim_matches('"');
+                let next = if target.is_empty() {
+                    cur_cwd.clone()
+                } else if std::path::Path::new(target).is_absolute() {
+                    std::path::PathBuf::from(target)
+                } else {
+                    cur_cwd.join(target)
+                };
+                if let Ok(canon) = std::fs::canonicalize(&next) {
+                    if canon.is_dir() {
+                        cur_cwd = canon.clone();
+                        if let Ok(mut map) = cwds.lock() { map.insert(tab_id, canon.clone()); }
+                        let res = serde_json::json!({"status": "ok", "stdout": format!("cwd: {}\n", canon.display()), "stderr": "", "exit_code": 0, "cwd": canon.to_string_lossy()});
+                        let resp = Response::from_string(res.to_string()).with_header(json_header).with_header(cors_header);
+                        req.respond(resp).ok();
+                        return;
+                    }
+                }
+                let res = serde_json::json!({"status": "error", "stdout": "", "stderr": format!("Dossier introuvable: {}\n", next.display()), "exit_code": 1});
+                let resp = Response::from_string(res.to_string()).with_header(json_header).with_header(cors_header);
+                req.respond(resp).ok();
+                return;
+            }
+
+            let out = if cfg!(target_os = "windows") {
+                std::process::Command::new("powershell").args(["-NoProfile", "-Command", cmd]).current_dir(&cur_cwd).output()
+            } else {
+                std::process::Command::new("sh").args(["-c", cmd]).current_dir(&cur_cwd).output()
+            };
+            match out {
+                Ok(o) => {
+                    let res = serde_json::json!({
+                        "status": if o.status.success() { "ok" } else { "error" },
+                        "stdout": String::from_utf8_lossy(&o.stdout),
+                        "stderr": String::from_utf8_lossy(&o.stderr),
+                        "exit_code": o.status.code().unwrap_or(-1),
+                        "cwd": cur_cwd.to_string_lossy()
+                    });
                     let resp = Response::from_string(res.to_string()).with_header(json_header).with_header(cors_header);
                     req.respond(resp).ok();
                 }
                 Err(e) => {
-                    let resp = Response::from_string(serde_json::json!({"error": e, "status": "error"}).to_string()).with_status_code(400).with_header(json_header).with_header(cors_header);
+                    let resp = Response::from_string(serde_json::json!({"error": e.to_string(), "status": "error"}).to_string()).with_status_code(400).with_header(json_header).with_header(cors_header);
                     req.respond(resp).ok();
                 }
             }

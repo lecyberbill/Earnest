@@ -2221,7 +2221,7 @@ document.addEventListener('DOMContentLoaded', () => {
             flex-direction: column;
             gap: 0.5rem;
         `;
-        assistantBubble.innerHTML = `<div style="color:var(--accent-cyan); font-weight:600;">⚡ ${t('chat.thinking')}</div>`;
+        assistantBubble.innerHTML = `<div style="display:flex;align-items:center;justify-content:space-between;gap:8px;color:var(--accent-cyan); font-weight:600;"><span>⚡ ${t('chat.thinking')}</span><button onclick="fetch('http://127.0.0.1:8090/api/ide/run/cancel',{method:'POST'}).catch(()=>{});this.disabled=true;this.textContent='⏹️...';" style="background:rgba(239,68,68,0.18);color:#f87171;border:1px solid rgba(239,68,68,0.4);border-radius:4px;padding:2px 8px;font-size:0.72rem;cursor:pointer;">⏹️ Stop</button></div>`;
         const hbEl = document.createElement('div');
         hbEl.className = 'agent-heartbeat';
         hbEl.style.cssText = 'font-size:0.75rem; color:var(--text-muted); font-style:italic; margin-top:0.25rem;';

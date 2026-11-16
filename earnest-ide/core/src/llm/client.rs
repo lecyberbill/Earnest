@@ -1,7 +1,12 @@
+use std::collections::HashMap;
+use std::io::{BufRead, BufReader};
+use std::sync::{Mutex, OnceLock};
 use std::time::Duration;
 use reqwest::blocking::Client;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
+
+static OLLAMA_THINK_CAPS: OnceLock<Mutex<HashMap<String, Value>>> = OnceLock::new();
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ChatMessage {
@@ -84,17 +89,42 @@ impl LLMClient {
         }
     }
 
+    fn resolve_ollama_think(&self) -> Value {
+        let cache = OLLAMA_THINK_CAPS.get_or_init(|| Mutex::new(HashMap::new()));
+        if let Ok(guard) = cache.lock() {
+            if let Some(val) = guard.get(&self.model) {
+                return val.clone();
+            }
+        }
+        let show_url = format!("{}/api/show", self.base_url);
+        let mut resolved = serde_json::json!(false);
+        if let Ok(resp) = self.client.post(&show_url).json(&serde_json::json!({ "model": self.model })).send() {
+            if let Ok(data) = resp.json::<Value>() {
+                if let Some(values) = data["thinking"]["values"].as_array() {
+                    if values.iter().any(|v| v.as_str() == Some("low")) {
+                        resolved = serde_json::json!("low");
+                    }
+                }
+            }
+        }
+        if let Ok(mut guard) = cache.lock() {
+            guard.insert(self.model.clone(), resolved.clone());
+        }
+        resolved
+    }
+
     fn chat_ollama(
         &self,
         messages: &[ChatMessage],
         tools: Option<&[Value]>,
     ) -> Result<ChatResponse, String> {
         let url = format!("{}/api/chat", self.base_url);
+        let think_val = self.resolve_ollama_think();
         let mut body = serde_json::json!({
             "model": self.model,
             "messages": messages,
-            "stream": false,
-            "think": false,
+            "stream": true,
+            "think": think_val,
             "options": {
                 "num_predict": 16384
             }
@@ -115,30 +145,46 @@ impl LLMClient {
             return Err(format!("Erreur Ollama statut {}", resp.status()));
         }
 
-        let data: Value = resp.json().map_err(|e| format!("Erreur parsing JSON Ollama: {}", e))?;
-        let msg = &data["message"];
-        let content = msg["content"].as_str().unwrap_or("").to_string();
-
+        let reader = BufReader::new(resp);
+        let mut content = String::new();
         let mut tool_calls = Vec::new();
-        if let Some(arr) = msg["tool_calls"].as_array() {
-            for call in arr {
-                let func = &call["function"];
-                let name = func["name"].as_str().unwrap_or("").to_string();
-                let args = func["arguments"].clone();
-                let call_id = format!("call_{}", &uuid::Uuid::new_v4().to_string().replace('-', "")[..8]);
-                tool_calls.push(ToolCallItem { id: call_id, name, arguments: args });
+        let mut prompt_tokens = 0usize;
+        let mut completion_tokens = 0usize;
+        let mut done_reason = String::new();
+
+        for line in reader.lines() {
+            let line = line.map_err(|e| format!("Erreur lecture stream Ollama: {}", e))?;
+            let trimmed = line.trim();
+            if trimmed.is_empty() {
+                continue;
             }
-        }
-        if tool_calls.is_empty() {
-            if let Some(reason) = data["done_reason"].as_str() {
-                if reason != "stop" {
-                    println!("  ⚠️ [OLLAMA] Réponse sans tool_call (done_reason={})", reason);
+            let data: Value = match serde_json::from_str(trimmed) {
+                Ok(v) => v,
+                Err(_) => continue,
+            };
+            let msg = &data["message"];
+            if let Some(chunk) = msg["content"].as_str() {
+                content.push_str(chunk);
+            }
+            if let Some(arr) = msg["tool_calls"].as_array() {
+                for call in arr {
+                    let func = &call["function"];
+                    let name = func["name"].as_str().unwrap_or("").to_string();
+                    let args = func["arguments"].clone();
+                    let call_id = format!("call_{}", &uuid::Uuid::new_v4().to_string().replace('-', "")[..8]);
+                    tool_calls.push(ToolCallItem { id: call_id, name, arguments: args });
                 }
             }
+            if data["done"].as_bool().unwrap_or(false) {
+                prompt_tokens = data["prompt_eval_count"].as_u64().unwrap_or(0) as usize;
+                completion_tokens = data["eval_count"].as_u64().unwrap_or(0) as usize;
+                done_reason = data["done_reason"].as_str().unwrap_or("").to_string();
+            }
         }
 
-        let prompt_tokens = data["prompt_eval_count"].as_u64().unwrap_or(0) as usize;
-        let completion_tokens = data["eval_count"].as_u64().unwrap_or(0) as usize;
+        if tool_calls.is_empty() && !done_reason.is_empty() && done_reason != "stop" {
+            println!("  ⚠️ [OLLAMA] Réponse sans tool_call (done_reason={})", done_reason);
+        }
 
         Ok(ChatResponse {
             content,

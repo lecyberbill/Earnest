@@ -1,6 +1,9 @@
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Instant;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
+
+static CANCEL_RUN: AtomicBool = AtomicBool::new(false);
 use rusqlite::{params, Connection};
 use serde_json::Value;
 
@@ -852,6 +855,10 @@ impl<'a> ReActEngine<'a> {
         }
     }
 
+    pub fn request_cancel() {
+        CANCEL_RUN.store(true, Ordering::SeqCst);
+    }
+
     pub fn run_with_callback<F>(&self, prompt: &str, mut on_trace: F) -> Result<ReActResult, String>
     where
         F: FnMut(&str, usize, &str, Option<&str>, &str, &str),
@@ -877,6 +884,7 @@ impl<'a> ReActEngine<'a> {
             });
         }
 
+        CANCEL_RUN.store(false, Ordering::SeqCst);
         self.create_checkpoint();
         let start = Instant::now();
         let run_id = format!("run_{}", &uuid::Uuid::new_v4().to_string().replace('-', "")[..12]);
@@ -975,6 +983,13 @@ impl<'a> ReActEngine<'a> {
         let mut empty_tool_nudges: usize = 0;
 
         for _ in 0..self.max_steps {
+            if CANCEL_RUN.load(Ordering::SeqCst) {
+                final_answer = "⏹️ Run annulé par l'utilisateur.".to_string();
+                self.record_trace(&run_id, step_order, "answer", None, &final_answer);
+                on_trace(&run_id, step_order, "answer", None, &final_answer, &active_backend_name);
+                println!("  ⏹️ [IDE GOVERNANCE] Run annulé par l'utilisateur.");
+                break;
+            }
             if !llm_budget.is_retry_allowed() {
                 return Err("Circuit breaker LLM ouvert : trop d'échecs consécutifs dans la fenêtre glissante.".to_string());
             }
@@ -1093,7 +1108,7 @@ impl<'a> ReActEngine<'a> {
                 step_order += 1;
 
                 println!("  ⚡ [GOUVERNANCE IDE] {} {:?}", fn_name, fn_args);
-                let args_key = fn_args.to_string();
+                let args_key = normalize_cache_args_key(&self.workspace_root, fn_args);
                 let sig = format!("{}:{}", fn_name, args_key);
                 if last_tool_sig.as_deref() == Some(&sig) {
                     repeat_count += 1;
@@ -1395,9 +1410,41 @@ impl<'a> SubAgentRunner<'a> {
     }
 }
 
-/// Compresse les messages intermédiaires si le contexte dépasse `max_chars`
-/// tout en préservant le prompt système, la requête initiale et les 6 derniers tours.
+fn normalize_cache_args_key(workspace_root: &Path, args: &Value) -> String {
+    let mut cloned = args.clone();
+    if let Some(obj) = cloned.as_object_mut() {
+        let ws = workspace_root.to_string_lossy().replace('\\', "/");
+        let ws_trimmed = ws.trim_end_matches('/');
+        for key in ["path", "root_path"] {
+            if let Some(val) = obj.get(key).and_then(|v| v.as_str()).map(|s| s.replace('\\', "/")) {
+                let rel = val.strip_prefix(ws_trimmed).map(|r| r.trim_start_matches('/')).unwrap_or(&val);
+                let clean = rel.strip_prefix("./").unwrap_or(rel);
+                let norm = if clean.is_empty() { "." } else { clean };
+                obj.insert(key.to_string(), serde_json::json!(norm));
+            }
+        }
+    }
+    cloned.to_string()
+}
+
+/// Compresse les anciens `tool_output` (> 6 derniers messages) pour garder le KV-cache léger,
+/// et compresse davantage si le contexte total dépasse `max_chars`.
 fn compact_messages_if_needed(messages: &mut Vec<ChatMessage>, max_chars: usize) {
+    let keep_tail = 8;
+    if messages.len() > keep_tail + 2 {
+        let split_idx = messages.len().saturating_sub(keep_tail);
+        for msg in messages.iter_mut().take(split_idx).skip(2) {
+            if msg.role == "user" && msg.content.starts_with("Résultat de l'outil ") && msg.content.len() > 500 {
+                let preview: String = msg.content.chars().take(320).collect();
+                msg.content = format!(
+                    "{}\n... [Sortie outil archivée : {} caractères]",
+                    preview,
+                    msg.content.len()
+                );
+            }
+        }
+    }
+
     let total_chars: usize = messages.iter().map(|m| m.content.len()).sum();
     if total_chars <= max_chars || messages.len() <= 8 {
         return;

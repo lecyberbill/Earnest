@@ -82,8 +82,17 @@ impl LLMClient {
         messages: &[ChatMessage],
         tools: Option<&[Value]>,
     ) -> Result<ChatResponse, String> {
+        self.chat_completion_stream(messages, tools, &mut |_, _| {})
+    }
+
+    pub fn chat_completion_stream(
+        &self,
+        messages: &[ChatMessage],
+        tools: Option<&[Value]>,
+        on_token: &mut dyn FnMut(&str, &str),
+    ) -> Result<ChatResponse, String> {
         if self.provider_type == "ollama" {
-            self.chat_ollama(messages, tools)
+            self.chat_ollama(messages, tools, on_token)
         } else {
             self.chat_openai(messages, tools)
         }
@@ -117,6 +126,7 @@ impl LLMClient {
         &self,
         messages: &[ChatMessage],
         tools: Option<&[Value]>,
+        on_token: &mut dyn FnMut(&str, &str),
     ) -> Result<ChatResponse, String> {
         let url = format!("{}/api/chat", self.base_url);
         let think_val = self.resolve_ollama_think();
@@ -163,7 +173,15 @@ impl LLMClient {
                 Err(_) => continue,
             };
             let msg = &data["message"];
+            if let Some(think_chunk) = msg["thinking"].as_str() {
+                if !think_chunk.is_empty() {
+                    on_token("thinking", think_chunk);
+                }
+            }
             if let Some(chunk) = msg["content"].as_str() {
+                if !chunk.is_empty() {
+                    on_token("content", chunk);
+                }
                 content.push_str(chunk);
             }
             if let Some(arr) = msg["tool_calls"].as_array() {

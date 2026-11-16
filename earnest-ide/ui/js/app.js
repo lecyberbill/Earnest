@@ -2293,8 +2293,32 @@ document.addEventListener('DOMContentLoaded', () => {
                             if (modelBadge) modelBadge.textContent = `Modèle : ${payload.backend}`;
                         }
 
+                        // Streaming token en temps réel (thinking + content)
+                        if (payload.step_type === 'token') {
+                            let streamBox = assistantBubble.querySelector('.live-token-stream');
+                            if (!streamBox) {
+                                streamBox = document.createElement('div');
+                                streamBox.className = 'live-token-stream';
+                                streamBox.style.cssText = 'font-size:0.82rem; line-height:1.45; margin:4px 0; padding:6px 8px; background:rgba(255,255,255,0.03); border-radius:4px; max-height:14em; overflow-y:auto; white-space:pre-wrap;';
+                                assistantBubble.appendChild(streamBox);
+                            }
+                            const isThink = payload.tool_name === 'thinking';
+                            let span = streamBox.lastElementChild;
+                            const targetClass = isThink ? 'tok-think' : 'tok-content';
+                            if (!span || !span.classList.contains(targetClass)) {
+                                span = document.createElement('span');
+                                span.className = targetClass;
+                                span.style.cssText = isThink ? 'color:var(--text-muted); font-style:italic;' : 'color:var(--text-primary);';
+                                streamBox.appendChild(span);
+                            }
+                            span.textContent += (payload.payload || '');
+                            streamBox.scrollTop = streamBox.scrollHeight;
+                        }
+
                         // Événement d'exécution d'outil ou étape de pensée
                         if (payload.step_type === 'thought') {
+                            const oldStream = assistantBubble.querySelector('.live-token-stream');
+                            if (oldStream) oldStream.remove();
                             const thoughtDiv = document.createElement('div');
                             thoughtDiv.style.color = 'var(--text-muted)';
                             thoughtDiv.style.fontStyle = 'italic';
@@ -2319,6 +2343,8 @@ document.addEventListener('DOMContentLoaded', () => {
                             }
                             assistantBubble.appendChild(thoughtDiv);
                         } else if (payload.step_type === 'tool_call' || payload.step_type === 'action') {
+                            const oldStream = assistantBubble.querySelector('.live-token-stream');
+                            if (oldStream) oldStream.remove();
                             const actionDiv = document.createElement('div');
                             actionDiv.style.cssText = 'color:#fde68a; font-weight:500; font-size:0.8rem; padding:4px 8px; background:rgba(253,230,138,0.06); border-left:2px solid rgba(253,230,138,0.35); border-radius:3px;';
                             const rawAction = `⚙️ Outil : ${payload.tool_name} (${payload.payload || ''})`;

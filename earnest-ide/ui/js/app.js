@@ -154,6 +154,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const btnAgentStop = document.getElementById('btn-agent-stop');
     if (btnAgentStop) {
         btnAgentStop.addEventListener('click', () => {
+            fetch('/api/ide/run/cancel', { method: 'POST' }).catch(() => {});
             if (typeof currentEventSource !== 'undefined' && currentEventSource) {
                 try { currentEventSource.close(); } catch (e) {}
                 currentEventSource = null;

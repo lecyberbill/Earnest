@@ -2327,26 +2327,39 @@ document.addEventListener('DOMContentLoaded', () => {
                             if (modelBadge) modelBadge.textContent = `Modèle : ${payload.backend}`;
                         }
 
-                        // Streaming token en temps réel (thinking + content)
+                        // Streaming token en temps réel (thinking + content) — batché via rAF pour ne pas figer l'UI
                         if (payload.step_type === 'token') {
-                            let streamBox = assistantBubble.querySelector('.live-token-stream');
-                            if (!streamBox) {
-                                streamBox = document.createElement('div');
-                                streamBox.className = 'live-token-stream';
-                                streamBox.style.cssText = 'font-size:0.82rem; line-height:1.45; margin:4px 0; padding:6px 8px; background:rgba(255,255,255,0.03); border-radius:4px; max-height:14em; overflow-y:auto; white-space:pre-wrap;';
-                                assistantBubble.appendChild(streamBox);
+                            if (!assistantBubble._tokQueue) assistantBubble._tokQueue = [];
+                            assistantBubble._tokQueue.push({ isThink: payload.tool_name === 'thinking', text: payload.payload || '' });
+                            if (!assistantBubble._tokRaf) {
+                                assistantBubble._tokRaf = requestAnimationFrame(() => {
+                                    assistantBubble._tokRaf = null;
+                                    const batch = assistantBubble._tokQueue.splice(0);
+                                    if (!batch.length) return;
+                                    let streamBox = assistantBubble.querySelector('.live-token-stream');
+                                    if (!streamBox) {
+                                        streamBox = document.createElement('div');
+                                        streamBox.className = 'live-token-stream';
+                                        streamBox.style.cssText = 'font-size:0.82rem; line-height:1.45; margin:4px 0; padding:6px 8px; background:rgba(255,255,255,0.03); border-radius:4px; max-height:14em; overflow-y:auto; white-space:pre-wrap;';
+                                        assistantBubble.appendChild(streamBox);
+                                    }
+                                    for (const item of batch) {
+                                        const targetClass = item.isThink ? 'tok-think' : 'tok-content';
+                                        let span = streamBox.lastElementChild;
+                                        if (!span || !span.classList.contains(targetClass)) {
+                                            span = document.createElement('span');
+                                            span.className = targetClass;
+                                            span.style.cssText = item.isThink ? 'color:var(--text-muted); font-style:italic;' : 'color:var(--text-primary);';
+                                            streamBox.appendChild(span);
+                                        }
+                                        span.textContent += item.text;
+                                        if (span.textContent.length > 4000) {
+                                            span.textContent = '… ' + span.textContent.slice(-3500);
+                                        }
+                                    }
+                                    streamBox.scrollTop = streamBox.scrollHeight;
+                                });
                             }
-                            const isThink = payload.tool_name === 'thinking';
-                            let span = streamBox.lastElementChild;
-                            const targetClass = isThink ? 'tok-think' : 'tok-content';
-                            if (!span || !span.classList.contains(targetClass)) {
-                                span = document.createElement('span');
-                                span.className = targetClass;
-                                span.style.cssText = isThink ? 'color:var(--text-muted); font-style:italic;' : 'color:var(--text-primary);';
-                                streamBox.appendChild(span);
-                            }
-                            span.textContent += (payload.payload || '');
-                            streamBox.scrollTop = streamBox.scrollHeight;
                         }
 
                         // Événement d'exécution d'outil ou étape de pensée

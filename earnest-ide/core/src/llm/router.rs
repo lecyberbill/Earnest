@@ -147,7 +147,7 @@ impl LLMRouter {
                         attempts += 1;
                         last_err = format!("Moteur {} (tentative {}/{}) échoué: {}", b.name, attempts, max_retries + 1, e);
                         println!("  ⚠️ [LLM ROUTER] {}", last_err);
-                        if attempts > max_retries || e.contains("timed out") {
+                        if attempts > max_retries || e.contains("timed out") || e.contains("annulé") {
                             break;
                         }
                         std::thread::sleep(std::time::Duration::from_millis(backoff_ms));

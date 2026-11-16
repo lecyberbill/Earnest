@@ -868,6 +868,7 @@ impl<'a> ReActEngine<'a> {
 
     pub fn request_cancel() {
         CANCEL_RUN.store(true, Ordering::SeqCst);
+        crate::llm::client::CANCEL_LLM.store(true, Ordering::SeqCst);
     }
 
     pub fn run_with_callback<F>(&self, prompt: &str, mut on_trace: F) -> Result<ReActResult, String>
@@ -896,6 +897,7 @@ impl<'a> ReActEngine<'a> {
         }
 
         CANCEL_RUN.store(false, Ordering::SeqCst);
+        crate::llm::client::CANCEL_LLM.store(false, Ordering::SeqCst);
         self.create_checkpoint();
         let start = Instant::now();
         let run_id = format!("run_{}", &uuid::Uuid::new_v4().to_string().replace('-', "")[..12]);

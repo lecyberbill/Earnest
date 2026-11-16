@@ -1,5 +1,6 @@
 use std::collections::HashMap;
 use std::io::{BufRead, BufReader};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Mutex, OnceLock};
 use std::time::Duration;
 use reqwest::blocking::Client;
@@ -7,6 +8,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 static OLLAMA_THINK_CAPS: OnceLock<Mutex<HashMap<String, Value>>> = OnceLock::new();
+pub static CANCEL_LLM: AtomicBool = AtomicBool::new(false);
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ChatMessage {
@@ -179,6 +181,9 @@ impl LLMClient {
         let mut done_reason = String::new();
 
         for line in reader.lines() {
+            if CANCEL_LLM.load(Ordering::SeqCst) {
+                return Err("⏹️ Stream annulé par l'utilisateur.".to_string());
+            }
             let line = line.map_err(|e| format!("Erreur lecture stream Ollama: {}", e))?;
             let trimmed = line.trim();
             if trimmed.is_empty() {
@@ -285,6 +290,9 @@ impl LLMClient {
         let mut tc_acc: std::collections::BTreeMap<usize, (String, String, String)> = std::collections::BTreeMap::new();
 
         for line in reader.lines() {
+            if CANCEL_LLM.load(Ordering::SeqCst) {
+                return Err("⏹️ Stream annulé par l'utilisateur.".to_string());
+            }
             let line = line.map_err(|e| format!("Erreur lecture stream OpenAI: {}", e))?;
             let trimmed = line.trim();
             if trimmed.is_empty() || !trimmed.starts_with("data:") {

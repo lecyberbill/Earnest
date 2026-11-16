@@ -1455,12 +1455,14 @@ fn normalize_cache_args_key(workspace_root: &Path, args: &Value) -> String {
 /// Compresse les anciens `tool_output` (> 6 derniers messages) pour garder le KV-cache léger,
 /// et compresse davantage si le contexte total dépasse `max_chars`.
 fn compact_messages_if_needed(messages: &mut Vec<ChatMessage>, max_chars: usize) {
-    let keep_tail = 8;
-    if messages.len() > keep_tail + 2 {
+    let total_chars: usize = messages.iter().map(|m| m.content.len()).sum();
+    let soft_limit = (max_chars / 2).max(60_000);
+    let keep_tail = 24;
+    if total_chars > soft_limit && messages.len() > keep_tail + 2 {
         let split_idx = messages.len().saturating_sub(keep_tail);
         for msg in messages.iter_mut().take(split_idx).skip(2) {
-            if msg.role == "user" && msg.content.starts_with("Résultat de l'outil ") && msg.content.len() > 500 {
-                let preview: String = msg.content.chars().take(320).collect();
+            if msg.role == "user" && msg.content.starts_with("Résultat de l'outil ") && msg.content.len() > 800 {
+                let preview: String = msg.content.chars().take(450).collect();
                 msg.content = format!(
                     "{}\n... [Sortie outil archivée : {} caractères]",
                     preview,

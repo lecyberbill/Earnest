@@ -970,7 +970,7 @@ impl<'a> ReActEngine<'a> {
                     println!("  🔄 [ANTI-STALL] Texte seul en Mode 2 ({}/3), relance automatique...", empty_tool_nudges);
                     messages.push(ChatMessage {
                         role: "user".to_string(),
-                        content: "Continue immédiatement : appelle 'write_code' maintenant pour implémenter et valider les contrats (n'émets pas de texte seul sans appel d'outil).".to_string(),
+                        content: "Continue.".to_string(),
                         images: None,
                     });
                     continue;

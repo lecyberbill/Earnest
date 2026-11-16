@@ -932,6 +932,7 @@ impl<'a> ReActEngine<'a> {
         let mut llm_budget = retry_budget::RetryBudget::new(10, 5);
         let mut last_tool_sig: Option<String> = None;
         let mut repeat_count: usize = 0;
+        let mut empty_tool_nudges: usize = 0;
 
         for _ in 0..self.max_steps {
             if !llm_budget.is_retry_allowed() {
@@ -962,8 +963,18 @@ impl<'a> ReActEngine<'a> {
                 messages.push(ChatMessage { role: "assistant".to_string(), content: chat_res.content.clone(), images: None });
             }
 
-            // S'il n'y a aucun appel d'outil, conclusion
+            // S'il n'y a aucun appel d'outil, conclusion (sauf si Mode 2 et que le modèle s'est arrêté en cours de route)
             if chat_res.tool_calls.is_empty() {
+                if policy.mode == GovernanceMode::Constrained && empty_tool_nudges < 3 {
+                    empty_tool_nudges += 1;
+                    println!("  🔄 [ANTI-STALL] Texte seul en Mode 2 ({}/3), relance automatique...", empty_tool_nudges);
+                    messages.push(ChatMessage {
+                        role: "user".to_string(),
+                        content: "Continue immédiatement : appelle 'write_code' maintenant pour implémenter et valider les contrats (n'émets pas de texte seul sans appel d'outil).".to_string(),
+                        images: None,
+                    });
+                    continue;
+                }
                 final_answer = chat_res.content;
                 self.record_trace(&run_id, step_order, "answer", None, &final_answer);
                 on_trace(&run_id, step_order, "answer", None, &final_answer, &active_backend_name);

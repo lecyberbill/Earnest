@@ -946,6 +946,7 @@ impl<'a> ReActEngine<'a> {
         ];
 
         // Injection de l'historique multi-tours récent (5 derniers runs réussis du projet)
+        let mut has_history = false;
         if let Ok(mut stmt) = self.conn.prepare(
             "SELECT prompt, final_answer FROM runs WHERE project_id = ?1 AND status = 'success' AND final_answer IS NOT NULL AND final_answer != '' ORDER BY rowid DESC LIMIT 12"
         ) {
@@ -954,6 +955,7 @@ impl<'a> ReActEngine<'a> {
             }) {
                 let mut history: Vec<(String, String)> = rows.filter_map(|r| r.ok()).collect();
                 history.reverse();
+                has_history = !history.is_empty();
                 for (prev_prompt, prev_answer) in history {
                     messages.push(ChatMessage { role: "user".to_string(), content: prev_prompt, images: None });
                     messages.push(ChatMessage { role: "assistant".to_string(), content: prev_answer, images: None });
@@ -962,16 +964,18 @@ impl<'a> ReActEngine<'a> {
         }
 
         let mut preload_ctx = String::new();
-        if let Ok(files_val) = list_files(&self.workspace_root.to_string_lossy(), Some(2)) {
-            let files_str = context_trimmer::truncate_tool_output(&files_val.to_string(), 3_000);
-            preload_ctx.push_str(&format!("\n\n[CONTEXTE PROJET PRÉ-CHARGÉ — list_files depth=2]\n{}", files_str));
-        }
-        for manifest in ["Cargo.toml", "package.json", "pyproject.toml"] {
-            let mpath = self.workspace_root.join(manifest);
-            if mpath.exists() {
-                if let Ok(mcontent) = std::fs::read_to_string(&mpath) {
-                    let trimmed = context_trimmer::truncate_tool_output(&mcontent, 2_000);
-                    preload_ctx.push_str(&format!("\n\n[MANIFESTE {}]\n{}", manifest, trimmed));
+        if !has_history {
+            if let Ok(files_val) = list_files(&self.workspace_root.to_string_lossy(), Some(2)) {
+                let files_str = context_trimmer::truncate_tool_output(&files_val.to_string(), 3_000);
+                preload_ctx.push_str(&format!("\n\n[CONTEXTE PROJET PRÉ-CHARGÉ — list_files depth=2]\n{}", files_str));
+            }
+            for manifest in ["Cargo.toml", "package.json", "pyproject.toml"] {
+                let mpath = self.workspace_root.join(manifest);
+                if mpath.exists() {
+                    if let Ok(mcontent) = std::fs::read_to_string(&mpath) {
+                        let trimmed = context_trimmer::truncate_tool_output(&mcontent, 2_000);
+                        preload_ctx.push_str(&format!("\n\n[MANIFESTE {}]\n{}", manifest, trimmed));
+                    }
                 }
             }
         }

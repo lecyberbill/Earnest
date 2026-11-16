@@ -1030,6 +1030,12 @@ impl<'a> ReActEngine<'a> {
             active_backend_name = active_backend;
             total_tokens += chat_res.total_tokens;
 
+            if let Some(ref rc) = chat_res.reasoning_content {
+                if !rc.is_empty() {
+                    on_trace(&run_id, step_order, "thought", None, rc, &active_backend_name);
+                }
+            }
+
             if !chat_res.content.is_empty() {
                 self.record_trace(&run_id, step_order, "thought", None, &chat_res.content);
                 on_trace(&run_id, step_order, "thought", None, &chat_res.content, &active_backend_name);

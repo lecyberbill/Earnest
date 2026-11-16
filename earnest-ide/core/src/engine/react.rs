@@ -926,7 +926,9 @@ impl<'a> ReActEngine<'a> {
         let mut active_backend_name = String::new();
         let mut context_budget_chars: usize = 120_000;
         let mut failure_counts: HashMap<String, usize> = HashMap::new();
-        let mut tool_cache = tool_output_cache::ToolCache::new(64);
+        static GLOBAL_TOOL_CACHE: std::sync::OnceLock<std::sync::Mutex<tool_output_cache::ToolCache>> = std::sync::OnceLock::new();
+        let cache_mutex = GLOBAL_TOOL_CACHE.get_or_init(|| std::sync::Mutex::new(tool_output_cache::ToolCache::new(128)));
+        let mut tool_cache = cache_mutex.lock().unwrap_or_else(|e| e.into_inner());
         let mut llm_budget = retry_budget::RetryBudget::new(10, 5);
         let mut last_tool_sig: Option<String> = None;
         let mut repeat_count: usize = 0;

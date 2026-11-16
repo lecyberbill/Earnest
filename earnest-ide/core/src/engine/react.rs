@@ -134,7 +134,12 @@ impl<'a> ReActEngine<'a> {
                         return Ok(raw_patch.to_string());
                     }
                     if let (Some(target), Some(replacement)) = (item["target"].as_str(), item["replacement"].as_str()) {
-                        let abs_path = self.workspace_root.join(file_rel);
+                        let shadow_candidate = self.workspace_root.join(&policy.shadow_env.path).join(file_rel);
+                        let abs_path = if shadow_candidate.is_file() {
+                            shadow_candidate
+                        } else {
+                            self.workspace_root.join(file_rel)
+                        };
                         let existing = std::fs::read_to_string(&abs_path)
                             .map_err(|e| format!("Édition ciblée impossible sur '{}': {}", file_rel, e))?;
                         if !existing.contains(target) {

@@ -204,13 +204,14 @@ document.addEventListener('DOMContentLoaded', () => {
             } else if (data.default && vals.includes(data.default)) {
                 chatEffortSel.value = data.default;
             }
-            chatEffortSel.disabled = vals.length <= 1;
+            chatEffortSel.disabled = false;
         } catch (e) {}
     }
+    window.refreshEffortDropdown = refreshEffortDropdown;
     if (chatEffortSel) {
         const savedEffort = localStorage.getItem('earnest_effort_level');
         if (savedEffort) chatEffortSel.value = savedEffort;
-        setTimeout(() => refreshEffortDropdown(chatModelSel ? chatModelSel.value : ''), 600);
+        setTimeout(() => refreshEffortDropdown(chatModelSel ? chatModelSel.value : ''), 1200);
         chatEffortSel.addEventListener('change', () => {
             localStorage.setItem('earnest_effort_level', chatEffortSel.value);
             fetch('/api/ide/kv_state', {

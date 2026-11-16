@@ -1351,6 +1351,7 @@ Garde l'indentation appropriée.";
                         .unwrap_or_else(|_| reqwest::blocking::Client::new());
                     if let Ok(resp) = client.post(&show_url).json(&serde_json::json!({ "model": b.model })).send() {
                         if let Ok(data) = resp.json::<serde_json::Value>() {
+                            println!("  🔍 [OLLAMA /api/show] {} -> thinking={:?} capabilities={:?}", b.model, data.get("thinking"), data.get("capabilities"));
                             if let Some(arr) = data["thinking"]["values"].as_array() {
                                 for v in arr {
                                     if let Some(s) = v.as_str() {

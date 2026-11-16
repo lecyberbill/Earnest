@@ -4,6 +4,7 @@ use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
 static CANCEL_RUN: AtomicBool = AtomicBool::new(false);
+static THINK_EFFORT: std::sync::OnceLock<std::sync::Mutex<String>> = std::sync::OnceLock::new();
 use rusqlite::{params, Connection};
 use serde_json::Value;
 
@@ -855,6 +856,13 @@ impl<'a> ReActEngine<'a> {
         }
     }
 
+    pub fn set_think_effort(effort: &str) {
+        let lock = THINK_EFFORT.get_or_init(|| std::sync::Mutex::new("medium".to_string()));
+        if let Ok(mut guard) = lock.lock() {
+            *guard = effort.to_string();
+        }
+    }
+
     pub fn request_cancel() {
         CANCEL_RUN.store(true, Ordering::SeqCst);
     }
@@ -994,11 +1002,15 @@ impl<'a> ReActEngine<'a> {
                 return Err("Circuit breaker LLM ouvert : trop d'échecs consécutifs dans la fenêtre glissante.".to_string());
             }
             compact_messages_if_needed(&mut messages, context_budget_chars);
-            let allow_thinking = policy.mode == GovernanceMode::Architecture;
+            let think_effort = THINK_EFFORT
+                .get_or_init(|| std::sync::Mutex::new("medium".to_string()))
+                .lock()
+                .map(|g| g.clone())
+                .unwrap_or_else(|_| "medium".to_string());
             let mut stream_cb = |kind: &str, chunk: &str| {
                 on_trace(&run_id, step_order, "token", Some(kind), chunk, &active_backend_name);
             };
-            let (chat_res, active_backend) = match self.router.chat_completion_with_fallback_stream(&messages, Some(&tools), allow_thinking, &mut stream_cb) {
+            let (chat_res, active_backend) = match self.router.chat_completion_with_fallback_stream(&messages, Some(&tools), &think_effort, &mut stream_cb) {
                 Ok(res) => {
                     llm_budget.record_success();
                     res

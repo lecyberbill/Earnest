@@ -1424,6 +1424,8 @@ Garde l'indentation appropriée.";
         if path == "/api/ide/run/stream" {
             let prompt = payload["prompt"].as_str().unwrap_or("").to_string();
             let project = payload["project"].as_str().unwrap_or("earnest_ide_workspace").to_string();
+            let effort = payload["effort"].as_str().unwrap_or("medium").to_string();
+            ReActEngine::set_think_effort(&effort);
 
             let sse_header = Header::from_bytes(&b"Content-Type"[..], &b"text/event-stream"[..]).unwrap();
             let cache_header = Header::from_bytes(&b"Cache-Control"[..], &b"no-cache"[..]).unwrap();

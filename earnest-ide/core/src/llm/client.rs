@@ -77,61 +77,74 @@ impl LLMClient {
         }
     }
 
+    fn resolve_ollama_think(&self, effort: &str) -> Value {
+        if effort == "off" || effort == "none" || effort == "false" {
+            return serde_json::json!(false);
+        }
+        let cache = OLLAMA_THINK_CAPS.get_or_init(|| Mutex::new(HashMap::new()));
+        let supports_tiers = {
+            if let Ok(guard) = cache.lock() {
+                guard.get(&self.model).and_then(|v| v.as_bool())
+            } else {
+                None
+            }
+        };
+        let has_tiers = match supports_tiers {
+            Some(b) => b,
+            None => {
+                let show_url = format!("{}/api/show", self.base_url);
+                let mut found = false;
+                if let Ok(resp) = self.client.post(&show_url).json(&serde_json::json!({ "model": self.model })).send() {
+                    if let Ok(data) = resp.json::<Value>() {
+                        if let Some(values) = data["thinking"]["values"].as_array() {
+                            found = values.iter().any(|v| v.as_str() == Some("low") || v.as_str() == Some("medium"));
+                        }
+                    }
+                }
+                if let Ok(mut guard) = cache.lock() {
+                    guard.insert(self.model.clone(), serde_json::json!(found));
+                }
+                found
+            }
+        };
+        if has_tiers {
+            serde_json::json!(effort)
+        } else {
+            serde_json::json!(true)
+        }
+    }
+
     pub fn chat_completion(
         &self,
         messages: &[ChatMessage],
         tools: Option<&[Value]>,
     ) -> Result<ChatResponse, String> {
-        self.chat_completion_stream(messages, tools, false, &mut |_, _| {})
+        self.chat_completion_stream(messages, tools, "off", &mut |_, _| {})
     }
 
     pub fn chat_completion_stream(
         &self,
         messages: &[ChatMessage],
         tools: Option<&[Value]>,
-        allow_thinking: bool,
+        think_effort: &str,
         on_token: &mut dyn FnMut(&str, &str),
     ) -> Result<ChatResponse, String> {
         if self.provider_type == "ollama" {
-            self.chat_ollama(messages, tools, allow_thinking, on_token)
+            self.chat_ollama(messages, tools, think_effort, on_token)
         } else {
             self.chat_openai(messages, tools)
         }
-    }
-
-    fn resolve_ollama_think(&self) -> Value {
-        let cache = OLLAMA_THINK_CAPS.get_or_init(|| Mutex::new(HashMap::new()));
-        if let Ok(guard) = cache.lock() {
-            if let Some(val) = guard.get(&self.model) {
-                return val.clone();
-            }
-        }
-        let show_url = format!("{}/api/show", self.base_url);
-        let mut resolved = serde_json::json!(false);
-        if let Ok(resp) = self.client.post(&show_url).json(&serde_json::json!({ "model": self.model })).send() {
-            if let Ok(data) = resp.json::<Value>() {
-                if let Some(values) = data["thinking"]["values"].as_array() {
-                    if values.iter().any(|v| v.as_str() == Some("low")) {
-                        resolved = serde_json::json!("low");
-                    }
-                }
-            }
-        }
-        if let Ok(mut guard) = cache.lock() {
-            guard.insert(self.model.clone(), resolved.clone());
-        }
-        resolved
     }
 
     fn chat_ollama(
         &self,
         messages: &[ChatMessage],
         tools: Option<&[Value]>,
-        allow_thinking: bool,
+        think_effort: &str,
         on_token: &mut dyn FnMut(&str, &str),
     ) -> Result<ChatResponse, String> {
         let url = format!("{}/api/chat", self.base_url);
-        let think_val = if allow_thinking { self.resolve_ollama_think() } else { serde_json::json!(false) };
+        let think_val = self.resolve_ollama_think(think_effort);
         let mut body = serde_json::json!({
             "model": self.model,
             "messages": messages,

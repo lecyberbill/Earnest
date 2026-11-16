@@ -2264,7 +2264,11 @@ document.addEventListener('DOMContentLoaded', () => {
             const res = await fetch('/api/ide/run/stream', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ prompt: enrichedPrompt, project: state.currentRoot || 'earnest_ide_workspace' })
+                body: JSON.stringify({
+                    prompt: enrichedPrompt,
+                    project: state.currentRoot || 'earnest_ide_workspace',
+                    effort: chatEffortSel ? chatEffortSel.value : 'medium'
+                })
             });
 
             if (!res.ok) {

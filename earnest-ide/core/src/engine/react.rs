@@ -970,7 +970,7 @@ impl<'a> ReActEngine<'a> {
                     println!("  🔄 [ANTI-STALL] Texte seul en Mode 2 ({}/3), relance automatique...", empty_tool_nudges);
                     messages.push(ChatMessage {
                         role: "user".to_string(),
-                        content: "Continue.".to_string(),
+                        content: "Continue : utilise 'write_code' avec stage_only: true pour écrire UN seul fichier à la fois (évite les gros appels multi-fichiers).".to_string(),
                         images: None,
                     });
                     continue;

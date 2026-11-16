@@ -94,7 +94,10 @@ impl LLMClient {
             "model": self.model,
             "messages": messages,
             "stream": false,
-            "think": false
+            "think": false,
+            "options": {
+                "num_predict": 16384
+            }
         });
 
         if let Some(t) = tools {
@@ -124,6 +127,13 @@ impl LLMClient {
                 let args = func["arguments"].clone();
                 let call_id = format!("call_{}", &uuid::Uuid::new_v4().to_string().replace('-', "")[..8]);
                 tool_calls.push(ToolCallItem { id: call_id, name, arguments: args });
+            }
+        }
+        if tool_calls.is_empty() {
+            if let Some(reason) = data["done_reason"].as_str() {
+                if reason != "stop" {
+                    println!("  ⚠️ [OLLAMA] Réponse sans tool_call (done_reason={})", reason);
+                }
             }
         }
 

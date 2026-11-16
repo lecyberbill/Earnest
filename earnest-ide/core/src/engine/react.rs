@@ -209,6 +209,9 @@ impl<'a> ReActEngine<'a> {
                         pairs.first().map(|(f, _)| *f).unwrap_or("")
                     };
                     runner.execute_contract_patches(target_contract, &pairs, primary)
+                } else if patch.is_empty() && args["target"].as_str().is_none() {
+                    // Validation pure de ce qui est déjà stagé dans le shadow worktree
+                    runner.execute_contract_patches(target_contract, &[], target_file)
                 } else {
                     let resolved_patch = match resolve_patch(target_file, patch, args) {
                         Ok(p) => p,

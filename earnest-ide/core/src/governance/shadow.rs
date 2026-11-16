@@ -373,8 +373,28 @@ impl ShadowRunner {
         }
 
         if all_passed {
-            // Fusion vers le workspace réel de tous les fichiers modifiés
-            for (file_path, _) in files {
+            // Fusion vers le workspace réel de tous les fichiers modifiés (appel courant + stagés)
+            let mut to_merge: std::collections::BTreeSet<String> = files
+                .iter()
+                .map(|(p, _)| p.to_string())
+                .filter(|p| !p.is_empty())
+                .collect();
+            if let Ok(sh_out) = Command::new("git")
+                .args(["status", "--porcelain"])
+                .current_dir(&self.shadow_path)
+                .output()
+            {
+                let sh_str = String::from_utf8_lossy(&sh_out.stdout);
+                for line in sh_str.lines() {
+                    if line.len() > 3 {
+                        let rel = line[3..].trim().trim_matches('"').to_string();
+                        if !rel.is_empty() && !rel.starts_with(".git") {
+                            to_merge.insert(rel);
+                        }
+                    }
+                }
+            }
+            for file_path in &to_merge {
                 if let Err(e) = self.merge_to_workspace(file_path) {
                     return ShadowExecutionResult {
                         success: false,

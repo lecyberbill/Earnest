@@ -273,6 +273,10 @@ impl LLMClient {
         }
 
         let data: Value = resp.json().map_err(|e| format!("Erreur parsing JSON OpenAI: {}", e))?;
+        let finish_reason = data["choices"][0]["finish_reason"].as_str().unwrap_or("");
+        if finish_reason == "length" {
+            println!("  ⚠️ [OPENAI] Réponse tronquée (finish_reason=length)");
+        }
         let choice = &data["choices"][0]["message"];
         let content = choice["content"].as_str().unwrap_or("").to_string();
         let reasoning = choice["reasoning_content"].as_str().map(|s| s.to_string());
@@ -283,7 +287,15 @@ impl LLMClient {
                 let func = &call["function"];
                 let name = func["name"].as_str().unwrap_or("").to_string();
                 let raw_args = func["arguments"].as_str().unwrap_or("{}");
-                let parsed_args: Value = serde_json::from_str(raw_args).unwrap_or(serde_json::json!({}));
+                let parsed_args: Value = match serde_json::from_str(raw_args) {
+                    Ok(v) => v,
+                    Err(_) => {
+                        println!("  ⚠️ [OPENAI] Tool '{}' arguments tronqués (finish_reason={}, {} chars)", name, finish_reason, raw_args.len());
+                        serde_json::json!({
+                            "__truncated_error": format!("Arguments JSON tronqués ({} chars, finish_reason={}). Utilise stage_only: true et écris UN seul fichier à la fois.", raw_args.len(), finish_reason)
+                        })
+                    }
+                };
                 let call_id = call["id"].as_str().unwrap_or("call_gen").to_string();
                 tool_calls.push(ToolCallItem { id: call_id, name, arguments: parsed_args });
             }

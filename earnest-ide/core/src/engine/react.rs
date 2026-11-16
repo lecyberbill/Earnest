@@ -90,6 +90,9 @@ impl<'a> ReActEngine<'a> {
         policy: &PolicyConfig,
         failure_counts: &mut HashMap<String, usize>,
     ) -> (String, Option<String>) {
+        if let Some(trunc_err) = args.get("__truncated_error").and_then(|v| v.as_str()) {
+            return (serde_json::json!({"status": "error", "error": trunc_err}).to_string(), None);
+        }
         match name {
             // === OUTILS DE GOUVERNANCE ===
 

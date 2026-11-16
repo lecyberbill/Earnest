@@ -175,13 +175,42 @@ document.addEventListener('DOMContentLoaded', () => {
                 });
                 const badge = document.getElementById('status-active-model');
                 if (badge) badge.textContent = `Model: ${val}`;
+                if (typeof refreshEffortDropdown === 'function') refreshEffortDropdown(val);
             } catch (e) {}
         });
     }
     const chatEffortSel = document.getElementById('chat-effort-select');
+    async function refreshEffortDropdown(modelId) {
+        if (!chatEffortSel) return;
+        try {
+            const resp = await fetch('/api/ide/models/capabilities', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ model: modelId || (chatModelSel ? chatModelSel.value : '') })
+            });
+            if (!resp.ok) return;
+            const data = await resp.json();
+            const vals = Array.isArray(data.values) && data.values.length ? data.values : ['off'];
+            const saved = localStorage.getItem('earnest_effort_level');
+            chatEffortSel.innerHTML = '';
+            for (const v of vals) {
+                const o = document.createElement('option');
+                o.value = v;
+                o.textContent = v.charAt(0).toUpperCase() + v.slice(1);
+                chatEffortSel.appendChild(o);
+            }
+            if (saved && vals.includes(saved)) {
+                chatEffortSel.value = saved;
+            } else if (data.default && vals.includes(data.default)) {
+                chatEffortSel.value = data.default;
+            }
+            chatEffortSel.disabled = vals.length <= 1;
+        } catch (e) {}
+    }
     if (chatEffortSel) {
         const savedEffort = localStorage.getItem('earnest_effort_level');
         if (savedEffort) chatEffortSel.value = savedEffort;
+        setTimeout(() => refreshEffortDropdown(chatModelSel ? chatModelSel.value : ''), 600);
         chatEffortSel.addEventListener('change', () => {
             localStorage.setItem('earnest_effort_level', chatEffortSel.value);
             fetch('/api/ide/kv_state', {

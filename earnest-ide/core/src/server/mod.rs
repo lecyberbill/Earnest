@@ -1331,6 +1331,58 @@ Garde l'indentation appropriée.";
             return;
         }
 
+        if path == "/api/ide/models/capabilities" {
+            let model_id = payload["model"].as_str().unwrap_or("");
+            let conn = get_connection(None).unwrap();
+            let router = crate::llm::router::LLMRouter::from_db(&conn);
+            let backend = router.backends.iter()
+                .find(|b| b.id == model_id || b.name == model_id || b.model == model_id)
+                .or_else(|| router.backends.first());
+
+            let mut values = vec!["off".to_string()];
+            let mut default_val = "off".to_string();
+
+            if let Some(b) = backend {
+                if b.provider_type == "ollama" {
+                    let show_url = format!("{}/api/show", b.base_url.trim_end_matches('/'));
+                    let client = reqwest::blocking::Client::builder()
+                        .timeout(std::time::Duration::from_secs(3))
+                        .build()
+                        .unwrap_or_else(|_| reqwest::blocking::Client::new());
+                    if let Ok(resp) = client.post(&show_url).json(&serde_json::json!({ "model": b.model })).send() {
+                        if let Ok(data) = resp.json::<serde_json::Value>() {
+                            if let Some(arr) = data["thinking"]["values"].as_array() {
+                                for v in arr {
+                                    if let Some(s) = v.as_str() {
+                                        if !values.contains(&s.to_string()) {
+                                            values.push(s.to_string());
+                                        }
+                                    }
+                                }
+                                default_val = data["thinking"]["default"].as_str().unwrap_or("medium").to_string();
+                            } else if data.get("thinking").is_some()
+                                || data["capabilities"].as_array().map(|c| c.iter().any(|x| x.as_str() == Some("thinking"))).unwrap_or(false)
+                            {
+                                values.push("on".to_string());
+                                default_val = "on".to_string();
+                            }
+                        }
+                    }
+                } else {
+                    let m_low = b.model.to_lowercase();
+                    if m_low.contains("reasoner") || m_low.starts_with("o1") || m_low.starts_with("o3") || m_low.contains("thinking") {
+                        values = vec!["low".into(), "medium".into(), "high".into()];
+                        default_val = "medium".into();
+                    }
+                }
+            }
+
+            let res = serde_json::json!({ "values": values, "default": default_val });
+            let resp = Response::from_string(res.to_string()).with_header(json_header).with_header(cors_header);
+            req.respond(resp).ok();
+            return;
+        }
+
         if path == "/api/ide/run/cancel" {
             ReActEngine::request_cancel();
             let resp = Response::from_string(serde_json::json!({"status": "cancelling"}).to_string())

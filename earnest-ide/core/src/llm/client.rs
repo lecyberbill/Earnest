@@ -108,7 +108,8 @@ impl LLMClient {
             }
         };
         if has_tiers {
-            serde_json::json!(effort)
+            let tier = if effort == "on" || effort == "true" { "medium" } else { effort };
+            serde_json::json!(tier)
         } else {
             serde_json::json!(true)
         }

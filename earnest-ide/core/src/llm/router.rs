@@ -51,6 +51,19 @@ impl LLMRouter {
             }
         }
 
+        if let Ok(default_id) = conn.query_row::<String, _, _>(
+            "SELECT value FROM settings WHERE key = 'default_model'",
+            [],
+            |r| r.get(0),
+        ) {
+            if let Some(pos) = backends.iter().position(|b| b.id == default_id || b.name == default_id || b.model == default_id) {
+                if pos > 0 {
+                    let chosen = backends.remove(pos);
+                    backends.insert(0, chosen);
+                }
+            }
+        }
+
         if backends.is_empty() {
             // Fallbacks
             backends.push(BackendConfig {
@@ -133,7 +146,8 @@ impl LLMRouter {
                     Err(e) => {
                         attempts += 1;
                         last_err = format!("Moteur {} (tentative {}/{}) échoué: {}", b.name, attempts, max_retries + 1, e);
-                        if attempts > max_retries {
+                        println!("  ⚠️ [LLM ROUTER] {}", last_err);
+                        if attempts > max_retries || e.contains("timed out") {
                             break;
                         }
                         std::thread::sleep(std::time::Duration::from_millis(backoff_ms));

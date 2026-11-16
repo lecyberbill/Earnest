@@ -82,17 +82,18 @@ impl LLMClient {
         messages: &[ChatMessage],
         tools: Option<&[Value]>,
     ) -> Result<ChatResponse, String> {
-        self.chat_completion_stream(messages, tools, &mut |_, _| {})
+        self.chat_completion_stream(messages, tools, false, &mut |_, _| {})
     }
 
     pub fn chat_completion_stream(
         &self,
         messages: &[ChatMessage],
         tools: Option<&[Value]>,
+        allow_thinking: bool,
         on_token: &mut dyn FnMut(&str, &str),
     ) -> Result<ChatResponse, String> {
         if self.provider_type == "ollama" {
-            self.chat_ollama(messages, tools, on_token)
+            self.chat_ollama(messages, tools, allow_thinking, on_token)
         } else {
             self.chat_openai(messages, tools)
         }
@@ -126,10 +127,11 @@ impl LLMClient {
         &self,
         messages: &[ChatMessage],
         tools: Option<&[Value]>,
+        allow_thinking: bool,
         on_token: &mut dyn FnMut(&str, &str),
     ) -> Result<ChatResponse, String> {
         let url = format!("{}/api/chat", self.base_url);
-        let think_val = self.resolve_ollama_think();
+        let think_val = if allow_thinking { self.resolve_ollama_think() } else { serde_json::json!(false) };
         let mut body = serde_json::json!({
             "model": self.model,
             "messages": messages,

@@ -107,13 +107,14 @@ impl LLMRouter {
         messages: &[ChatMessage],
         tools: Option<&[serde_json::Value]>,
     ) -> Result<(ChatResponse, String), String> {
-        self.chat_completion_with_fallback_stream(messages, tools, &mut |_, _| {})
+        self.chat_completion_with_fallback_stream(messages, tools, false, &mut |_, _| {})
     }
 
     pub fn chat_completion_with_fallback_stream(
         &self,
         messages: &[ChatMessage],
         tools: Option<&[serde_json::Value]>,
+        allow_thinking: bool,
         on_token: &mut dyn FnMut(&str, &str),
     ) -> Result<(ChatResponse, String), String> {
         let mut last_err = String::from("Aucun moteur configuré");
@@ -127,7 +128,7 @@ impl LLMRouter {
             let mut backoff_ms = 400;
 
             loop {
-                match client.chat_completion_stream(messages, tools, on_token) {
+                match client.chat_completion_stream(messages, tools, allow_thinking, on_token) {
                     Ok(resp) => return Ok((resp, b.id.clone())),
                     Err(e) => {
                         attempts += 1;

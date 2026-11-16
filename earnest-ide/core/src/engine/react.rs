@@ -994,10 +994,11 @@ impl<'a> ReActEngine<'a> {
                 return Err("Circuit breaker LLM ouvert : trop d'échecs consécutifs dans la fenêtre glissante.".to_string());
             }
             compact_messages_if_needed(&mut messages, context_budget_chars);
+            let allow_thinking = policy.mode == GovernanceMode::Architecture;
             let mut stream_cb = |kind: &str, chunk: &str| {
                 on_trace(&run_id, step_order, "token", Some(kind), chunk, &active_backend_name);
             };
-            let (chat_res, active_backend) = match self.router.chat_completion_with_fallback_stream(&messages, Some(&tools), &mut stream_cb) {
+            let (chat_res, active_backend) = match self.router.chat_completion_with_fallback_stream(&messages, Some(&tools), allow_thinking, &mut stream_cb) {
                 Ok(res) => {
                     llm_budget.record_success();
                     res

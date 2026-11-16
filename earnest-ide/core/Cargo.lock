@@ -386,6 +386,7 @@ dependencies = [
  "kv-wal-engine",
  "regex",
  "reqwest",
+ "retry-budget",
  "rusqlite",
  "rust-embed",
  "serde",
@@ -1221,6 +1222,10 @@ dependencies = [
  "wasm-bindgen-futures",
  "web-sys",
 ]
+
+[[package]]
+name = "retry-budget"
+version = "0.1.0"
 
 [[package]]
 name = "ring"

@@ -503,6 +503,10 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "a6ef517f0926dd24a1582492c791b6a4818a4d94e789a334894aa15b0d12f55c"
 
 [[package]]
+name = "context-trimmer"
+version = "0.1.0"
+
+[[package]]
 name = "cookie"
 version = "0.18.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -928,9 +932,12 @@ version = "0.1.0"
 dependencies = [
  "chrono",
  "clap",
+ "context-trimmer",
  "ignore",
+ "kv-wal-engine",
  "regex",
  "reqwest 0.12.28",
+ "retry-budget",
  "rusqlite",
  "rust-embed",
  "serde",
@@ -938,6 +945,7 @@ dependencies = [
  "sha2 0.10.9",
  "similar",
  "tiny_http",
+ "tool-output-cache",
  "urlencoding",
  "uuid",
  "walkdir",
@@ -2113,6 +2121,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "kv-wal-engine"
+version = "0.1.0"
+
+[[package]]
 name = "libappindicator"
 version = "0.9.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3086,6 +3098,10 @@ dependencies = [
  "wasm-streams",
  "web-sys",
 ]
+
+[[package]]
+name = "retry-budget"
+version = "0.1.0"
 
 [[package]]
 name = "ring"
@@ -4361,6 +4377,10 @@ name = "toml_writer"
 version = "1.2.0+spec-1.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "009dbb7700f11c55ef83aebbe4c0e9cf1f1ac0844bd8d6f00dc38f302026e13a"
+
+[[package]]
+name = "tool-output-cache"
+version = "0.1.0"
 
 [[package]]
 name = "tower"

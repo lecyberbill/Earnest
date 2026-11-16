@@ -15,7 +15,6 @@ use crate::engine::react::ReActEngine;
 use crate::tools::get_ide_tools_schemas;
 use crate::tools::fs::{write_file, rename_file_or_dir, delete_file_or_dir, create_directory};
 use crate::tools::search::{grep_search, list_files, list_directory_entries};
-use crate::tools::terminal::execute_terminal;
 use crate::tools::git::{get_git_status, get_git_diff, git_commit};
 use crate::tools::diagnostics::run_project_diagnostics;
 
@@ -1349,7 +1348,7 @@ Garde l'indentation appropriée.";
             let timeout = payload["timeout_secs"].as_u64().unwrap_or(30);
             let _ = timeout;
 
-            let mut cur_cwd = {
+            let cur_cwd = {
                 let mut map = cwds.lock().unwrap_or_else(|e| e.into_inner());
                 map.entry(tab_id.clone())
                     .or_insert_with(|| std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from(".")))
@@ -1367,7 +1366,6 @@ Garde l'indentation appropriée.";
                 };
                 if let Ok(canon) = std::fs::canonicalize(&next) {
                     if canon.is_dir() {
-                        cur_cwd = canon.clone();
                         if let Ok(mut map) = cwds.lock() { map.insert(tab_id, canon.clone()); }
                         let res = serde_json::json!({"status": "ok", "stdout": format!("cwd: {}\n", canon.display()), "stderr": "", "exit_code": 0, "cwd": canon.to_string_lossy()});
                         let resp = Response::from_string(res.to_string()).with_header(json_header).with_header(cors_header);

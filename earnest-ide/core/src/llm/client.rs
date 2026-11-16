@@ -133,7 +133,7 @@ impl LLMClient {
         if self.provider_type == "ollama" {
             self.chat_ollama(messages, tools, think_effort, on_token)
         } else {
-            self.chat_openai(messages, tools, think_effort)
+            self.chat_openai(messages, tools, think_effort, on_token)
         }
     }
 
@@ -235,12 +235,15 @@ impl LLMClient {
         messages: &[ChatMessage],
         tools: Option<&[Value]>,
         think_effort: &str,
+        on_token: &mut dyn FnMut(&str, &str),
     ) -> Result<ChatResponse, String> {
         let url = format!("{}/v1/chat/completions", self.base_url);
         let mut body = serde_json::json!({
             "model": self.model,
             "messages": messages,
-            "temperature": 0.2
+            "temperature": 0.2,
+            "stream": true,
+            "stream_options": { "include_usage": true }
         });
 
         let url_low = self.base_url.to_lowercase();
@@ -272,38 +275,88 @@ impl LLMClient {
             return Err(format!("Erreur OpenAI statut {}", resp.status()));
         }
 
-        let data: Value = resp.json().map_err(|e| format!("Erreur parsing JSON OpenAI: {}", e))?;
-        let finish_reason = data["choices"][0]["finish_reason"].as_str().unwrap_or("");
-        if finish_reason == "length" {
-            println!("  ⚠️ [OPENAI] Réponse tronquée (finish_reason=length)");
-        }
-        let choice = &data["choices"][0]["message"];
-        let content = choice["content"].as_str().unwrap_or("").to_string();
-        let reasoning = choice["reasoning_content"].as_str().map(|s| s.to_string());
+        let reader = BufReader::new(resp);
+        let mut content = String::new();
+        let mut reasoning = String::new();
+        let mut finish_reason = String::new();
+        let mut prompt_tokens = 0usize;
+        let mut completion_tokens = 0usize;
+        // index -> (id, name, arguments_buffer)
+        let mut tc_acc: std::collections::BTreeMap<usize, (String, String, String)> = std::collections::BTreeMap::new();
 
-        let mut tool_calls = Vec::new();
-        if let Some(arr) = choice["tool_calls"].as_array() {
-            for call in arr {
-                let func = &call["function"];
-                let name = func["name"].as_str().unwrap_or("").to_string();
-                let raw_args = func["arguments"].as_str().unwrap_or("{}");
-                let parsed_args: Value = match serde_json::from_str(raw_args) {
-                    Ok(v) => v,
-                    Err(_) => {
-                        println!("  ⚠️ [OPENAI] Tool '{}' arguments tronqués (finish_reason={}, {} chars)", name, finish_reason, raw_args.len());
-                        serde_json::json!({
-                            "__truncated_error": format!("Arguments JSON tronqués ({} chars, finish_reason={}). Utilise stage_only: true et écris UN seul fichier à la fois.", raw_args.len(), finish_reason)
-                        })
+        for line in reader.lines() {
+            let line = line.map_err(|e| format!("Erreur lecture stream OpenAI: {}", e))?;
+            let trimmed = line.trim();
+            if trimmed.is_empty() || !trimmed.starts_with("data:") {
+                continue;
+            }
+            let payload_str = trimmed.trim_start_matches("data:").trim();
+            if payload_str == "[DONE]" {
+                break;
+            }
+            let data: Value = match serde_json::from_str(payload_str) {
+                Ok(v) => v,
+                Err(_) => continue,
+            };
+            if let Some(usage) = data.get("usage").filter(|u| !u.is_null()) {
+                prompt_tokens = usage["prompt_tokens"].as_u64().unwrap_or(prompt_tokens as u64) as usize;
+                completion_tokens = usage["completion_tokens"].as_u64().unwrap_or(completion_tokens as u64) as usize;
+            }
+            let choice0 = &data["choices"][0];
+            if let Some(fr) = choice0["finish_reason"].as_str() {
+                if !fr.is_empty() {
+                    finish_reason = fr.to_string();
+                }
+            }
+            let delta = &choice0["delta"];
+            if let Some(rc) = delta["reasoning_content"].as_str() {
+                if !rc.is_empty() {
+                    on_token("thinking", rc);
+                    reasoning.push_str(rc);
+                }
+            }
+            if let Some(c) = delta["content"].as_str() {
+                if !c.is_empty() {
+                    on_token("content", c);
+                    content.push_str(c);
+                }
+            }
+            if let Some(arr) = delta["tool_calls"].as_array() {
+                for tc in arr {
+                    let idx = tc["index"].as_u64().unwrap_or(0) as usize;
+                    let entry = tc_acc.entry(idx).or_insert_with(|| (String::new(), String::new(), String::new()));
+                    if let Some(id) = tc["id"].as_str() {
+                        if !id.is_empty() { entry.0 = id.to_string(); }
                     }
-                };
-                let call_id = call["id"].as_str().unwrap_or("call_gen").to_string();
-                tool_calls.push(ToolCallItem { id: call_id, name, arguments: parsed_args });
+                    if let Some(name) = tc["function"]["name"].as_str() {
+                        entry.1.push_str(name);
+                    }
+                    if let Some(args_part) = tc["function"]["arguments"].as_str() {
+                        entry.2.push_str(args_part);
+                    }
+                }
             }
         }
 
-        let usage = &data["usage"];
-        let prompt_tokens = usage["prompt_tokens"].as_u64().unwrap_or(0) as usize;
-        let completion_tokens = usage["completion_tokens"].as_u64().unwrap_or(0) as usize;
+        if finish_reason == "length" {
+            println!("  ⚠️ [OPENAI] Réponse tronquée (finish_reason=length)");
+        }
+
+        let mut tool_calls = Vec::new();
+        for (_idx, (call_id, name, raw_args)) in tc_acc {
+            let args_to_parse = if raw_args.trim().is_empty() { "{}" } else { raw_args.as_str() };
+            let parsed_args: Value = match serde_json::from_str(args_to_parse) {
+                Ok(v) => v,
+                Err(_) => {
+                    println!("  ⚠️ [OPENAI] Tool '{}' arguments tronqués (finish_reason={}, {} chars)", name, finish_reason, raw_args.len());
+                    serde_json::json!({
+                        "__truncated_error": format!("Arguments JSON tronqués ({} chars, finish_reason={}). Utilise stage_only: true et écris UN seul fichier à la fois.", raw_args.len(), finish_reason)
+                    })
+                }
+            };
+            let final_id = if call_id.is_empty() { "call_gen".to_string() } else { call_id };
+            tool_calls.push(ToolCallItem { id: final_id, name, arguments: parsed_args });
+        }
 
         Ok(ChatResponse {
             content,
@@ -311,7 +364,7 @@ impl LLMClient {
             prompt_tokens,
             completion_tokens,
             total_tokens: prompt_tokens + completion_tokens,
-            reasoning_content: reasoning,
+            reasoning_content: if reasoning.is_empty() { None } else { Some(reasoning) },
         })
     }
 }

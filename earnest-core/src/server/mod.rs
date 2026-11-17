@@ -85,6 +85,18 @@ fn handle_request(mut req: tiny_http::Request) {
 
     let method = req.method().clone();
 
+    if method == Method::Options {
+        let allow_methods = Header::from_bytes(&b"Access-Control-Allow-Methods"[..], &b"GET, POST, OPTIONS, DELETE"[..]).unwrap();
+        let allow_headers = Header::from_bytes(&b"Access-Control-Allow-Headers"[..], &b"Content-Type, Authorization"[..]).unwrap();
+        let resp = Response::from_string("")
+            .with_status_code(204)
+            .with_header(cors_header)
+            .with_header(allow_methods)
+            .with_header(allow_headers);
+        req.respond(resp).ok();
+        return;
+    }
+
     // ==========================================
     // 1. ENDPOINTS GET
     // ==========================================

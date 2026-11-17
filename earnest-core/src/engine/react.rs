@@ -122,13 +122,17 @@ impl<'a> ReActEngine<'a> {
             params![run_id, self.project_id, prompt],
         ).map_err(|e| e.to_string())?;
 
-        let system_prompt = "Tu es Earnest, un système agentique autonome propulsé par un moteur Rust natif ultra-robuste. \
-Tu résous la tâche pas à pas (ReAct). Tu disposes d'un accès complet à Internet et au web via 'web_search' (pour chercher sur le web) et 'web_fetch' (pour lire une page web). \
+        let env_context = detect_runtime_environment();
+        let system_prompt = format!(
+            "Tu es Earnest, un système agentique autonome propulsé par un moteur Rust natif ultra-robuste. \
+Tu résous la tâche pas à pas (ReAct). Tu disposes d'un accès complet à Internet et au web via 'web_search' et 'web_fetch'. \
 Utilise également les autres outils mis à disposition (terminal_exec, create_artifact, store_memory, recall_memory) quand nécessaire. \
-Sous Windows, 'terminal_exec' s'exécute dans PowerShell : utilise ';' et jamais '&&'. \
-N'hésite JAMAIS à utiliser 'web_search' quand l'utilisateur demande des informations récentes, des cotations, des recettes ou des données extérieures. \
+Environnement réel capturé : {}. \
+Adapte tes commandes au shell et à l'OS indiqués ci-dessus. \
 En cours de mission, n'émets pas de phrase d'annonce sans appel d'outil : appelle directement l'outil suivant. \
-Quand ta mission est entièrement accomplie et vérifiée, fournis directement ta réponse finale complète sans appel d'outil.";
+Quand ta mission est entièrement accomplie et vérifiée sur disque, fournis directement ta réponse finale complète sans appel d'outil.",
+            env_context
+        );
 
         let mut messages = vec![
             ChatMessage { role: "system".to_string(), content: system_prompt.to_string(), images: None },
@@ -333,9 +337,82 @@ fn looks_like_unfinished_thought(content: &str) -> bool {
     .any(|pat| lower.contains(pat))
 }
 
+/// Capture dynamiquement l'environnement système réel (OS, version, architecture,
+/// shell d'exécution de `terminal_exec`, runtimes disponibles et répertoire courant).
+/// Les sondes lentes (version OS, runtimes) sont mises en cache via `OnceLock`.
+pub fn detect_runtime_environment() -> String {
+    static STATIC_ENV: OnceLock<String> = OnceLock::new();
+    let base = STATIC_ENV.get_or_init(|| {
+        let os = std::env::consts::OS;
+        let arch = std::env::consts::ARCH;
+
+        let os_version = if cfg!(target_os = "windows") {
+            std::process::Command::new("cmd")
+                .args(["/C", "ver"])
+                .output()
+                .ok()
+                .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string())
+                .filter(|s| !s.is_empty())
+                .unwrap_or_else(|| "Windows".to_string())
+        } else {
+            std::process::Command::new("uname")
+                .args(["-sr"])
+                .output()
+                .ok()
+                .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string())
+                .filter(|s| !s.is_empty())
+                .unwrap_or_else(|| os.to_string())
+        };
+
+        let shell = if cfg!(target_os = "windows") {
+            "PowerShell (séparateur ';' ; commandes PowerShell/Windows natives)"
+        } else {
+            "sh/bash (POSIX)"
+        };
+
+        let mut runtimes = Vec::new();
+        for (bin, arg, label) in [
+            ("python", "--version", "Python"),
+            ("cargo", "--version", "Cargo"),
+            ("git", "--version", "Git"),
+        ] {
+            if let Ok(out) = std::process::Command::new(bin).arg(arg).output() {
+                if out.status.success() {
+                    let ver = String::from_utf8_lossy(&out.stdout).trim().to_string();
+                    let first_line = ver.lines().next().unwrap_or(label).trim();
+                    runtimes.push(first_line.to_string());
+                }
+            }
+        }
+        let rt_str = if runtimes.is_empty() {
+            "aucun détecté".to_string()
+        } else {
+            runtimes.join(", ")
+        };
+
+        format!(
+            "OS={} ({}, {}), Shell={}, Runtimes=[{}]",
+            os, arch, os_version, shell, rt_str
+        )
+    });
+
+    let cwd = std::env::current_dir()
+        .map(|p| p.display().to_string())
+        .unwrap_or_else(|_| ".".to_string());
+    format!("{}, CWD={}", base, cwd)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn detect_runtime_environment_captures_real_host_info() {
+        let env = detect_runtime_environment();
+        assert!(env.contains(&format!("OS={}", std::env::consts::OS)));
+        assert!(env.contains("Shell="));
+        assert!(env.contains("CWD="));
+    }
 
     #[test]
     fn unfinished_thought_detected_for_mid_run_announcements() {

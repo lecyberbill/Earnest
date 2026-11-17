@@ -30,6 +30,9 @@ struct Cli {
     probe_models: bool,
 
     #[arg(long)]
+    mcp: bool,
+
+    #[arg(long)]
     serve: bool,
 
     #[arg(long, default_value_t = 8080)]
@@ -73,6 +76,14 @@ fn main() {
             std::process::exit(1);
         }
     };
+
+    if args.mcp {
+        if let Err(e) = earnest_core::mcp::serve_stdio(&conn) {
+            eprintln!("Erreur serveur MCP stdio: {}", e);
+            std::process::exit(1);
+        }
+        std::process::exit(0);
+    }
 
     if args.test_db {
         println!("🧪 [TEST DB RUST] Démarrage du test unitaire de mémoire...");

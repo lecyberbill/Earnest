@@ -1,0 +1,9 @@
+[package]
+name = "log-sanitizer"
+version = "0.1.0"
+edition = "2021"
+description = "Pure-Rust secret detector and redactor for LLM contexts, logs, and .env files"
+license = "MIT"
+
+[dependencies]
+# Zero external dependencies — std only

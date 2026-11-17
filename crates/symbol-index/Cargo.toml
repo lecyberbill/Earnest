@@ -1,0 +1,9 @@
+[package]
+name = "symbol-index"
+version = "0.1.0"
+edition = "2021"
+description = "Fast pure-Rust workspace symbol indexer with fuzzy search and targeted line-range reading"
+license = "MIT"
+
+[dependencies]
+# Zero external dependencies — std only

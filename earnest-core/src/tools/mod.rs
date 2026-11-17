@@ -84,6 +84,23 @@ pub fn get_primitive_tools_schemas() -> Vec<Value> {
         serde_json::json!({
             "type": "function",
             "function": {
+                "name": "symbol_search",
+                "description": "Indexe et recherche rapidement des symboles (fn, struct, enum, class, export, interface) dans le workspace avec lecture ciblée par plage de lignes (économise les tokens).",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "query": { "type": "string", "description": "Nom ou motif flou du symbole recherché" },
+                        "path": { "type": "string", "description": "Répertoire racine optionnel (défaut: '.')" },
+                        "limit": { "type": "integer", "description": "Nombre max de résultats (défaut: 8)" },
+                        "include_snippet": { "type": "boolean", "description": "Inclure un extrait ciblé autour de la ligne (défaut: true)" }
+                    },
+                    "required": ["query"]
+                }
+            }
+        }),
+        serde_json::json!({
+            "type": "function",
+            "function": {
                 "name": "create_artifact",
                 "description": "Génère un livrable matérialisé (Markdown, Python, Rust, HTML, etc.) sauvegardé sur disque.",
                 "parameters": {

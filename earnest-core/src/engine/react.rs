@@ -36,7 +36,7 @@ pub fn push_live_log(level: &str, message: &str) {
             id,
             timestamp: ts,
             level: level.to_string(),
-            message: message.to_string(),
+            message: log_sanitizer::sanitize_text(message),
         });
     }
 }
@@ -123,6 +123,46 @@ impl<'a> ReActEngine<'a> {
                 match execute_terminal(cmd, timeout) {
                     Ok(res) => res.to_string(),
                     Err(e) => serde_json::json!({"status": "error", "error": e}).to_string(),
+                }
+            }
+            "symbol_search" => {
+                let query = args["query"].as_str().unwrap_or("");
+                let root_str = args["path"].as_str().unwrap_or(".");
+                let limit = args["limit"].as_u64().unwrap_or(8).clamp(1, 25) as usize;
+                let include_snippet = args["include_snippet"].as_bool().unwrap_or(true);
+                let root = std::path::Path::new(root_str);
+                match symbol_index::SymbolIndex::build(root) {
+                    Ok(idx) => {
+                        let hits: Vec<Value> = idx
+                            .search(query, limit)
+                            .into_iter()
+                            .map(|entry| {
+                                let snippet = if include_snippet {
+                                    let full = root.join(&entry.file);
+                                    symbol_index::read_symbol_snippet(&full, entry.line, 2, 8)
+                                        .ok()
+                                        .map(|s| s.content)
+                                } else {
+                                    None
+                                };
+                                serde_json::json!({
+                                    "name": entry.name,
+                                    "kind": format!("{:?}", entry.kind),
+                                    "file": entry.file.to_string_lossy(),
+                                    "line": entry.line,
+                                    "signature": entry.signature,
+                                    "snippet": snippet,
+                                })
+                            })
+                            .collect();
+                        serde_json::json!({
+                            "status": "ok",
+                            "total_indexed": idx.len(),
+                            "matches": hits,
+                        })
+                        .to_string()
+                    }
+                    Err(e) => serde_json::json!({"status": "error", "error": e.to_string()}).to_string(),
                 }
             }
             "create_artifact" => {
@@ -285,7 +325,7 @@ Quand ta mission est entièrement accomplie et vérifiée sur disque, fournis di
                     last_tool_sig = sig;
                     repeat_tool_count = 1;
                 }
-                let is_cacheable_read = matches!(fn_name.as_str(), "recall_memory" | "read_file" | "list_files" | "web_fetch");
+                let is_cacheable_read = matches!(fn_name.as_str(), "recall_memory" | "read_file" | "list_files" | "web_fetch" | "symbol_search");
                 let raw_output = if is_cacheable_read {
                     let hit = cache_mutex.lock().ok().and_then(|mut c| c.get(fn_name, &args_key).map(|s| s.to_string()));
                     if let Some(cached) = hit {
@@ -298,7 +338,8 @@ Quand ta mission est entièrement accomplie et vérifiée sur disque, fournis di
                 } else {
                     self.dispatch_tool(fn_name, fn_args, &run_id)
                 };
-                let tool_output = context_trimmer::truncate_tool_output(&raw_output, 16_000);
+                let sanitized_output = log_sanitizer::sanitize_text(&raw_output);
+                let tool_output = context_trimmer::truncate_tool_output(&sanitized_output, 16_000);
                 push_live_log("OUTPUT", &format!("← {} : {}", fn_name, context_trimmer::truncate_tool_output(&tool_output, 220)));
                 if is_cacheable_read {
                     let path_hint = fn_args["path"].as_str().or_else(|| fn_args["key"].as_str());
@@ -592,5 +633,42 @@ mod tests {
         // 2 head + 1 marker + 16 tail = 19
         assert_eq!(msgs.len(), 19);
         assert!(msgs[2].content.contains("Contexte compacté"));
+    }
+
+    #[test]
+    fn push_live_log_redacts_secrets() {
+        push_live_log("INFO", "Authorization: Bearer secret_jwt_token_12345678 sk-proj-abcdef1234567890");
+        let logs = get_live_logs(0);
+        let last = logs.last().expect("expected a live log entry");
+        assert!(!last.message.contains("secret_jwt_token_12345678"));
+        assert!(!last.message.contains("sk-proj-abcdef1234567890"));
+        assert!(last.message.contains("[REDACTED:BEARER_TOKEN]"));
+        assert!(last.message.contains("[REDACTED:API_KEY]"));
+    }
+
+    #[test]
+    fn symbol_search_tool_finds_earnest_symbols_with_snippet() {
+        let conn = rusqlite::Connection::open_in_memory().unwrap();
+        let router = LLMRouter::from_db(&conn);
+        let engine = ReActEngine {
+            conn: &conn,
+            router: &router,
+            project_id: "test".to_string(),
+            max_steps: 2,
+            think_effort: "low".to_string(),
+        };
+        let args = serde_json::json!({
+            "query": "SymbolIndex",
+            "path": "../crates/symbol-index",
+            "limit": 3,
+            "include_snippet": true
+        });
+        let raw = engine.dispatch_tool("symbol_search", &args, "run_test");
+        let parsed: serde_json::Value = serde_json::from_str(&raw).unwrap();
+        assert_eq!(parsed["status"], "ok");
+        let matches = parsed["matches"].as_array().unwrap();
+        assert!(!matches.is_empty());
+        assert_eq!(matches[0]["name"], "SymbolIndex");
+        assert!(matches[0]["snippet"].as_str().unwrap().contains("SymbolIndex"));
     }
 }

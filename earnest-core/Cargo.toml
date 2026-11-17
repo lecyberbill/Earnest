@@ -19,3 +19,5 @@ context-trimmer = { path = "../crates/context-trimmer" }
 tool-output-cache = { path = "../crates/tool-output-cache" }
 retry-budget = { path = "../crates/retry-budget" }
 json-repair = { path = "../crates/json-repair" }
+symbol-index = { path = "../crates/symbol-index" }
+log-sanitizer = { path = "../crates/log-sanitizer" }

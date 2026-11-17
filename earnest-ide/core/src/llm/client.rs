@@ -148,13 +148,19 @@ impl LLMClient {
     ) -> Result<ChatResponse, String> {
         let url = format!("{}/api/chat", self.base_url);
         let think_val = self.resolve_ollama_think(think_effort);
+        let num_ctx: u64 = std::env::var("EARNEST_OLLAMA_NUM_CTX")
+            .ok()
+            .and_then(|v| v.parse::<u64>().ok())
+            .filter(|&v| v >= 2048)
+            .unwrap_or(65536);
         let mut body = serde_json::json!({
             "model": self.model,
             "messages": messages,
             "stream": true,
             "think": think_val,
             "options": {
-                "num_predict": 16384
+                "num_predict": 16384,
+                "num_ctx": num_ctx
             }
         });
 

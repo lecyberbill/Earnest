@@ -113,11 +113,19 @@ impl LLMClient {
     ) -> Result<ChatResponse, String> {
         let url = format!("{}/api/chat", self.base_url);
         let enable_think = !matches!(think_effort.to_lowercase().as_str(), "off" | "none" | "false" | "");
+        let num_ctx: u64 = std::env::var("EARNEST_OLLAMA_NUM_CTX")
+            .ok()
+            .and_then(|v| v.parse::<u64>().ok())
+            .filter(|&v| v >= 2048)
+            .unwrap_or(65536);
         let mut body = serde_json::json!({
             "model": self.model,
             "messages": messages,
             "stream": true,
-            "think": enable_think
+            "think": enable_think,
+            "options": {
+                "num_ctx": num_ctx
+            }
         });
 
         if let Some(t) = tools {

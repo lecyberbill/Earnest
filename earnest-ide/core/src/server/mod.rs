@@ -344,6 +344,30 @@ fn handle_request(mut req: tiny_http::Request) {
             return;
         }
 
+        if path == "/api/ide/checkpoints" {
+            let ws_root = std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("."));
+            let mut ids = Vec::new();
+            if ws_root.join(".git").exists() {
+                if let Ok(out) = std::process::Command::new("git")
+                    .args(["for-each-ref", "--format=%(refname:short)", "refs/earnest/checkpoints/"])
+                    .current_dir(&ws_root)
+                    .output()
+                {
+                    let txt = String::from_utf8_lossy(&out.stdout);
+                    for line in txt.lines() {
+                        if let Some(run_id) = line.trim().strip_prefix("earnest/checkpoints/") {
+                            ids.push(run_id.to_string());
+                        }
+                    }
+                }
+            }
+            let resp = Response::from_string(serde_json::json!({ "checkpoints": ids }).to_string())
+                .with_header(json_header)
+                .with_header(cors_header);
+            req.respond(resp).ok();
+            return;
+        }
+
         if path == "/api/ide/history" {
             let conn = get_connection(None).unwrap();
             let project = query.get("project").map(|s| s.as_str()).unwrap_or("earnest_ide");
@@ -1616,6 +1640,60 @@ Garde l'indentation appropriée.";
                 "success": success,
                 "output": out_str
             }).to_string())
+                .with_header(json_header)
+                .with_header(cors_header);
+            req.respond(resp).ok();
+            return;
+        }
+
+        if path == "/api/ide/checkpoint/restore" {
+            let ws_root = std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("."));
+            let run_id = payload["run_id"].as_str().unwrap_or("");
+            if !ws_root.join(".git").exists() {
+                let resp = Response::from_string(serde_json::json!({"status": "error", "error": "Dépôt Git requis pour les checkpoints"}).to_string())
+                    .with_status_code(400)
+                    .with_header(json_header)
+                    .with_header(cors_header);
+                req.respond(resp).ok();
+                return;
+            }
+            let target_ref = if run_id.is_empty() {
+                "earnest-checkpoint-latest".to_string()
+            } else {
+                format!("refs/earnest/checkpoints/{}", run_id)
+            };
+            let verify = std::process::Command::new("git")
+                .args(["rev-parse", "--verify", &target_ref])
+                .current_dir(&ws_root)
+                .output();
+            let sha = match verify {
+                Ok(o) if o.status.success() => String::from_utf8_lossy(&o.stdout).trim().to_string(),
+                _ => {
+                    let resp = Response::from_string(serde_json::json!({"status": "error", "error": format!("Checkpoint '{}' introuvable", target_ref)}).to_string())
+                        .with_status_code(404)
+                        .with_header(json_header)
+                        .with_header(cors_header);
+                    req.respond(resp).ok();
+                    return;
+                }
+            };
+            let checkout = std::process::Command::new("git")
+                .args(["checkout", &sha, "--", "."])
+                .current_dir(&ws_root)
+                .output();
+            let resp_json = match checkout {
+                Ok(o) if o.status.success() => serde_json::json!({
+                    "status": "restored",
+                    "run_id": run_id,
+                    "commit": sha
+                }),
+                Ok(o) => serde_json::json!({
+                    "status": "error",
+                    "error": String::from_utf8_lossy(&o.stderr).trim().to_string()
+                }),
+                Err(e) => serde_json::json!({"status": "error", "error": e.to_string()}),
+            };
+            let resp = Response::from_string(resp_json.to_string())
                 .with_header(json_header)
                 .with_header(cors_header);
             req.respond(resp).ok();

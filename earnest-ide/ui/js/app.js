@@ -2576,8 +2576,13 @@ document.addEventListener('DOMContentLoaded', () => {
         agentHistoryPane.innerHTML = '<div style="color:var(--text-muted); padding:0.25rem;">Chargement historique...</div>';
         try {
             const projKey = encodeURIComponent(state.currentRoot || state.currentProjectName || 'earnest_ide_workspace');
-            const res = await fetch(`/api/ide/history?project=${projKey}`);
+            const [res, cpRes] = await Promise.all([
+                fetch(`/api/ide/history?project=${projKey}`),
+                fetch('/api/ide/checkpoints').catch(() => null),
+            ]);
             const runs = await res.json();
+            const cpJson = cpRes && cpRes.ok ? await cpRes.json() : { checkpoints: [] };
+            const checkpointSet = new Set(cpJson.checkpoints || []);
             agentHistoryPane.innerHTML = '';
 
             if (!runs || runs.length === 0) {
@@ -2588,13 +2593,44 @@ document.addEventListener('DOMContentLoaded', () => {
             runs.forEach(r => {
                 const item = document.createElement('div');
                 item.className = 'palette-item';
-                item.style.cssText = 'padding: 0.35rem 0.5rem; border-radius: 4px; font-size: 0.72rem; cursor: pointer; display: flex; justify-content: space-between; align-items: center;';
+                item.style.cssText = 'padding: 0.35rem 0.5rem; border-radius: 4px; font-size: 0.72rem; cursor: pointer; display: flex; justify-content: space-between; align-items: center; gap: 6px;';
+                const hasCp = checkpointSet.has(r.id);
                 item.innerHTML = `
-                    <div style="flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; margin-right: 8px;">
+                    <div style="flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
                         <span style="color: var(--accent-cyan); font-weight: 600;">[${r.status}]</span> ${escapeHtml(r.prompt)}
                     </div>
+                    ${hasCp ? `<button class="btn-restore-cp" title="Restaurer le workspace tel qu'il était avant ce run" style="background: rgba(245,158,11,0.14); border: 1px solid rgba(245,158,11,0.4); color: #fbbf24; border-radius: 4px; padding: 1px 6px; font-size: 0.65rem; cursor: pointer; flex-shrink: 0;">⏪ Restaurer</button>` : ''}
                     <span style="color: var(--text-muted); font-size: 0.65rem; flex-shrink: 0;">${r.created_at || ''}</span>
                 `;
+                if (hasCp) {
+                    const restoreBtn = item.querySelector('.btn-restore-cp');
+                    restoreBtn.addEventListener('click', async (ev) => {
+                        ev.stopPropagation();
+                        if (!confirm(`Restaurer le workspace à l'état d'avant le run ${r.id} ?`)) return;
+                        restoreBtn.disabled = true;
+                        restoreBtn.textContent = '⏳...';
+                        try {
+                            const rRes = await fetch('/api/ide/checkpoint/restore', {
+                                method: 'POST',
+                                headers: { 'Content-Type': 'application/json' },
+                                body: JSON.stringify({ run_id: r.id })
+                            });
+                            const rData = await rRes.json();
+                            if (rData.status === 'restored') {
+                                appendChatBubble('system', `⏪ Workspace restauré au checkpoint d'avant ${r.id} (${rData.commit.slice(0, 8)}).`);
+                                if (typeof loadFileTree === 'function') loadFileTree();
+                                if (state.activeFile && typeof openFile === 'function') openFile(state.activeFile);
+                            } else {
+                                alert('Erreur restauration: ' + (rData.error || 'inconnue'));
+                            }
+                        } catch (err) {
+                            alert('Erreur réseau restauration: ' + err.message);
+                        } finally {
+                            restoreBtn.disabled = false;
+                            restoreBtn.textContent = '⏪ Restaurer';
+                        }
+                    });
+                }
                 item.addEventListener('click', async () => {
                     await restoreRunTraces(r.id, r.prompt);
                     agentHistoryPane.style.display = 'none';

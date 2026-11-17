@@ -855,6 +855,56 @@ impl<'a> ReActEngine<'a> {
                     Err(e) => (serde_json::json!({"status": "error", "error": e}).to_string(), None),
                 }
             }
+            "symbol_search" => {
+                let query = args["query"].as_str().unwrap_or("");
+                let sub_path = args["path"].as_str().unwrap_or("");
+                let limit = args["limit"].as_u64().unwrap_or(8).clamp(1, 25) as usize;
+                let include_snippet = args["include_snippet"].as_bool().unwrap_or(true);
+                let root = if sub_path.is_empty() || sub_path == "." {
+                    self.workspace_root.clone()
+                } else {
+                    self.workspace_root.join(sub_path)
+                };
+                match symbol_index::SymbolIndex::build(&root) {
+                    Ok(idx) => {
+                        let hits: Vec<Value> = idx
+                            .search(query, limit)
+                            .into_iter()
+                            .map(|entry| {
+                                let snippet = if include_snippet {
+                                    let full = root.join(&entry.file);
+                                    symbol_index::read_symbol_snippet(&full, entry.line, 2, 8)
+                                        .ok()
+                                        .map(|s| s.content)
+                                } else {
+                                    None
+                                };
+                                serde_json::json!({
+                                    "name": entry.name,
+                                    "kind": format!("{:?}", entry.kind),
+                                    "file": entry.file.to_string_lossy(),
+                                    "line": entry.line,
+                                    "signature": entry.signature,
+                                    "snippet": snippet,
+                                })
+                            })
+                            .collect();
+                        (
+                            serde_json::json!({
+                                "status": "ok",
+                                "total_indexed": idx.len(),
+                                "matches": hits,
+                            })
+                            .to_string(),
+                            None,
+                        )
+                    }
+                    Err(e) => (
+                        serde_json::json!({"status": "error", "error": e.to_string()}).to_string(),
+                        None,
+                    ),
+                }
+            }
             _ => (serde_json::json!({"status": "error", "error": format!("Outil inconnu : {}", name)}).to_string(), None),
         }
     }
@@ -944,9 +994,9 @@ impl<'a> ReActEngine<'a> {
 
         CANCEL_RUN.store(false, Ordering::SeqCst);
         crate::llm::client::CANCEL_LLM.store(false, Ordering::SeqCst);
-        self.create_checkpoint();
         let start = Instant::now();
         let run_id = format!("run_{}", &uuid::Uuid::new_v4().to_string().replace('-', "")[..12]);
+        self.create_checkpoint(&run_id);
 
         // Charger ou initialiser la politique du projet (avec garde-fou Contrainte 4)
         let pm = PolicyManager::new(&self.workspace_root);
@@ -1210,7 +1260,8 @@ impl<'a> ReActEngine<'a> {
                     self.dispatch_tool(fn_name, fn_args, &policy, &mut failure_counts)
                 };
 
-                let mut tool_output = context_trimmer::truncate_tool_output(&raw_output, 16_000);
+                let sanitized_output = log_sanitizer::sanitize_text(&raw_output);
+                let mut tool_output = context_trimmer::truncate_tool_output(&sanitized_output, 16_000);
                 if repeat_count >= 3 {
                     tool_output.push_str("\n\n[ANTI-LOOP] Attention : tu viens de répéter exactement le même appel 3 fois de suite. Change d'approche, passe à l'étape suivante ou conclus.");
                     repeat_count = 0;
@@ -1315,7 +1366,7 @@ impl<'a> ReActEngine<'a> {
         self.run_with_callback(prompt, |_, _, _, _, _, _| {})
     }
 
-    fn create_checkpoint(&self) {
+    fn create_checkpoint(&self, run_id: &str) {
         if !self.workspace_root.join(".git").exists() {
             return;
         }
@@ -1330,7 +1381,12 @@ impl<'a> ReActEngine<'a> {
                 .args(["tag", "-f", "earnest-checkpoint-latest", target])
                 .current_dir(&self.workspace_root)
                 .output();
-            println!("  🔖 [CHECKPOINT] Sauvegardé ({})", target);
+            let ref_name = format!("refs/earnest/checkpoints/{}", run_id);
+            let _ = std::process::Command::new("git")
+                .args(["update-ref", &ref_name, target])
+                .current_dir(&self.workspace_root)
+                .output();
+            println!("  🔖 [CHECKPOINT] Sauvegardé ({} -> {})", run_id, target);
         }
     }
 

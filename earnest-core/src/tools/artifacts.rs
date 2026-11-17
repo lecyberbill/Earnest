@@ -1,5 +1,5 @@
 use std::fs;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use serde_json::Value;
 use crate::db::connection::get_data_dir;
 
@@ -36,19 +36,23 @@ pub fn create_artifact(
     fs::write(&store_path, content).map_err(|e| format!("Erreur écriture artefact: {}", e))?;
 
     // Si un chemin de fichier personnalisé est fourni, miroir vers ce chemin
+    let mut mirrored_path: Option<String> = None;
     if let Some(target_p) = file_path {
         let p = Path::new(target_p);
         if let Some(parent) = p.parent() {
-            fs::create_dir_all(parent).ok();
+            fs::create_dir_all(parent).map_err(|e| format!("Erreur création dossier cible '{}': {}", target_p, e))?;
         }
-        fs::write(p, content).ok();
+        fs::write(p, content).map_err(|e| format!("Erreur écriture fichier cible '{}': {}", target_p, e))?;
+        mirrored_path = Some(target_p.to_string());
     }
 
     Ok(serde_json::json!({
         "status": "success",
         "artifact_id": art_id,
         "filename": filename,
-        "path": store_path.to_string_lossy(),
+        "path": mirrored_path.as_deref().unwrap_or(&store_path.to_string_lossy()),
+        "store_path": store_path.to_string_lossy(),
+        "mirrored_path": mirrored_path,
         "size_bytes": content.len(),
         "artifact_type": artifact_type
     }))

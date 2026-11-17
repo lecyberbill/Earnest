@@ -33,7 +33,7 @@ impl<'a> ReActEngine<'a> {
             conn,
             router,
             project_id: project_id.to_string(),
-            max_steps: 8,
+            max_steps: 24,
         }
     }
 
@@ -125,8 +125,10 @@ impl<'a> ReActEngine<'a> {
         let system_prompt = "Tu es Earnest, un système agentique autonome propulsé par un moteur Rust natif ultra-robuste. \
 Tu résous la tâche pas à pas (ReAct). Tu disposes d'un accès complet à Internet et au web via 'web_search' (pour chercher sur le web) et 'web_fetch' (pour lire une page web). \
 Utilise également les autres outils mis à disposition (terminal_exec, create_artifact, store_memory, recall_memory) quand nécessaire. \
+Sous Windows, 'terminal_exec' s'exécute dans PowerShell : utilise ';' et jamais '&&'. \
 N'hésite JAMAIS à utiliser 'web_search' quand l'utilisateur demande des informations récentes, des cotations, des recettes ou des données extérieures. \
-Quand ta mission est accomplie, fournis directement ta réponse finale sans appel d'outil.";
+En cours de mission, n'émets pas de phrase d'annonce sans appel d'outil : appelle directement l'outil suivant. \
+Quand ta mission est entièrement accomplie et vérifiée, fournis directement ta réponse finale complète sans appel d'outil.";
 
         let mut messages = vec![
             ChatMessage { role: "system".to_string(), content: system_prompt.to_string(), images: None },
@@ -142,7 +144,12 @@ Quand ta mission est accomplie, fournis directement ta réponse finale sans appe
         let cache_mutex = GLOBAL_TOOL_CACHE.get_or_init(|| Mutex::new(tool_output_cache::ToolCache::new(128)));
         let mut llm_budget = retry_budget::RetryBudget::new(10, 5);
 
-        for _ in 0..self.max_steps {
+        let mut step_budget = self.max_steps;
+        let mut budget_recredited = false;
+        let mut empty_tool_nudges: usize = 0;
+        let mut step_idx = 0usize;
+        while step_idx < step_budget {
+            step_idx += 1;
             compact_messages(&mut messages, 60_000);
             if !llm_budget.is_retry_allowed() {
                 return Err("Circuit breaker LLM ouvert : trop d'échecs consécutifs dans la fenêtre glissante.".to_string());
@@ -167,13 +174,24 @@ Quand ta mission est accomplie, fournis directement ta réponse finale sans appe
                 messages.push(ChatMessage { role: "assistant".to_string(), content: chat_res.content.clone(), images: None });
             }
 
-            // S'il n'y a aucun appel d'outil, nous sommes arrivés à la conclusion finale
+            // S'il n'y a aucun appel d'outil, vérifier si le modèle s'est juste arrêté sur une annonce intermédiaire
             if chat_res.tool_calls.is_empty() {
+                if empty_tool_nudges < 3 && looks_like_unfinished_thought(&chat_res.content) {
+                    empty_tool_nudges += 1;
+                    println!("  🔄 [ANTI-STALL] Annonce sans outil ({}/3), relance automatique...", empty_tool_nudges);
+                    messages.push(ChatMessage {
+                        role: "user".to_string(),
+                        content: "Continue : n'annonce pas ton action en texte seul, appelle immédiatement l'outil nécessaire (ou fournis ta réponse finale complète si toute la mission est terminée et vérifiée).".to_string(),
+                        images: None,
+                    });
+                    continue;
+                }
                 final_answer = chat_res.content;
                 self.record_trace(&run_id, step_order, "answer", None, &final_answer);
                 on_trace(&run_id, step_order, "answer", None, &final_answer, &active_backend_name);
                 break;
             }
+            empty_tool_nudges = 0;
 
             // Exécution des outils demandés
             for call in chat_res.tool_calls {
@@ -222,6 +240,21 @@ Quand ta mission est accomplie, fournis directement ta réponse finale sans appe
                     images: None,
                 });
             }
+
+            if step_idx == step_budget && !budget_recredited {
+                budget_recredited = true;
+                step_budget += 8;
+                println!("  🔋 [REACT] Budget initial atteint en cours d'exécution, recrédit automatique (+8 tours -> {})", step_budget);
+                messages.push(ChatMessage {
+                    role: "user".to_string(),
+                    content: "Budget prolongé (+8 tours) : finalise ta tâche, vérifie tes livrables et donne ta réponse finale.".to_string(),
+                    images: None,
+                });
+            }
+        }
+
+        if final_answer.is_empty() {
+            final_answer = format!("⚠️ Limite de {} tours atteinte sans réponse finale.", step_budget);
         }
 
         let duration_ms = start.elapsed().as_millis();
@@ -271,9 +304,49 @@ fn compact_messages(messages: &mut Vec<ChatMessage>, soft_limit: usize) {
     *messages = compacted;
 }
 
+/// Détecte si une réponse texte sans `tool_calls` ressemble à une annonce
+/// intermédiaire (ex: "Je vais exécuter...") plutôt qu'à une conclusion finale.
+fn looks_like_unfinished_thought(content: &str) -> bool {
+    let trimmed = content.trim();
+    if trimmed.is_empty() {
+        return true;
+    }
+    if trimmed.len() >= 500 {
+        return false;
+    }
+    let lower = trimmed.to_lowercase();
+    if trimmed.ends_with(':') {
+        return true;
+    }
+    [
+        "je vais ",
+        "let me ",
+        "i will ",
+        "i'll ",
+        "je lance ",
+        "je vérifie",
+        "utilisons ",
+        "exécutons ",
+        "séparateur powershell",
+    ]
+    .iter()
+    .any(|pat| lower.contains(pat))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn unfinished_thought_detected_for_mid_run_announcements() {
+        assert!(looks_like_unfinished_thought(
+            "L'environnement d'exécution est PowerShell lui-même. Je vais utiliser le séparateur PowerShell `;`."
+        ));
+        assert!(looks_like_unfinished_thought("Let me run the script:"));
+        assert!(!looks_like_unfinished_thought(
+            "Mission terminée : 33 fiches HTML générées dans D:\\Projet\\Hernest\\projects_test\\models_g_html\\index.html."
+        ));
+    }
 
     #[test]
     fn compact_messages_preserves_head_and_tail_over_limit() {

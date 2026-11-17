@@ -17,6 +17,12 @@ struct Cli {
     #[arg(long, default_value = "default_workspace")]
     project: String,
 
+    #[arg(long, default_value_t = 24)]
+    max_steps: usize,
+
+    #[arg(long)]
+    provider: Option<String>,
+
     #[arg(long)]
     test_dry_run: bool,
 
@@ -123,8 +129,18 @@ fn main() {
     println!("📋 Projet : {}", args.project);
     println!("💬 Consigne : \"{}\"", prompt);
 
-    let router = LLMRouter::from_db(&conn);
-    let engine = ReActEngine::new(&conn, &router, &args.project);
+    let mut router = LLMRouter::from_db(&conn);
+    if let Some(ref target) = args.provider {
+        let needle = target.to_lowercase();
+        router.backends.sort_by_key(|b| {
+            let matches = b.id.to_lowercase().contains(&needle)
+                || b.name.to_lowercase().contains(&needle)
+                || b.provider_type.to_lowercase() == needle;
+            if matches { 0 } else { 1 }
+        });
+    }
+    let mut engine = ReActEngine::new(&conn, &router, &args.project);
+    engine.max_steps = args.max_steps;
 
     match engine.run(&prompt) {
         Ok(res) => {

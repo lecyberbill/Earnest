@@ -294,7 +294,8 @@ export class ChatView extends HTMLElement {
                     </button>
                 </div>
             `;
-            bubble.querySelector('.btn-speak').addEventListener('click', () => this.speakText(content));
+            const speakBtn = bubble.querySelector('.btn-speak');
+            speakBtn.addEventListener('click', () => this.speakText(content, speakBtn));
             bubble.querySelector('.btn-send-to-run').addEventListener('click', () => this.transferToRunConsole(content));
         } else {
             bubble.textContent = content;
@@ -304,17 +305,65 @@ export class ChatView extends HTMLElement {
         stream.scrollTop = stream.scrollHeight;
     }
 
-    speakText(text) {
-        if ('speechSynthesis' in window) {
-            window.speechSynthesis.cancel();
-            const cleanText = text.replace(/[*#`_\[\]]/g, '').trim();
-            const utterance = new SpeechSynthesisUtterance(cleanText);
-            utterance.lang = 'fr-FR';
-            utterance.rate = 1.05;
-            window.speechSynthesis.speak(utterance);
-        } else {
-            alert('La synthèse vocale n\'est pas disponible sur ce navigateur.');
+    _resetActiveSpeakBtn() {
+        if (!this._activeSpeakBtn) return;
+        const btn = this._activeSpeakBtn;
+        if (this._activeSpeakBtnOriginalHtml !== undefined) {
+            btn.innerHTML = this._activeSpeakBtnOriginalHtml;
         }
+        btn.title = 'Écouter la réponse (TTS)';
+        btn.style.color = '';
+        btn.style.borderColor = '';
+        btn.classList.remove('is-speaking');
+        this._activeSpeakBtn = null;
+        this._activeSpeakBtnOriginalHtml = undefined;
+    }
+
+    speakText(text, btn = null) {
+        if (!('speechSynthesis' in window)) {
+            alert('La synthèse vocale n\'est pas disponible sur ce navigateur.');
+            return;
+        }
+
+        // Toggle: clicking the currently speaking button stops playback.
+        if (btn && this._activeSpeakBtn === btn) {
+            window.speechSynthesis.cancel();
+            this._resetActiveSpeakBtn();
+            return;
+        }
+
+        window.speechSynthesis.cancel();
+        this._resetActiveSpeakBtn();
+
+        const cleanText = text.replace(/[*#`_\[\]]/g, '').trim();
+        if (!cleanText) return;
+
+        const utterance = new SpeechSynthesisUtterance(cleanText);
+        utterance.lang = 'fr-FR';
+        utterance.rate = 1.05;
+
+        if (btn) {
+            this._activeSpeakBtn = btn;
+            this._activeSpeakBtnOriginalHtml = btn.innerHTML;
+            btn.innerHTML = `
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="6" y="6" width="12" height="12" rx="1"></rect></svg>
+                Stop
+            `;
+            btn.title = 'Arrêter la lecture (TTS)';
+            btn.style.color = '#f87171';
+            btn.style.borderColor = 'rgba(248, 113, 113, 0.45)';
+            btn.classList.add('is-speaking');
+
+            const onFinish = () => {
+                if (this._activeSpeakBtn === btn) {
+                    this._resetActiveSpeakBtn();
+                }
+            };
+            utterance.onend = onFinish;
+            utterance.onerror = onFinish;
+        }
+
+        window.speechSynthesis.speak(utterance);
     }
 
     transferToRunConsole(text) {

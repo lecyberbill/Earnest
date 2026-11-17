@@ -106,12 +106,13 @@ impl LLMRouter {
         &self,
         messages: &[ChatMessage],
         tools: Option<&[serde_json::Value]>,
+        think_effort: &str,
     ) -> Result<(ChatResponse, String), String> {
         let mut last_err = String::from("Aucun moteur configuré");
 
         for b in &self.backends {
             let client = LLMClient::new(&b.provider_type, &b.base_url, &b.model, b.api_key.clone());
-            match client.chat_completion(messages, tools) {
+            match client.chat_completion(messages, tools, think_effort) {
                 Ok(resp) => return Ok((resp, b.id.clone())),
                 Err(e) => {
                     last_err = format!("Moteur {} échoué: {}", b.name, e);

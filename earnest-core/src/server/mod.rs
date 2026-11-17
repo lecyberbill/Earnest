@@ -746,7 +746,8 @@ fn handle_request(mut req: tiny_http::Request) {
                 }
             }
 
-            match router.chat_completion_with_fallback(&req_msgs, None) {
+            let chat_effort = body["think_effort"].as_str().unwrap_or("off");
+            match router.chat_completion_with_fallback(&req_msgs, None, chat_effort) {
                 Ok((res, backend_id)) => {
                     let assistant_content = res.content;
                     conn.execute(
@@ -781,10 +782,27 @@ fn handle_request(mut req: tiny_http::Request) {
         if path == "/api/run/stream" {
             let prompt = body["prompt"].as_str().unwrap_or("").to_string();
             let project_id = body["project_id"].as_str().unwrap_or("default_workspace").to_string();
+            let think_effort = body["think_effort"].as_str().unwrap_or("off").to_string();
+            let backend_choice = body["backend"].as_str().unwrap_or("auto");
 
             let conn = get_connection(None).unwrap();
-            let router = LLMRouter::from_db(&conn);
-            let engine = ReActEngine::new(&conn, &router, &project_id);
+            let mut router = LLMRouter::from_db(&conn);
+            if backend_choice != "auto" && backend_choice != "multiagent" {
+                let needle = match backend_choice {
+                    "ollama_forced" => "ollama",
+                    "lmstudio" => "lmstudio",
+                    "cloud" => "deepseek",
+                    other => other,
+                };
+                router.backends.sort_by_key(|b| {
+                    let m = b.id.to_lowercase().contains(needle)
+                        || b.provider_type.to_lowercase() == needle
+                        || b.name.to_lowercase().contains(needle);
+                    if m { 0 } else { 1 }
+                });
+            }
+            let mut engine = ReActEngine::new(&conn, &router, &project_id);
+            engine.think_effort = think_effort;
 
             let mut sse_events = Vec::new();
             sse_events.push(format!("event: init\ndata: {}\n\n", serde_json::json!({
@@ -839,10 +857,12 @@ fn handle_request(mut req: tiny_http::Request) {
         if path == "/api/run" {
             let prompt = body["prompt"].as_str().unwrap_or("");
             let project_id = body["project_id"].as_str().unwrap_or("default_workspace");
+            let think_effort = body["think_effort"].as_str().unwrap_or("off");
 
             let conn = get_connection(None).unwrap();
             let router = LLMRouter::from_db(&conn);
-            let engine = ReActEngine::new(&conn, &router, project_id);
+            let mut engine = ReActEngine::new(&conn, &router, project_id);
+            engine.think_effort = think_effort.to_string();
 
             match engine.run(prompt) {
                 Ok(res) => {

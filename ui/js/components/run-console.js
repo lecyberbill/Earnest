@@ -36,6 +36,12 @@ export class RunConsole extends HTMLElement {
                                 <option value="lmstudio">Moteur Local Secondaire (LM Studio)</option>
                                 <option value="cloud">API Cloud (Haute Capacité)</option>
                             </select>
+                            <select id="effort-selector" title="Niveau de réflexion (Thinking / Reasoning)" style="background: rgba(15, 23, 42, 0.9); border: 1px solid var(--border-subtle); color: #a5b4fc; border-radius: var(--radius-sm); height: 36px; padding: 0 0.75rem; font-family: var(--font-mono); font-size: 0.82rem; cursor: pointer; outline: none;">
+                                <option value="off" selected>Effort : Off</option>
+                                <option value="low">Effort : Low</option>
+                                <option value="medium">Effort : Medium</option>
+                                <option value="high">Effort : High</option>
+                            </select>
                         </div>
 
                         <!-- Groupe Droit : Pièce jointe, Micro et Boutons d'Exécution -->
@@ -292,10 +298,12 @@ export class RunConsole extends HTMLElement {
         if (pixelStage) pixelStage.setAgentState('thought');
 
         try {
+            const effortSelector = this.shadowRoot.getElementById('effort-selector');
             const payload = {
                 prompt,
                 project_id: 'default_workspace',
                 backend: selector ? selector.value : 'auto',
+                think_effort: effortSelector ? effortSelector.value : 'off',
                 attachment: this.currentAttachment
             };
 

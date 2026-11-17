@@ -76,11 +76,12 @@ impl LLMClient {
         &self,
         messages: &[ChatMessage],
         tools: Option<&[Value]>,
+        think_effort: &str,
     ) -> Result<ChatResponse, String> {
         if self.provider_type == "ollama" {
-            self.chat_ollama(messages, tools)
+            self.chat_ollama(messages, tools, think_effort)
         } else {
-            self.chat_openai(messages, tools)
+            self.chat_openai(messages, tools, think_effort)
         }
     }
 
@@ -88,13 +89,15 @@ impl LLMClient {
         &self,
         messages: &[ChatMessage],
         tools: Option<&[Value]>,
+        think_effort: &str,
     ) -> Result<ChatResponse, String> {
         let url = format!("{}/api/chat", self.base_url);
+        let enable_think = !matches!(think_effort.to_lowercase().as_str(), "off" | "none" | "false" | "");
         let mut body = serde_json::json!({
             "model": self.model,
             "messages": messages,
             "stream": false,
-            "think": false
+            "think": enable_think
         });
 
         if let Some(t) = tools {
@@ -149,13 +152,20 @@ impl LLMClient {
         &self,
         messages: &[ChatMessage],
         tools: Option<&[Value]>,
+        think_effort: &str,
     ) -> Result<ChatResponse, String> {
         let url = format!("{}/v1/chat/completions", self.base_url);
+        let enable_think = !matches!(think_effort.to_lowercase().as_str(), "off" | "none" | "false" | "");
         let mut body = serde_json::json!({
             "model": self.model,
             "messages": messages,
             "temperature": 0.2
         });
+        if self.base_url.contains("deepseek") {
+            body["thinking"] = serde_json::json!({
+                "type": if enable_think { "enabled" } else { "disabled" }
+            });
+        }
 
         if let Some(t) = tools {
             if !t.is_empty() {

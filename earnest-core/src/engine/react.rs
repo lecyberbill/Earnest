@@ -25,6 +25,7 @@ pub struct ReActEngine<'a> {
     pub router: &'a LLMRouter,
     pub project_id: String,
     pub max_steps: usize,
+    pub think_effort: String,
 }
 
 impl<'a> ReActEngine<'a> {
@@ -34,6 +35,7 @@ impl<'a> ReActEngine<'a> {
             router,
             project_id: project_id.to_string(),
             max_steps: 24,
+            think_effort: "off".to_string(),
         }
     }
 
@@ -158,7 +160,7 @@ Quand ta mission est entièrement accomplie et vérifiée sur disque, fournis di
             if !llm_budget.is_retry_allowed() {
                 return Err("Circuit breaker LLM ouvert : trop d'échecs consécutifs dans la fenêtre glissante.".to_string());
             }
-            let (chat_res, active_backend) = match self.router.chat_completion_with_fallback(&messages, Some(&tools)) {
+            let (chat_res, active_backend) = match self.router.chat_completion_with_fallback(&messages, Some(&tools), &self.think_effort) {
                 Ok(res) => {
                     llm_budget.record_success();
                     res

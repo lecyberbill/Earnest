@@ -53,12 +53,25 @@ export class PixelAgentStage extends HTMLElement {
 
     async loadProviders() {
         try {
-            const res = await fetch('/api/model_providers');
-            const data = await res.json();
+            const [provRes, telRes] = await Promise.allSettled([
+                fetch('/api/model_providers').then(r => r.json()),
+                fetch('/api/telemetry').then(r => r.json())
+            ]);
+            const data = provRes.status === 'fulfilled' ? provRes.value : [];
             const list = Array.isArray(data) ? data : (data.providers || []);
 
+            const onlineMap = new Map();
+            if (telRes.status === 'fulfilled' && telRes.value && Array.isArray(telRes.value.backends)) {
+                for (const b of telRes.value.backends) {
+                    onlineMap.set(b.id, b.is_online === true);
+                }
+            }
+
             if (list.length > 0) {
-                this.providers = list;
+                this.providers = list.map(p => ({
+                    ...p,
+                    is_online: onlineMap.has(p.id) ? onlineMap.get(p.id) : (p.is_online === true)
+                }));
             } else {
                 // Fallback sur les 3 moteurs standard
                 this.providers = [

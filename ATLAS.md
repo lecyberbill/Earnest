@@ -15,9 +15,10 @@
 ### A. Earnest Cockpit (`earnest-core/` & `ui/`)
 - `earnest-core/` : Binaire Rust natif central (`earnest-core.exe`, port 8080)
   - `src/db/` : Schéma SQLite, gestion des connexions WAL, persistance des sessions et mémoires.
-  - `src/engine/` : Boucle ReAct run-to-completion et enregistrement des traces.
-  - `src/llm/` : Client HTTP non-bloquant et routeur multi-modèles avec fallback.
-  - `src/tools/` : Primitives fondamentales (`store_memory`, `recall_memory`, `sandbox_exec`, `register_tool`).
+  - `src/tools/` : Primitives fondamentales (`store_memory`, `recall_memory`, `sandbox_exec`, `register_tool`, `web_search` via Bing RSS + Wikipedia, `create_artifact` avec `mirrored_path`).
+  - `src/mcp/` : Serveur **MCP JSON-RPC 2.0 stdio** (`--mcp`) exposant `earnest_run`, `earnest_probe_models`, `earnest_store_memory`, `earnest_recall_memory`, `earnest_list_runs`.
+  - `src/engine/` : Boucle ReAct run-to-completion (`--max-steps 24` + recrédit `+8`, `[ANTI-STALL]`, compaction `60 000` chars, `detect_runtime_environment()` dynamique, cache `OnceLock` persistant).
+  - `src/llm/` : Client HTTP (timeout 300 s, `"think": false` sur Ollama, `parse_tool_args_with_repair` via `json-repair`) et routeur multi-modèles avec `--provider`.
   - `src/server/` : Serveur HTTP minimaliste servant le Cockpit UI et l'API REST.
 - `ui/` : Interface Web Cockpit Vanilla (HTML5/CSS3/ES6 sans npm ni bundler)
   - Composants : Console d'exécution en flux SSE, grille de mémoires, planificateur OS, tableau de bord de santé machine.

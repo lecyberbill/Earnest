@@ -5,6 +5,7 @@ import './components/skills-view.js?v=4.0';
 import './components/artifacts-view.js?v=4.0';
 import './components/task-planner.js?v=4.0';
 import './components/evals-view.js?v=4.0';
+import './components/logs-view.js?v=4.0';
 import './components/settings-view.js?v=4.0';
 import './components/context-inspector.js?v=4.0';
 import { store } from './store.js';
@@ -13,22 +14,36 @@ document.addEventListener('DOMContentLoaded', () => {
     const navButtons = document.querySelectorAll('.sidebar nav button');
     const container = document.getElementById('view-container');
 
-    const views = {
-        'run': '<run-console></run-console>',
-        'chat': '<chat-view></chat-view>',
-        'memories': '<memory-grid></memory-grid>',
-        'skills': '<skills-view></skills-view>',
-        'artifacts': '<artifacts-view></artifacts-view>',
-        'tasks': '<task-planner></task-planner>',
-        'evals': '<evals-view></evals-view>',
-        'settings': '<settings-view></settings-view>'
+    const viewTags = {
+        'run': 'run-console',
+        'chat': 'chat-view',
+        'memories': 'memory-grid',
+        'skills': 'skills-view',
+        'artifacts': 'artifacts-view',
+        'tasks': 'task-planner',
+        'evals': 'evals-view',
+        'logs': 'logs-view',
+        'settings': 'settings-view'
     };
 
+    const viewInstances = new Map();
+
     function switchView(viewName) {
+        const key = viewTags[viewName] ? viewName : 'run';
         navButtons.forEach(btn => {
-            btn.classList.toggle('active', btn.dataset.view === viewName);
+            btn.classList.toggle('active', btn.dataset.view === key);
         });
-        container.innerHTML = views[viewName] || views['run'];
+
+        if (!viewInstances.has(key)) {
+            const el = document.createElement(viewTags[key]);
+            container.appendChild(el);
+            viewInstances.set(key, el);
+        }
+
+        for (const [k, el] of viewInstances.entries()) {
+            el.style.display = (k === key) ? '' : 'none';
+        }
+        window.dispatchEvent(new CustomEvent('earnest:view_activated', { detail: { view: key } }));
     }
 
     navButtons.forEach(btn => {

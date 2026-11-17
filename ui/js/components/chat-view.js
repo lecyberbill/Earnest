@@ -11,18 +11,35 @@ export class ChatView extends HTMLElement {
     }
 
     connectedCallback() {
+        if (this._initialized) return;
+        this._initialized = true;
+
         this.innerHTML = `
             <div class="card" style="height: calc(100vh - 120px); display: flex; flex-direction: column; margin-bottom: 0; padding: 1.5rem;">
-                <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid var(--border-subtle); padding-bottom: 0.85rem; margin-bottom: 1rem;">
-                    <div>
-                        <h2 style="display: flex; align-items: center; gap: 0.5rem;">
-                            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path></svg>
-                            Salon de Discussion Directe
-                        </h2>
-                        <p class="card-desc" style="margin-bottom: 0;">Discussion continue persistée avec support vocal & transfert de mission en 1-clic.</p>
+                <div style="display: flex; justify-content: space-between; align-items: center; gap: 0.75rem; flex-wrap: wrap; border-bottom: 1px solid var(--border-subtle); padding-bottom: 0.85rem; margin-bottom: 1rem;">
+                    <div style="display: flex; align-items: center; gap: 0.85rem;">
+                        <div style="position: relative; width: 58px; height: 58px; border-radius: var(--radius-sm); background: rgba(15, 23, 42, 0.85); border: 1px solid rgba(99, 102, 241, 0.35); display: flex; align-items: center; justify-content: center; flex-shrink: 0;">
+                            <canvas id="psy-bot-canvas" width="56" height="56" style="image-rendering: pixelated;"></canvas>
+                        </div>
+                        <div>
+                            <h2 style="display: flex; align-items: center; gap: 0.5rem; margin: 0;">
+                                Salon de Discussion Directe
+                                <span id="psy-status-badge" style="font-size: 0.7rem; font-family: var(--font-mono); color: var(--accent-cyan); background: rgba(34, 211, 238, 0.1); border: 1px solid rgba(34, 211, 238, 0.3); padding: 0.15rem 0.45rem; border-radius: 999px;">À l'écoute</span>
+                            </h2>
+                            <p class="card-desc" style="margin: 0.2rem 0 0 0;">Discussion continue persistée • Choisis ton modèle et discute avec Dr. Earnest.</p>
+                        </div>
                     </div>
-                    <div style="display: flex; gap: 0.5rem; align-items: center;">
-                        <select id="chat-session-select" style="background: rgba(15, 23, 42, 0.8); border: 1px solid var(--border-subtle); color: var(--text-primary); border-radius: var(--radius-sm); padding: 0.35rem 0.6rem; font-size: 0.78rem; font-family: var(--font-mono); max-width: 200px;">
+                    <div style="display: flex; gap: 0.5rem; align-items: center; flex-wrap: wrap;">
+                        <select id="chat-backend-select" title="Modèle / Moteur de discussion" style="background: rgba(15, 23, 42, 0.85); border: 1px solid var(--border-subtle); color: var(--accent-cyan); border-radius: var(--radius-sm); padding: 0.35rem 0.6rem; font-size: 0.78rem; font-family: var(--font-mono); max-width: 220px;">
+                            <option value="auto">Modèle : Auto (Priorité)</option>
+                        </select>
+                        <select id="chat-effort-select" title="Niveau de réflexion" style="background: rgba(15, 23, 42, 0.85); border: 1px solid var(--border-subtle); color: #a5b4fc; border-radius: var(--radius-sm); padding: 0.35rem 0.55rem; font-size: 0.78rem; font-family: var(--font-mono);">
+                            <option value="off" selected>Effort : Off</option>
+                            <option value="low">Effort : Low</option>
+                            <option value="medium">Effort : Medium</option>
+                            <option value="high">Effort : High</option>
+                        </select>
+                        <select id="chat-session-select" style="background: rgba(15, 23, 42, 0.8); border: 1px solid var(--border-subtle); color: var(--text-primary); border-radius: var(--radius-sm); padding: 0.35rem 0.6rem; font-size: 0.78rem; font-family: var(--font-mono); max-width: 180px;">
                             <option value="">Nouvelle Session</option>
                         </select>
                         <button id="btn-clear-chat" style="background: rgba(255,255,255,0.05); border: 1px solid var(--border-subtle); color: var(--text-muted); padding: 0.4rem 0.85rem; border-radius: var(--radius-sm); cursor: pointer; font-size: 0.8rem;">
@@ -57,7 +74,10 @@ export class ChatView extends HTMLElement {
         `;
 
         this.initVoiceRecognition();
+        this.loadProviders();
         this.loadSessions();
+        this.psyState = 'idle';
+        this.startPsyBotAnimation();
 
         this.querySelector('#btn-send-chat').addEventListener('click', () => this.sendMessage());
         this.querySelector('#chat-input').addEventListener('keydown', (e) => {
@@ -203,16 +223,21 @@ export class ChatView extends HTMLElement {
         this.messages.push({ role: 'user', content: text });
 
         // Placeholder temporaire assistant
-        const thinkingBubble = this.appendPlaceholder('Earnest réfléchit...');
+        const thinkingBubble = this.appendPlaceholder('Dr. Earnest ajuste ses lunettes et réfléchit...');
+        this.setPsyState('thinking');
 
         try {
+            const backendSel = this.querySelector('#chat-backend-select');
+            const effortSel = this.querySelector('#chat-effort-select');
             const res = await fetch('/api/chat', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
                     messages: this.messages,
                     session_id: this.sessionId,
-                    project_id: 'default_workspace'
+                    project_id: 'default_workspace',
+                    backend: backendSel ? backendSel.value : 'auto',
+                    think_effort: effortSel ? effortSel.value : 'off'
                 })
             });
 
@@ -220,6 +245,7 @@ export class ChatView extends HTMLElement {
                 const err = await res.json();
                 thinkingBubble.className = 'chat-bubble assistant error';
                 thinkingBubble.textContent = `Erreur: ${err.error || 'Erreur réseau'}`;
+                this.setPsyState('idle');
                 return;
             }
 
@@ -229,10 +255,13 @@ export class ChatView extends HTMLElement {
             thinkingBubble.remove();
             this.renderBubble('assistant', reply);
             this.messages.push({ role: 'assistant', content: reply });
+            this.setPsyState('nod');
+            setTimeout(() => this.setPsyState('idle'), 1400);
             this.loadSessions();
         } catch (e) {
             thinkingBubble.className = 'chat-bubble assistant error';
             thinkingBubble.textContent = `Erreur de connexion : ${e.message}`;
+            this.setPsyState('idle');
         }
     }
 
@@ -297,6 +326,129 @@ export class ChatView extends HTMLElement {
         // Basculer vers la vue run
         const runBtn = document.querySelector('.sidebar nav button[data-view="run"]');
         if (runBtn) runBtn.click();
+    }
+
+    async loadProviders() {
+        const select = this.querySelector('#chat-backend-select');
+        if (!select) return;
+        try {
+            const res = await fetch('/api/model_providers');
+            const list = await res.json();
+            if (!Array.isArray(list)) return;
+            select.innerHTML = '<option value="auto">Modèle : Auto (Priorité)</option>';
+            list.filter(p => p.is_enabled).forEach(p => {
+                const opt = document.createElement('option');
+                opt.value = p.id;
+                opt.textContent = `${p.name} (${p.model})`;
+                select.appendChild(opt);
+            });
+        } catch (_) {}
+    }
+
+    setPsyState(state) {
+        this.psyState = state;
+        const badge = this.querySelector('#psy-status-badge');
+        if (!badge) return;
+        if (state === 'thinking') {
+            badge.textContent = 'Prend des notes...';
+            badge.style.color = '#fbbf24';
+            badge.style.borderColor = 'rgba(251, 191, 36, 0.4)';
+            badge.style.background = 'rgba(251, 191, 36, 0.12)';
+        } else if (state === 'nod') {
+            badge.textContent = 'Hoche la tête';
+            badge.style.color = '#34d399';
+            badge.style.borderColor = 'rgba(52, 211, 153, 0.4)';
+            badge.style.background = 'rgba(52, 211, 153, 0.12)';
+        } else {
+            badge.textContent = 'À l\'écoute';
+            badge.style.color = 'var(--accent-cyan)';
+            badge.style.borderColor = 'rgba(34, 211, 238, 0.3)';
+            badge.style.background = 'rgba(34, 211, 238, 0.1)';
+        }
+    }
+
+    startPsyBotAnimation() {
+        const canvas = this.querySelector('#psy-bot-canvas');
+        if (!canvas) return;
+        const ctx = canvas.getContext('2d');
+        let tick = 0;
+
+        const draw = () => {
+            if (!this.isConnected) return;
+            tick++;
+            ctx.clearRect(0, 0, 56, 56);
+
+            const nodOffset = this.psyState === 'nod'
+                ? Math.round(Math.sin(tick * 0.45) * 2)
+                : (this.psyState === 'thinking' ? Math.round(Math.sin(tick * 0.18)) : (tick % 40 < 20 ? 0 : 1));
+            const blink = (this.psyState === 'idle' && (tick % 90 > 85));
+
+            // Antenne psy (petite ampoule douce)
+            ctx.fillStyle = '#94a3b8';
+            ctx.fillRect(27, 4 + nodOffset, 2, 4);
+            ctx.fillStyle = this.psyState === 'thinking' ? '#fbbf24' : '#38bdf8';
+            ctx.fillRect(26, 2 + nodOffset, 4, 3);
+
+            // Tête du robot
+            ctx.fillStyle = '#334155';
+            ctx.fillRect(14, 8 + nodOffset, 28, 22);
+            ctx.fillStyle = '#475569';
+            ctx.fillRect(16, 10 + nodOffset, 24, 18);
+
+            // Visière / visage
+            ctx.fillStyle = '#0f172a';
+            ctx.fillRect(17, 13 + nodOffset, 22, 11);
+
+            // Yeux derrière les lunettes
+            ctx.fillStyle = this.psyState === 'thinking' ? '#fbbf24' : '#22d3ee';
+            if (blink) {
+                ctx.fillRect(20, 18 + nodOffset, 5, 1);
+                ctx.fillRect(31, 18 + nodOffset, 5, 1);
+            } else {
+                const pupilShift = this.psyState === 'thinking' ? (tick % 30 < 15 ? 1 : -1) : 0;
+                ctx.fillRect(21 + pupilShift, 16 + nodOffset, 4, 4);
+                ctx.fillRect(32 + pupilShift, 16 + nodOffset, 4, 4);
+            }
+
+            // Lunettes rondes dorées façon psy (monture + pont)
+            ctx.strokeStyle = '#f59e0b';
+            ctx.lineWidth = 1.5;
+            ctx.strokeRect(18.5, 14.5 + nodOffset, 8, 7);
+            ctx.strokeRect(29.5, 14.5 + nodOffset, 8, 7);
+            ctx.fillStyle = '#f59e0b';
+            ctx.fillRect(26.5, 17 + nodOffset, 3, 1.5);
+            // Reflet sur les verres
+            if (this.psyState === 'thinking' && (tick % 20 < 10)) {
+                ctx.fillStyle = 'rgba(255,255,255,0.45)';
+                ctx.fillRect(20, 15 + nodOffset, 2, 2);
+                ctx.fillRect(31, 15 + nodOffset, 2, 2);
+            }
+
+            // Petites moustaches / bouche sage
+            ctx.fillStyle = '#cbd5e1';
+            ctx.fillRect(24, 25 + nodOffset, 8, 2);
+
+            // Corps + col blouse psy
+            ctx.fillStyle = '#1e293b';
+            ctx.fillRect(16, 31, 24, 18);
+            ctx.fillStyle = '#e2e8f0';
+            ctx.fillRect(22, 31, 12, 12);
+            ctx.fillStyle = '#6366f1';
+            ctx.fillRect(27, 32, 2, 9);
+
+            // Bloc-notes & stylo animé quand il réfléchit
+            const penY = this.psyState === 'thinking' ? 37 + Math.round(Math.sin(tick * 0.5) * 2) : 39;
+            ctx.fillStyle = '#fef3c7';
+            ctx.fillRect(36, 36, 11, 13);
+            ctx.fillStyle = '#94a3b8';
+            ctx.fillRect(38, 39, 7, 1);
+            ctx.fillRect(38, 42, 6, 1);
+            ctx.fillStyle = '#ef4444';
+            ctx.fillRect(42, penY, 4, 2);
+
+            requestAnimationFrame(draw);
+        };
+        requestAnimationFrame(draw);
     }
 }
 customElements.define('chat-view', ChatView);

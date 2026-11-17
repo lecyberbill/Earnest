@@ -547,6 +547,16 @@ fn handle_request(mut req: tiny_http::Request) {
             req.respond(resp).ok();
             return;
         }
+
+        if path == "/api/logs" {
+            let since: u64 = query.get("since").and_then(|s| s.parse().ok()).unwrap_or(0);
+            let logs = crate::engine::react::get_live_logs(since);
+            let resp = Response::from_string(serde_json::json!({ "logs": logs }).to_string())
+                .with_header(json_header)
+                .with_header(cors_header);
+            req.respond(resp).ok();
+            return;
+        }
     }
 
     // ==========================================
@@ -556,6 +566,15 @@ fn handle_request(mut req: tiny_http::Request) {
         let mut body_str = String::new();
         req.as_reader().read_to_string(&mut body_str).ok();
         let body: Value = serde_json::from_str(&body_str).unwrap_or(serde_json::json!({}));
+
+        if path == "/api/logs/clear" {
+            crate::engine::react::clear_live_logs();
+            let resp = Response::from_string(serde_json::json!({"status": "ok"}).to_string())
+                .with_header(json_header)
+                .with_header(cors_header);
+            req.respond(resp).ok();
+            return;
+        }
 
         if path == "/api/settings" {
             let conn = get_connection(None).unwrap();
@@ -746,7 +765,18 @@ fn handle_request(mut req: tiny_http::Request) {
                 }
             }
 
-            let router = LLMRouter::from_db(&conn);
+            let mut router = LLMRouter::from_db(&conn);
+            let chat_backend = body["backend"].as_str().unwrap_or("auto");
+            if !chat_backend.is_empty() && chat_backend != "auto" {
+                let needle = chat_backend.to_lowercase();
+                router.backends.sort_by_key(|b| {
+                    let m = b.id.to_lowercase() == needle
+                        || b.model.to_lowercase().contains(&needle)
+                        || b.provider_type.to_lowercase() == needle
+                        || b.name.to_lowercase().contains(&needle);
+                    if m { 0 } else { 1 }
+                });
+            }
             let mut req_msgs = Vec::new();
             if let Some(m_arr) = messages {
                 for m in m_arr {

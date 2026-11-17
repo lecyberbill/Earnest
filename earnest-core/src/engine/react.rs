@@ -1,6 +1,8 @@
+use std::collections::VecDeque;
 use std::sync::{Mutex, OnceLock};
 use std::time::Instant;
 use rusqlite::{params, Connection};
+use serde::Serialize;
 use serde_json::Value;
 
 use crate::db::memories::MemoryService;
@@ -10,6 +12,50 @@ use crate::tools::terminal::execute_terminal;
 use crate::tools::artifacts::create_artifact;
 use crate::tools::web::{search_web, fetch_web_page};
 use crate::tools::get_primitive_tools_schemas;
+
+#[derive(Debug, Clone, Serialize)]
+pub struct LiveLogEntry {
+    pub id: u64,
+    pub timestamp: String,
+    pub level: String,
+    pub message: String,
+}
+
+static LIVE_LOGS: OnceLock<Mutex<(u64, VecDeque<LiveLogEntry>)>> = OnceLock::new();
+
+pub fn push_live_log(level: &str, message: &str) {
+    let lock = LIVE_LOGS.get_or_init(|| Mutex::new((0, VecDeque::with_capacity(512))));
+    if let Ok(mut guard) = lock.lock() {
+        guard.0 += 1;
+        let id = guard.0;
+        let ts = chrono::Local::now().format("%H:%M:%S").to_string();
+        if guard.1.len() >= 500 {
+            guard.1.pop_front();
+        }
+        guard.1.push_back(LiveLogEntry {
+            id,
+            timestamp: ts,
+            level: level.to_string(),
+            message: message.to_string(),
+        });
+    }
+}
+
+pub fn get_live_logs(since_id: u64) -> Vec<LiveLogEntry> {
+    let lock = LIVE_LOGS.get_or_init(|| Mutex::new((0, VecDeque::with_capacity(512))));
+    if let Ok(guard) = lock.lock() {
+        guard.1.iter().filter(|e| e.id > since_id).cloned().collect()
+    } else {
+        Vec::new()
+    }
+}
+
+pub fn clear_live_logs() {
+    let lock = LIVE_LOGS.get_or_init(|| Mutex::new((0, VecDeque::with_capacity(512))));
+    if let Ok(mut guard) = lock.lock() {
+        guard.1.clear();
+    }
+}
 
 pub struct ReActResult {
     pub run_id: String,
@@ -119,6 +165,7 @@ impl<'a> ReActEngine<'a> {
         let run_id = format!("run_{}", &uuid::Uuid::new_v4().to_string().replace('-', "")[..12]);
 
         // Initialisation du run
+        push_live_log("INFO", &format!("🚀 Run {} démarré (projet={}, effort={})", run_id, self.project_id, self.think_effort));
         self.conn.execute(
             "INSERT INTO runs (id, project_id, prompt, provider, model, status, created_at) VALUES (?1, ?2, ?3, 'rust-native', 'rust-react-engine', 'running', CURRENT_TIMESTAMP)",
             params![run_id, self.project_id, prompt],
@@ -174,6 +221,7 @@ Quand ta mission est entièrement accomplie et vérifiée sur disque, fournis di
             total_tokens += chat_res.total_tokens;
 
             if !chat_res.content.is_empty() {
+                push_live_log("THOUGHT", &format!("[{}] {}", active_backend_name, context_trimmer::truncate_tool_output(&chat_res.content, 300)));
                 self.record_trace(&run_id, step_order, "thought", None, &chat_res.content);
                 on_trace(&run_id, step_order, "thought", None, &chat_res.content, &active_backend_name);
                 step_order += 1;
@@ -184,6 +232,7 @@ Quand ta mission est entièrement accomplie et vérifiée sur disque, fournis di
             if chat_res.tool_calls.is_empty() {
                 if empty_tool_nudges < 3 && looks_like_unfinished_thought(&chat_res.content) {
                     empty_tool_nudges += 1;
+                    push_live_log("WARN", &format!("🔄 [ANTI-STALL] Annonce sans outil ({}/3), relance automatique", empty_tool_nudges));
                     println!("  🔄 [ANTI-STALL] Annonce sans outil ({}/3), relance automatique...", empty_tool_nudges);
                     messages.push(ChatMessage {
                         role: "user".to_string(),
@@ -193,6 +242,7 @@ Quand ta mission est entièrement accomplie et vérifiée sur disque, fournis di
                     continue;
                 }
                 final_answer = chat_res.content;
+                push_live_log("ANSWER", &format!("✅ Run {} terminé ({} tokens)", run_id, total_tokens));
                 self.record_trace(&run_id, step_order, "answer", None, &final_answer);
                 on_trace(&run_id, step_order, "answer", None, &final_answer, &active_backend_name);
                 break;
@@ -208,12 +258,14 @@ Quand ta mission est entièrement accomplie et vérifiée sur disque, fournis di
                 on_trace(&run_id, step_order, "tool_call", Some(fn_name), &fn_args.to_string(), &active_backend_name);
                 step_order += 1;
 
+                push_live_log("TOOL", &format!("⚡ {} {}", fn_name, context_trimmer::truncate_tool_output(&fn_args.to_string(), 220)));
                 println!("  ⚡ [OUTIL RUST] {} {:?}", fn_name, fn_args);
                 let args_key = fn_args.to_string();
                 let is_cacheable_read = matches!(fn_name.as_str(), "recall_memory" | "read_file" | "list_files" | "web_fetch");
                 let raw_output = if is_cacheable_read {
                     let hit = cache_mutex.lock().ok().and_then(|mut c| c.get(fn_name, &args_key).map(|s| s.to_string()));
                     if let Some(cached) = hit {
+                        push_live_log("CACHE", &format!("♻️ HIT {}", fn_name));
                         println!("  ♻️ [TOOL CACHE] HIT {} {}", fn_name, args_key);
                         cached
                     } else {
@@ -223,6 +275,7 @@ Quand ta mission est entièrement accomplie et vérifiée sur disque, fournis di
                     self.dispatch_tool(fn_name, fn_args, &run_id)
                 };
                 let tool_output = context_trimmer::truncate_tool_output(&raw_output, 16_000);
+                push_live_log("OUTPUT", &format!("← {} : {}", fn_name, context_trimmer::truncate_tool_output(&tool_output, 220)));
                 if is_cacheable_read {
                     let path_hint = fn_args["path"].as_str().or_else(|| fn_args["key"].as_str());
                     if let Ok(mut c) = cache_mutex.lock() {

@@ -17,7 +17,7 @@ struct Cli {
     #[arg(long, default_value = "default_workspace")]
     project: String,
 
-    #[arg(long, default_value_t = 24)]
+    #[arg(long, default_value_t = 0)]
     max_steps: usize,
 
     #[arg(long)]

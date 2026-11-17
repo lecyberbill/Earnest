@@ -80,7 +80,7 @@ impl<'a> ReActEngine<'a> {
             conn,
             router,
             project_id: project_id.to_string(),
-            max_steps: 24,
+            max_steps: 0, // 0 = illimité (protégé par anti-loop et compaction)
             think_effort: "off".to_string(),
         }
     }
@@ -197,11 +197,14 @@ Quand ta mission est entièrement accomplie et vérifiée sur disque, fournis di
         let cache_mutex = GLOBAL_TOOL_CACHE.get_or_init(|| Mutex::new(tool_output_cache::ToolCache::new(128)));
         let mut llm_budget = retry_budget::RetryBudget::new(10, 5);
 
-        let mut step_budget = self.max_steps;
-        let mut budget_recredited = false;
         let mut empty_tool_nudges: usize = 0;
+        let mut last_tool_sig = String::new();
+        let mut repeat_tool_count: usize = 0;
         let mut step_idx = 0usize;
-        while step_idx < step_budget {
+        loop {
+            if self.max_steps > 0 && step_idx >= self.max_steps {
+                break;
+            }
             step_idx += 1;
             compact_messages(&mut messages, 60_000);
             if !llm_budget.is_retry_allowed() {
@@ -261,6 +264,13 @@ Quand ta mission est entièrement accomplie et vérifiée sur disque, fournis di
                 push_live_log("TOOL", &format!("⚡ {} {}", fn_name, context_trimmer::truncate_tool_output(&fn_args.to_string(), 220)));
                 println!("  ⚡ [OUTIL RUST] {} {:?}", fn_name, fn_args);
                 let args_key = fn_args.to_string();
+                let sig = format!("{}:{}", fn_name, args_key);
+                if sig == last_tool_sig {
+                    repeat_tool_count += 1;
+                } else {
+                    last_tool_sig = sig;
+                    repeat_tool_count = 1;
+                }
                 let is_cacheable_read = matches!(fn_name.as_str(), "recall_memory" | "read_file" | "list_files" | "web_fetch");
                 let raw_output = if is_cacheable_read {
                     let hit = cache_mutex.lock().ok().and_then(|mut c| c.get(fn_name, &args_key).map(|s| s.to_string()));
@@ -300,20 +310,22 @@ Quand ta mission est entièrement accomplie et vérifiée sur disque, fournis di
                 });
             }
 
-            if step_idx == step_budget && !budget_recredited {
-                budget_recredited = true;
-                step_budget += 8;
-                println!("  🔋 [REACT] Budget initial atteint en cours d'exécution, recrédit automatique (+8 tours -> {})", step_budget);
+            if repeat_tool_count >= 6 {
+                push_live_log("WARN", "🛑 [ANTI-LOOP] Même appel d'outil répété 6 fois de suite, arrêt de sécurité.");
+                final_answer = "⚠️ Arrêt de sécurité [ANTI-LOOP] : le modèle répète exactement le même appel d'outil en boucle.".to_string();
+                break;
+            } else if repeat_tool_count == 4 {
+                push_live_log("WARN", "🔁 [ANTI-LOOP] Répétition détectée (4x), rappel envoyé au modèle.");
                 messages.push(ChatMessage {
                     role: "user".to_string(),
-                    content: "Budget prolongé (+8 tours) : finalise ta tâche, vérifie tes livrables et donne ta réponse finale.".to_string(),
+                    content: "Attention [ANTI-LOOP] : tu viens d'appeler exactement le même outil avec les mêmes arguments 4 fois de suite. Change d'approche ou conclus ta mission.".to_string(),
                     images: None,
                 });
             }
         }
 
-        if final_answer.is_empty() {
-            final_answer = format!("⚠️ Limite de {} tours atteinte sans réponse finale.", step_budget);
+        if final_answer.is_empty() && self.max_steps > 0 {
+            final_answer = format!("⚠️ Limite de {} tours atteinte sans réponse finale.", self.max_steps);
         }
 
         let duration_ms = start.elapsed().as_millis();

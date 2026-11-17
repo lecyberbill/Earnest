@@ -4,7 +4,7 @@ use std::thread;
 pub fn run() {
   // Démarrer le serveur HTTP Earnest Core en tâche de fond sur le port 8080 (si non déjà en écoute)
   thread::spawn(|| {
-    earnest_ide_core::server::start_http_server("127.0.0.1", 8080);
+    earnest_core::server::start_http_server("127.0.0.1", 8080);
   });
 
   tauri::Builder::default()

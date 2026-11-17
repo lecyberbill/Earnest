@@ -197,16 +197,26 @@ Quand ta mission est entièrement accomplie et vérifiée sur disque, fournis di
         let cache_mutex = GLOBAL_TOOL_CACHE.get_or_init(|| Mutex::new(tool_output_cache::ToolCache::new(128)));
         let mut llm_budget = retry_budget::RetryBudget::new(10, 5);
 
+        let mut step_budget_chars = self.router.backends.first()
+            .map(|b| self.router.estimate_context_chars(&b.id))
+            .unwrap_or(60_000);
+        let mut last_backend_id = String::new();
         let mut empty_tool_nudges: usize = 0;
         let mut last_tool_sig = String::new();
         let mut repeat_tool_count: usize = 0;
         let mut step_idx = 0usize;
+        crate::llm::client::reset_cancel();
         loop {
+            if crate::llm::client::is_cancelled() {
+                push_live_log("WARN", "🛑 Run interrompu par l'utilisateur.");
+                final_answer = "⚠️ Run interrompu par l'utilisateur.".to_string();
+                break;
+            }
             if self.max_steps > 0 && step_idx >= self.max_steps {
                 break;
             }
             step_idx += 1;
-            compact_messages(&mut messages, 60_000);
+            compact_messages(&mut messages, step_budget_chars);
             if !llm_budget.is_retry_allowed() {
                 return Err("Circuit breaker LLM ouvert : trop d'échecs consécutifs dans la fenêtre glissante.".to_string());
             }
@@ -220,6 +230,10 @@ Quand ta mission est entièrement accomplie et vérifiée sur disque, fournis di
                     return Err(e);
                 }
             };
+            if active_backend != last_backend_id {
+                step_budget_chars = self.router.estimate_context_chars(&active_backend);
+                last_backend_id = active_backend.clone();
+            }
             active_backend_name = active_backend;
             total_tokens += chat_res.total_tokens;
 
@@ -347,6 +361,79 @@ Quand ta mission est entièrement accomplie et vérifiée sur disque, fournis di
 
     pub fn run(&self, prompt: &str) -> Result<ReActResult, String> {
         self.run_with_callback(prompt, |_, _, _, _, _, _| {})
+    }
+
+    /// Pipeline Multi-Agents : Architecte (plan) -> Worker (ReAct outils) -> Critique (revue).
+    pub fn run_multiagent_with_callback<F>(&self, prompt: &str, mut on_trace: F) -> Result<ReActResult, String>
+    where
+        F: FnMut(&str, usize, &str, Option<&str>, &str, &str),
+    {
+        push_live_log("INFO", "🧠 [MULTI-AGENT] Phase 1/3 : Architecte (planification)...");
+        let arch_msgs = vec![
+            ChatMessage {
+                role: "system".to_string(),
+                content: "Tu es l'Architecte. Rédige un plan d'action court (4 à 6 étapes numérotées) et les vérifications disque/mémoire obligatoires pour accomplir la mission ci-dessous.".to_string(),
+                images: None,
+            },
+            ChatMessage { role: "user".to_string(), content: prompt.to_string(), images: None },
+        ];
+        let plan = match self.router.chat_completion_with_fallback(&arch_msgs, None, &self.think_effort) {
+            Ok((res, backend)) => {
+                on_trace("multiagent", 0, "thought", None, &format!("🧠 [Architecte]\n{}", res.content), &backend);
+                push_live_log("THOUGHT", &format!("🧠 [Architecte] {}", context_trimmer::truncate_tool_output(&res.content, 240)));
+                res.content
+            }
+            Err(_) => String::new(),
+        };
+
+        let worker_prompt = if plan.is_empty() {
+            prompt.to_string()
+        } else {
+            format!("{}\n\n--- PLAN DE L'ARCHITECTE ---\n{}", prompt, plan)
+        };
+
+        push_live_log("INFO", "⚙️ [MULTI-AGENT] Phase 2/3 : Worker (exécution)...");
+        let mut result = self.run_with_callback(&worker_prompt, &mut on_trace)?;
+
+        if crate::llm::client::is_cancelled() {
+            return Ok(result);
+        }
+
+        push_live_log("INFO", "🔍 [MULTI-AGENT] Phase 3/3 : Critique (revue finale)...");
+        let critic_msgs = vec![
+            ChatMessage {
+                role: "system".to_string(),
+                content: "Tu es le Critique qualité. Vérifie si la réponse du Worker répond à TOUTES les exigences de la consigne. Réponds par 'VALIDÉ' suivi d'un court verdict, ou par 'INCOMPLET:' suivi des points exacts manquants.".to_string(),
+                images: None,
+            },
+            ChatMessage {
+                role: "user".to_string(),
+                content: format!("Consigne:\n{}\n\nRéponse du Worker:\n{}", prompt, result.answer),
+                images: None,
+            },
+        ];
+        if let Ok((crit, backend)) = self.router.chat_completion_with_fallback(&critic_msgs, None, &self.think_effort) {
+            on_trace(&result.run_id, result.steps_count + 1, "thought", None, &format!("🔍 [Critique]\n{}", crit.content), &backend);
+            push_live_log("THOUGHT", &format!("🔍 [Critique] {}", context_trimmer::truncate_tool_output(&crit.content, 240)));
+            result.total_tokens += crit.total_tokens;
+            if crit.content.to_uppercase().contains("INCOMPLET:") {
+                push_live_log("WARN", "🔧 [MULTI-AGENT] Critique INCOMPLET, passe de correction Worker...");
+                let fix_engine = ReActEngine {
+                    conn: self.conn,
+                    router: self.router,
+                    project_id: self.project_id.clone(),
+                    max_steps: 6,
+                    think_effort: self.think_effort.clone(),
+                };
+                let fix_prompt = format!("{}\n\n--- RETOUR CRITIQUE À CORRIGER ---\n{}", prompt, crit.content);
+                if let Ok(fix_res) = fix_engine.run_with_callback(&fix_prompt, &mut on_trace) {
+                    result.answer = fix_res.answer;
+                    result.total_tokens += fix_res.total_tokens;
+                    result.steps_count += fix_res.steps_count;
+                }
+            }
+        }
+        Ok(result)
     }
 }
 

@@ -22,6 +22,7 @@ pub struct ProbeResult {
     pub is_online: bool,
     pub latency_ms: Option<u128>,
     pub error: Option<String>,
+    pub available_models: Vec<String>,
 }
 
 pub struct LLMRouter {
@@ -77,18 +78,27 @@ impl LLMRouter {
     }
 
     pub fn probe_all(&self) -> Vec<ProbeResult> {
+        let http = reqwest::blocking::Client::builder()
+            .timeout(std::time::Duration::from_secs(3))
+            .build()
+            .unwrap_or_else(|_| reqwest::blocking::Client::new());
+
         self.backends.iter().map(|b| {
             let client = LLMClient::new(&b.provider_type, &b.base_url, &b.model, b.api_key.clone());
             match client.ping() {
-                Ok(ms) => ProbeResult {
-                    id: b.id.clone(),
-                    name: b.name.clone(),
-                    provider_type: b.provider_type.clone(),
-                    model: b.model.clone(),
-                    is_online: true,
-                    latency_ms: Some(ms),
-                    error: None,
-                },
+                Ok(ms) => {
+                    let available_models = fetch_models_list(&http, b);
+                    ProbeResult {
+                        id: b.id.clone(),
+                        name: b.name.clone(),
+                        provider_type: b.provider_type.clone(),
+                        model: b.model.clone(),
+                        is_online: true,
+                        latency_ms: Some(ms),
+                        error: None,
+                        available_models,
+                    }
+                }
                 Err(err) => ProbeResult {
                     id: b.id.clone(),
                     name: b.name.clone(),
@@ -97,9 +107,45 @@ impl LLMRouter {
                     is_online: false,
                     latency_ms: None,
                     error: Some(err),
+                    available_models: Vec::new(),
                 },
             }
         }).collect()
+    }
+
+    /// Estime la limite de caractères sûre avant compaction pour un backend donné.
+    pub fn estimate_context_chars(&self, backend_id: &str) -> usize {
+        let Some(b) = self.backends.iter().find(|x| x.id == backend_id) else {
+            return 60_000;
+        };
+        if b.base_url.contains("deepseek") {
+            return 160_000;
+        }
+        if b.provider_type == "ollama" {
+            let http = reqwest::blocking::Client::builder()
+                .timeout(std::time::Duration::from_secs(2))
+                .build()
+                .unwrap_or_else(|_| reqwest::blocking::Client::new());
+            let url = format!("{}/api/show", b.base_url.trim_end_matches('/'));
+            if let Ok(resp) = http.post(&url).json(&serde_json::json!({"model": b.model})).send() {
+                if let Ok(val) = resp.json::<serde_json::Value>() {
+                    if let Some(params) = val["parameters"].as_str() {
+                        for line in params.lines() {
+                            if line.trim_start().starts_with("num_ctx") {
+                                if let Some(n) = line.split_whitespace().last().and_then(|s| s.parse::<usize>().ok()) {
+                                    return (n * 3).clamp(16_000, 180_000);
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        // LM Studio / OpenAI local : seuil conservateur par défaut (évite de saturer 8k-16k)
+        if b.base_url.contains("127.0.0.1") || b.base_url.contains("localhost") {
+            return 24_000;
+        }
+        60_000
     }
 
     pub fn chat_completion_with_fallback(
@@ -122,5 +168,31 @@ impl LLMRouter {
 
         Err(format!("Tous les moteurs LLM ont échoué. Dernière erreur: {}", last_err))
     }
+}
+
+fn fetch_models_list(http: &reqwest::blocking::Client, b: &BackendConfig) -> Vec<String> {
+    let base = b.base_url.trim_end_matches('/');
+    if b.provider_type == "ollama" {
+        if let Ok(resp) = http.get(format!("{}/api/tags", base)).send() {
+            if let Ok(val) = resp.json::<serde_json::Value>() {
+                if let Some(arr) = val["models"].as_array() {
+                    return arr.iter().filter_map(|m| m["name"].as_str().map(|s| s.to_string())).collect();
+                }
+            }
+        }
+    } else {
+        let mut req = http.get(format!("{}/v1/models", base));
+        if let Some(ref key) = b.api_key {
+            req = req.header("Authorization", format!("Bearer {}", key));
+        }
+        if let Ok(resp) = req.send() {
+            if let Ok(val) = resp.json::<serde_json::Value>() {
+                if let Some(arr) = val["data"].as_array() {
+                    return arr.iter().filter_map(|m| m["id"].as_str().map(|s| s.to_string())).collect();
+                }
+            }
+        }
+    }
+    Vec::new()
 }
 

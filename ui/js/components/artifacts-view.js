@@ -125,6 +125,11 @@ export class ArtifactsView extends HTMLElement {
         });
 
         this.loadArtifacts();
+        window.addEventListener('earnest:view_activated', (e) => {
+            if (e.detail && e.detail.view === 'artifacts') {
+                this.loadArtifacts();
+            }
+        });
     }
 
     async loadArtifacts() {
@@ -226,11 +231,13 @@ export class ArtifactsView extends HTMLElement {
             preview.innerHTML = renderMarkdown(textContent);
         } else if (['html', 'svg'].includes(ext)) {
             preview.innerHTML = `
-                <div style="margin-bottom: 0.5rem; display: flex; gap: 0.5rem;">
+                <div style="margin-bottom: 0.5rem; display: flex; gap: 0.5rem; align-items: center;">
                     <span class="badge badge-emerald">Aperçu Rendu Interactif</span>
                 </div>
-                <iframe srcdoc="${textContent.replace(/"/g, '&quot;')}" style="width: 100%; height: 85%; border: 1px solid var(--border-subtle); border-radius: var(--radius-sm); background: white;"></iframe>
+                <iframe id="artifact-html-frame" sandbox="allow-scripts" style="width: 100%; height: 85%; border: 1px solid var(--border-subtle); border-radius: var(--radius-sm); background: white;"></iframe>
             `;
+            const frame = preview.querySelector('#artifact-html-frame');
+            if (frame) frame.srcdoc = textContent;
         } else {
             // Affichage Code Source Coloré avec Prism.js
             const langMap = {

@@ -1,12 +1,42 @@
 pub mod assets;
 
-use std::sync::Arc;
+use std::sync::{mpsc, Arc};
 use std::thread;
-use std::io::Cursor;
+use std::io::{Cursor, Read};
 use std::path::Path;
 use std::fs;
-use tiny_http::{Server, Response, Header, Method};
+use tiny_http::{Server, Response, Header, Method, StatusCode};
 use serde_json::Value;
+
+struct ChannelReader {
+    rx: mpsc::Receiver<Vec<u8>>,
+    buf: Vec<u8>,
+    pos: usize,
+}
+
+impl ChannelReader {
+    fn new(rx: mpsc::Receiver<Vec<u8>>) -> Self {
+        Self { rx, buf: Vec::new(), pos: 0 }
+    }
+}
+
+impl Read for ChannelReader {
+    fn read(&mut self, out: &mut [u8]) -> std::io::Result<usize> {
+        while self.pos >= self.buf.len() {
+            match self.rx.recv() {
+                Ok(chunk) => {
+                    self.buf = chunk;
+                    self.pos = 0;
+                }
+                Err(_) => return Ok(0),
+            }
+        }
+        let n = (self.buf.len() - self.pos).min(out.len());
+        out[..n].copy_from_slice(&self.buf[self.pos..self.pos + n]);
+        self.pos += n;
+        Ok(n)
+    }
+}
 
 use assets::Asset;
 use crate::db::connection::{get_connection, init_db, get_data_dir};
@@ -530,6 +560,11 @@ fn handle_request(mut req: tiny_http::Request) {
 
             let router = LLMRouter::from_db(&conn);
             let probes = router.probe_all();
+            let current_model = probes
+                .iter()
+                .find(|p| p.is_online)
+                .map(|p| p.model.clone())
+                .unwrap_or_else(|| "aucun".to_string());
 
             let json = serde_json::json!({
                 "total_runs": total_runs,
@@ -538,7 +573,7 @@ fn handle_request(mut req: tiny_http::Request) {
                 "active_tools": total_tools + 6,
                 "backends": probes,
                 "gpu_target": "Moteur Rust Natif Déployé",
-                "current_model": "qwen3.8:27b"
+                "current_model": current_model
             });
 
             let resp = Response::from_string(json.to_string())
@@ -825,73 +860,85 @@ fn handle_request(mut req: tiny_http::Request) {
             let prompt = body["prompt"].as_str().unwrap_or("").to_string();
             let project_id = body["project_id"].as_str().unwrap_or("default_workspace").to_string();
             let think_effort = body["think_effort"].as_str().unwrap_or("off").to_string();
-            let backend_choice = body["backend"].as_str().unwrap_or("auto");
+            let backend_choice = body["backend"].as_str().unwrap_or("auto").to_string();
 
-            let conn = get_connection(None).unwrap();
-            let mut router = LLMRouter::from_db(&conn);
-            if backend_choice != "auto" && backend_choice != "multiagent" {
-                let needle = match backend_choice {
-                    "ollama_forced" => "ollama",
-                    "lmstudio" => "lmstudio",
-                    "cloud" => "deepseek",
-                    other => other,
-                };
-                router.backends.sort_by_key(|b| {
-                    let m = b.id.to_lowercase().contains(needle)
-                        || b.provider_type.to_lowercase() == needle
-                        || b.name.to_lowercase().contains(needle);
-                    if m { 0 } else { 1 }
-                });
-            }
-            let mut engine = ReActEngine::new(&conn, &router, &project_id);
-            engine.think_effort = think_effort;
-
-            let mut sse_events = Vec::new();
-            sse_events.push(format!("event: init\ndata: {}\n\n", serde_json::json!({
+            let (tx, rx) = mpsc::channel::<Vec<u8>>();
+            let _ = tx.send(format!("event: init\ndata: {}\n\n", serde_json::json!({
                 "run_id": "run_starting",
-                "backend": "rust-native",
-                "reason": "Moteur Rust Natif Déployé"
-            })));
+                "backend": backend_choice,
+                "reason": "Moteur Rust Natif Déployé (Streaming Live)"
+            })).into_bytes());
 
-            let res = engine.run_with_callback(&prompt, |_run_id, step_order, step_type, tool_name, payload, backend| {
-                let trace_obj = serde_json::json!({
-                    "step_order": step_order,
-                    "step_type": step_type,
-                    "tool_name": tool_name,
-                    "payload": payload,
-                    "active_backend": backend,
-                    "timestamp": ""
-                });
-                sse_events.push(format!("event: trace\ndata: {}\n\n", trace_obj));
+            thread::spawn(move || {
+                let conn = get_connection(None).unwrap();
+                let mut router = LLMRouter::from_db(&conn);
+                if backend_choice != "auto" && backend_choice != "multiagent" {
+                    let needle = match backend_choice.as_str() {
+                        "ollama_forced" => "ollama",
+                        "lmstudio" => "lmstudio",
+                        "cloud" => "deepseek",
+                        other => other,
+                    };
+                    router.backends.sort_by_key(|b| {
+                        let m = b.id.to_lowercase().contains(needle)
+                            || b.provider_type.to_lowercase() == needle
+                            || b.name.to_lowercase().contains(needle);
+                        if m { 0 } else { 1 }
+                    });
+                }
+                let mut engine = ReActEngine::new(&conn, &router, &project_id);
+                engine.think_effort = think_effort;
+
+                let tx_trace = tx.clone();
+                let cb = move |_run_id: &str, step_order: usize, step_type: &str, tool_name: Option<&str>, payload: &str, backend: &str| {
+                    let trace_obj = serde_json::json!({
+                        "step_order": step_order,
+                        "step_type": step_type,
+                        "tool_name": tool_name,
+                        "payload": payload,
+                        "active_backend": backend,
+                        "timestamp": ""
+                    });
+                    let _ = tx_trace.send(format!("event: trace\ndata: {}\n\n", trace_obj).into_bytes());
+                };
+
+                let res = if backend_choice == "multiagent" {
+                    engine.run_multiagent_with_callback(&prompt, cb)
+                } else {
+                    engine.run_with_callback(&prompt, cb)
+                };
+
+                match res {
+                    Ok(r) => {
+                        let _ = tx.send(format!("event: completed\ndata: {}\n\n", serde_json::json!({
+                            "run_id": r.run_id,
+                            "status": "success",
+                            "answer": r.answer,
+                            "usage": {
+                                "total_tokens": r.total_tokens,
+                                "duration_ms": r.duration_ms
+                            },
+                            "backend": backend_choice
+                        })).into_bytes());
+                    }
+                    Err(e) => {
+                        let _ = tx.send(format!("event: error\ndata: {}\n\n", serde_json::json!({
+                            "error": e
+                        })).into_bytes());
+                    }
+                }
             });
 
-            match res {
-                Ok(r) => {
-                    sse_events.push(format!("event: completed\ndata: {}\n\n", serde_json::json!({
-                        "run_id": r.run_id,
-                        "status": "success",
-                        "answer": r.answer,
-                        "usage": {
-                            "total_tokens": r.total_tokens,
-                            "duration_ms": r.duration_ms
-                        },
-                        "backend": "rust-native"
-                    })));
-                }
-                Err(e) => {
-                    sse_events.push(format!("event: error\ndata: {}\n\n", serde_json::json!({
-                        "error": e
-                    })));
-                }
-            }
-
-            let full_stream = sse_events.join("");
             let sse_header = Header::from_bytes(&b"Content-Type"[..], &b"text/event-stream; charset=utf-8"[..]).unwrap();
             let cache_header = Header::from_bytes(&b"Cache-Control"[..], &b"no-cache"[..]).unwrap();
-            let resp = Response::from_string(full_stream)
-                .with_header(sse_header)
-                .with_header(cache_header)
-                .with_header(cors_header);
+            let reader = ChannelReader::new(rx);
+            let resp = Response::new(
+                StatusCode(200),
+                vec![sse_header, cache_header, cors_header],
+                reader,
+                None,
+                None,
+            );
             req.respond(resp).ok();
             return;
         }
@@ -934,7 +981,15 @@ fn handle_request(mut req: tiny_http::Request) {
         }
 
         // Endpoint générique OK pour les actions HITL / Abort
-        if path == "/api/run/abort" || path == "/api/run/approve" {
+        if path == "/api/run/abort" {
+            crate::llm::client::request_cancel();
+            let resp = Response::from_string(serde_json::json!({"status": "aborted"}).to_string())
+                .with_header(json_header)
+                .with_header(cors_header);
+            req.respond(resp).ok();
+            return;
+        }
+        if path == "/api/run/approve" {
             let resp = Response::from_string(serde_json::json!({"status": "ok"}).to_string())
                 .with_header(json_header)
                 .with_header(cors_header);

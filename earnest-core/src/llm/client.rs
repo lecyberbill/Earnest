@@ -1,7 +1,24 @@
+use std::collections::BTreeMap;
+use std::io::{BufRead, BufReader};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 use reqwest::blocking::Client;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
+
+pub static CANCEL_RUN: AtomicBool = AtomicBool::new(false);
+
+pub fn request_cancel() {
+    CANCEL_RUN.store(true, Ordering::SeqCst);
+}
+
+pub fn reset_cancel() {
+    CANCEL_RUN.store(false, Ordering::SeqCst);
+}
+
+pub fn is_cancelled() -> bool {
+    CANCEL_RUN.load(Ordering::SeqCst)
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ChatMessage {
@@ -78,6 +95,9 @@ impl LLMClient {
         tools: Option<&[Value]>,
         think_effort: &str,
     ) -> Result<ChatResponse, String> {
+        if is_cancelled() {
+            return Err("Run annulé par l'utilisateur.".to_string());
+        }
         if self.provider_type == "ollama" {
             self.chat_ollama(messages, tools, think_effort)
         } else {
@@ -96,7 +116,7 @@ impl LLMClient {
         let mut body = serde_json::json!({
             "model": self.model,
             "messages": messages,
-            "stream": false,
+            "stream": true,
             "think": enable_think
         });
 
@@ -115,28 +135,55 @@ impl LLMClient {
             return Err(format!("Erreur Ollama statut {}", resp.status()));
         }
 
-        let data: Value = resp.json().map_err(|e| format!("Erreur parsing JSON Ollama: {}", e))?;
-        let msg = &data["message"];
-        let content = msg["content"].as_str().unwrap_or("").to_string();
-
+        let mut content = String::new();
+        let mut reasoning = String::new();
         let mut tool_calls = Vec::new();
-        if let Some(arr) = msg["tool_calls"].as_array() {
-            for call in arr {
-                let func = &call["function"];
-                let name = func["name"].as_str().unwrap_or("").to_string();
-                let raw = &func["arguments"];
-                let args = if let Some(s) = raw.as_str() {
-                    parse_tool_args_with_repair(&name, s)
-                } else {
-                    raw.clone()
-                };
-                let call_id = format!("call_{}", &uuid::Uuid::new_v4().to_string().replace('-', "")[..8]);
-                tool_calls.push(ToolCallItem { id: call_id, name, arguments: args });
+        let mut prompt_tokens = 0usize;
+        let mut completion_tokens = 0usize;
+
+        let reader = BufReader::new(resp);
+        for line_res in reader.lines() {
+            if is_cancelled() {
+                return Err("Run annulé par l'utilisateur.".to_string());
+            }
+            let line = match line_res {
+                Ok(l) => l,
+                Err(e) => return Err(format!("Erreur lecture stream Ollama: {}", e)),
+            };
+            let trimmed = line.trim();
+            if trimmed.is_empty() {
+                continue;
+            }
+            let data: Value = match serde_json::from_str(trimmed) {
+                Ok(v) => v,
+                Err(_) => continue,
+            };
+            let msg = &data["message"];
+            if let Some(think_chunk) = msg["thinking"].as_str() {
+                reasoning.push_str(think_chunk);
+            }
+            if let Some(chunk) = msg["content"].as_str() {
+                content.push_str(chunk);
+            }
+            if let Some(arr) = msg["tool_calls"].as_array() {
+                for call in arr {
+                    let func = &call["function"];
+                    let name = func["name"].as_str().unwrap_or("").to_string();
+                    let raw = &func["arguments"];
+                    let args = if let Some(s) = raw.as_str() {
+                        parse_tool_args_with_repair(&name, s)
+                    } else {
+                        raw.clone()
+                    };
+                    let call_id = format!("call_{}", &uuid::Uuid::new_v4().to_string().replace('-', "")[..8]);
+                    tool_calls.push(ToolCallItem { id: call_id, name, arguments: args });
+                }
+            }
+            if data["done"].as_bool().unwrap_or(false) {
+                prompt_tokens = data["prompt_eval_count"].as_u64().unwrap_or(0) as usize;
+                completion_tokens = data["eval_count"].as_u64().unwrap_or(0) as usize;
             }
         }
-
-        let prompt_tokens = data["prompt_eval_count"].as_u64().unwrap_or(0) as usize;
-        let completion_tokens = data["eval_count"].as_u64().unwrap_or(0) as usize;
 
         Ok(ChatResponse {
             content,
@@ -144,7 +191,7 @@ impl LLMClient {
             prompt_tokens,
             completion_tokens,
             total_tokens: prompt_tokens + completion_tokens,
-            reasoning_content: None,
+            reasoning_content: if reasoning.is_empty() { None } else { Some(reasoning) },
         })
     }
 
@@ -159,7 +206,8 @@ impl LLMClient {
         let mut body = serde_json::json!({
             "model": self.model,
             "messages": messages,
-            "temperature": 0.2
+            "temperature": 0.2,
+            "stream": true
         });
         if self.base_url.contains("deepseek") {
             body["thinking"] = serde_json::json!({
@@ -183,26 +231,73 @@ impl LLMClient {
             return Err(format!("Erreur OpenAI statut {}", resp.status()));
         }
 
-        let data: Value = resp.json().map_err(|e| format!("Erreur parsing JSON OpenAI: {}", e))?;
-        let choice = &data["choices"][0]["message"];
-        let content = choice["content"].as_str().unwrap_or("").to_string();
-        let reasoning = choice["reasoning_content"].as_str().map(|s| s.to_string());
+        let mut content = String::new();
+        let mut reasoning = String::new();
+        let mut tc_acc: BTreeMap<usize, (String, String, String)> = BTreeMap::new();
+        let mut prompt_tokens = 0usize;
+        let mut completion_tokens = 0usize;
 
-        let mut tool_calls = Vec::new();
-        if let Some(arr) = choice["tool_calls"].as_array() {
-            for call in arr {
-                let func = &call["function"];
-                let name = func["name"].as_str().unwrap_or("").to_string();
-                let raw_args = func["arguments"].as_str().unwrap_or("{}");
-                let parsed_args = parse_tool_args_with_repair(&name, raw_args);
-                let call_id = call["id"].as_str().unwrap_or("call_gen").to_string();
-                tool_calls.push(ToolCallItem { id: call_id, name, arguments: parsed_args });
+        let reader = BufReader::new(resp);
+        for line_res in reader.lines() {
+            if is_cancelled() {
+                return Err("Run annulé par l'utilisateur.".to_string());
+            }
+            let line = match line_res {
+                Ok(l) => l,
+                Err(e) => return Err(format!("Erreur lecture stream OpenAI: {}", e)),
+            };
+            let trimmed = line.trim();
+            if trimmed.is_empty() || trimmed.starts_with(':') {
+                continue;
+            }
+            let payload_str = if let Some(s) = trimmed.strip_prefix("data: ") {
+                s.trim()
+            } else if let Some(s) = trimmed.strip_prefix("data:") {
+                s.trim()
+            } else {
+                continue;
+            };
+            if payload_str == "[DONE]" {
+                break;
+            }
+            let data: Value = match serde_json::from_str(payload_str) {
+                Ok(v) => v,
+                Err(_) => continue,
+            };
+            if let Some(usage) = data.get("usage").filter(|u| !u.is_null()) {
+                prompt_tokens = usage["prompt_tokens"].as_u64().unwrap_or(prompt_tokens as u64) as usize;
+                completion_tokens = usage["completion_tokens"].as_u64().unwrap_or(completion_tokens as u64) as usize;
+            }
+            let delta = &data["choices"][0]["delta"];
+            if let Some(rc) = delta["reasoning_content"].as_str() {
+                reasoning.push_str(rc);
+            }
+            if let Some(c) = delta["content"].as_str() {
+                content.push_str(c);
+            }
+            if let Some(tcs) = delta["tool_calls"].as_array() {
+                for tc in tcs {
+                    let idx = tc["index"].as_u64().unwrap_or(0) as usize;
+                    let entry = tc_acc.entry(idx).or_insert_with(|| (String::new(), String::new(), String::new()));
+                    if let Some(id) = tc["id"].as_str() {
+                        entry.0 = id.to_string();
+                    }
+                    if let Some(name) = tc["function"]["name"].as_str() {
+                        entry.1.push_str(name);
+                    }
+                    if let Some(args_part) = tc["function"]["arguments"].as_str() {
+                        entry.2.push_str(args_part);
+                    }
+                }
             }
         }
 
-        let usage = &data["usage"];
-        let prompt_tokens = usage["prompt_tokens"].as_u64().unwrap_or(0) as usize;
-        let completion_tokens = usage["completion_tokens"].as_u64().unwrap_or(0) as usize;
+        let mut tool_calls = Vec::new();
+        for (_idx, (call_id, name, raw_args)) in tc_acc {
+            let parsed_args = parse_tool_args_with_repair(&name, &raw_args);
+            let final_id = if call_id.is_empty() { "call_gen".to_string() } else { call_id };
+            tool_calls.push(ToolCallItem { id: final_id, name, arguments: parsed_args });
+        }
 
         Ok(ChatResponse {
             content,
@@ -210,7 +305,7 @@ impl LLMClient {
             prompt_tokens,
             completion_tokens,
             total_tokens: prompt_tokens + completion_tokens,
-            reasoning_content: reasoning,
+            reasoning_content: if reasoning.is_empty() { None } else { Some(reasoning) },
         })
     }
 }

@@ -298,7 +298,7 @@ export class RunConsole extends HTMLElement {
         if (pixelStage) pixelStage.setAgentState('thought');
 
         try {
-            const effortSelector = this.shadowRoot.getElementById('effort-selector');
+            const effortSelector = this.querySelector('#effort-selector');
             const payload = {
                 prompt,
                 project_id: 'default_workspace',

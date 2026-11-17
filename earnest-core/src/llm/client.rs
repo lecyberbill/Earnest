@@ -120,7 +120,12 @@ impl LLMClient {
             for call in arr {
                 let func = &call["function"];
                 let name = func["name"].as_str().unwrap_or("").to_string();
-                let args = func["arguments"].clone();
+                let raw = &func["arguments"];
+                let args = if let Some(s) = raw.as_str() {
+                    parse_tool_args_with_repair(&name, s)
+                } else {
+                    raw.clone()
+                };
                 let call_id = format!("call_{}", &uuid::Uuid::new_v4().to_string().replace('-', "")[..8]);
                 tool_calls.push(ToolCallItem { id: call_id, name, arguments: args });
             }
@@ -178,7 +183,7 @@ impl LLMClient {
                 let func = &call["function"];
                 let name = func["name"].as_str().unwrap_or("").to_string();
                 let raw_args = func["arguments"].as_str().unwrap_or("{}");
-                let parsed_args: Value = serde_json::from_str(raw_args).unwrap_or(serde_json::json!({}));
+                let parsed_args = parse_tool_args_with_repair(&name, raw_args);
                 let call_id = call["id"].as_str().unwrap_or("call_gen").to_string();
                 tool_calls.push(ToolCallItem { id: call_id, name, arguments: parsed_args });
             }
@@ -196,6 +201,57 @@ impl LLMClient {
             total_tokens: prompt_tokens + completion_tokens,
             reasoning_content: reasoning,
         })
+    }
+}
+
+/// Parse les arguments JSON d'un appel d'outil avec réparation chirurgicale via `json-repair`
+/// si `serde_json` échoue, évitant la perte silencieuse des arguments (`{}`).
+pub fn parse_tool_args_with_repair(name: &str, raw_args: &str) -> Value {
+    let trimmed = raw_args.trim();
+    if trimmed.is_empty() {
+        return serde_json::json!({});
+    }
+    if let Ok(v) = serde_json::from_str::<Value>(trimmed) {
+        return v;
+    }
+    let repaired = json_repair::repair(trimmed);
+    if let Ok(v) = serde_json::from_str::<Value>(&repaired) {
+        if v.is_object() {
+            println!(
+                "  🩹 [JSON-REPAIR] Arguments réparés pour '{}' ({} -> {} chars)",
+                name,
+                raw_args.len(),
+                repaired.len()
+            );
+            return v;
+        }
+    }
+    println!(
+        "  ⚠️ [LLM] Tool '{}' arguments irréparables ({} chars), repli sur {{}}",
+        name,
+        raw_args.len()
+    );
+    serde_json::json!({})
+}
+
+#[cfg(test)]
+mod tests {
+    use super::parse_tool_args_with_repair;
+
+    #[test]
+    fn repairs_malformed_tool_args_instead_of_dropping_to_empty() {
+        let raw = "```json\n{\"command\": \"cargo test\", \"cwd\": \"src\"";
+        let v = parse_tool_args_with_repair("execute_terminal", raw);
+        assert_eq!(v["command"], "cargo test");
+        assert_eq!(v["cwd"], "src");
+    }
+
+    #[test]
+    fn preserves_valid_tool_args() {
+        let raw = r#"{"key": "status", "value": "ok"}"#;
+        let v = parse_tool_args_with_repair("store_memory", raw);
+        assert_eq!(v["key"], "status");
+        assert_eq!(v["value"], "ok");
     }
 }
 

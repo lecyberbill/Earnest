@@ -1,3 +1,4 @@
+use std::sync::{Mutex, OnceLock};
 use std::time::Instant;
 use rusqlite::{params, Connection};
 use serde_json::Value;
@@ -137,10 +138,12 @@ Quand ta mission est accomplie, fournis directement ta réponse finale sans appe
         let mut total_tokens = 0;
         let mut final_answer = String::new();
         let mut active_backend_name = String::from("rust-native");
-        let mut tool_cache = tool_output_cache::ToolCache::new(64);
+        static GLOBAL_TOOL_CACHE: OnceLock<Mutex<tool_output_cache::ToolCache>> = OnceLock::new();
+        let cache_mutex = GLOBAL_TOOL_CACHE.get_or_init(|| Mutex::new(tool_output_cache::ToolCache::new(128)));
         let mut llm_budget = retry_budget::RetryBudget::new(10, 5);
 
         for _ in 0..self.max_steps {
+            compact_messages(&mut messages, 60_000);
             if !llm_budget.is_retry_allowed() {
                 return Err("Circuit breaker LLM ouvert : trop d'échecs consécutifs dans la fenêtre glissante.".to_string());
             }
@@ -185,9 +188,10 @@ Quand ta mission est accomplie, fournis directement ta réponse finale sans appe
                 let args_key = fn_args.to_string();
                 let is_cacheable_read = matches!(fn_name.as_str(), "recall_memory" | "read_file" | "list_files" | "web_fetch");
                 let raw_output = if is_cacheable_read {
-                    if let Some(cached) = tool_cache.get(fn_name, &args_key) {
+                    let hit = cache_mutex.lock().ok().and_then(|mut c| c.get(fn_name, &args_key).map(|s| s.to_string()));
+                    if let Some(cached) = hit {
                         println!("  ♻️ [TOOL CACHE] HIT {} {}", fn_name, args_key);
-                        cached.to_string()
+                        cached
                     } else {
                         self.dispatch_tool(fn_name, fn_args, &run_id)
                     }
@@ -197,7 +201,15 @@ Quand ta mission est accomplie, fournis directement ta réponse finale sans appe
                 let tool_output = context_trimmer::truncate_tool_output(&raw_output, 16_000);
                 if is_cacheable_read {
                     let path_hint = fn_args["path"].as_str().or_else(|| fn_args["key"].as_str());
-                    tool_cache.insert(fn_name, &args_key, tool_output.clone(), path_hint);
+                    if let Ok(mut c) = cache_mutex.lock() {
+                        c.insert(fn_name, &args_key, tool_output.clone(), path_hint);
+                    }
+                } else if matches!(fn_name.as_str(), "store_memory" | "create_artifact" | "sandbox_exec" | "execute_terminal") {
+                    if let Some(hint) = fn_args["path"].as_str().or_else(|| fn_args["key"].as_str()) {
+                        if let Ok(mut c) = cache_mutex.lock() {
+                            c.invalidate_path(hint);
+                        }
+                    }
                 }
 
                 self.record_trace(&run_id, step_order, "tool_output", Some(fn_name), &tool_output);
@@ -231,5 +243,50 @@ Quand ta mission est accomplie, fournis directement ta réponse finale sans appe
 
     pub fn run(&self, prompt: &str) -> Result<ReActResult, String> {
         self.run_with_callback(prompt, |_, _, _, _, _, _| {})
+    }
+}
+
+/// Compacte l'historique `messages` s'il dépasse `soft_limit` caractères, en
+/// conservant le prompt système, la requête initiale et les derniers échanges.
+fn compact_messages(messages: &mut Vec<ChatMessage>, soft_limit: usize) {
+    let total_chars: usize = messages.iter().map(|m| m.content.len()).sum();
+    if total_chars <= soft_limit || messages.len() <= 18 {
+        return;
+    }
+    let keep_head = 2usize.min(messages.len());
+    let keep_tail = 16usize;
+    if messages.len() <= keep_head + keep_tail {
+        return;
+    }
+    let drop_end = messages.len() - keep_tail;
+    let dropped = drop_end - keep_head;
+    let mut compacted = Vec::with_capacity(keep_head + keep_tail + 1);
+    compacted.extend_from_slice(&messages[..keep_head]);
+    compacted.push(ChatMessage {
+        role: "user".to_string(),
+        content: format!("[Contexte compacté : {} anciens messages résumés pour préserver la fenêtre LLM]", dropped),
+        images: None,
+    });
+    compacted.extend_from_slice(&messages[drop_end..]);
+    *messages = compacted;
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn compact_messages_preserves_head_and_tail_over_limit() {
+        let mut msgs: Vec<ChatMessage> = (0..30)
+            .map(|i| ChatMessage {
+                role: if i == 0 { "system" } else { "user" }.to_string(),
+                content: "x".repeat(3_000),
+                images: None,
+            })
+            .collect();
+        compact_messages(&mut msgs, 60_000);
+        // 2 head + 1 marker + 16 tail = 19
+        assert_eq!(msgs.len(), 19);
+        assert!(msgs[2].content.contains("Contexte compacté"));
     }
 }

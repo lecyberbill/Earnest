@@ -309,6 +309,7 @@ dependencies = [
  "chrono",
  "clap",
  "context-trimmer",
+ "json-repair",
  "regex",
  "reqwest",
  "retry-budget",
@@ -824,6 +825,10 @@ dependencies = [
  "futures-util",
  "wasm-bindgen",
 ]
+
+[[package]]
+name = "json-repair"
+version = "0.1.0"
 
 [[package]]
 name = "libc"

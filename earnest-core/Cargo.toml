@@ -18,3 +18,4 @@ urlencoding = "2.1"
 context-trimmer = { path = "../../context-trimmer" }
 tool-output-cache = { path = "../../tool-output-cache" }
 retry-budget = { path = "../../retry-budget" }
+json-repair = { path = "../../json-repair" }

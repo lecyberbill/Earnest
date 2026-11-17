@@ -1,0 +1,16 @@
+[package]
+name = "retry-budget"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.70"
+description = "Zero-dependency sliding-window retry budget with circuit-breaker semantics"
+license = "MIT OR Apache-2.0"
+repository = "https://example.invalid/retry-budget"
+keywords = ["retry", "budget", "circuit-breaker", "resilience"]
+categories = ["algorithms", "network-programming"]
+
+[lib]
+name = "retry_budget"
+path = "src/lib.rs"
+
+[dependencies]

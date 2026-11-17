@@ -1,0 +1,12 @@
+[package]
+name = "context-trimmer"
+version = "0.1.0"
+edition = "2021"
+description = "Reduction de contexte pour agents conversationnels (troncature d'outils + fenetrage d'historique)"
+license = "MIT"
+
+[lib]
+name = "context_trimmer"
+path = "src/lib.rs"
+
+[dependencies]

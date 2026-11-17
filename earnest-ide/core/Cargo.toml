@@ -19,10 +19,10 @@ walkdir = "2.5"
 ignore = "0.4"
 similar = "2.6"
 sha2 = "0.10"
-kv-wal-engine = { path = "../../../kv-wal-engine" }
-context-trimmer = { path = "../../../context-trimmer" }
-tool-output-cache = { path = "../../../tool-output-cache" }
-retry-budget = { path = "../../../retry-budget" }
-json-repair = { path = "../../../json-repair" }
+kv-wal-engine = { path = "../../crates/kv-wal-engine" }
+context-trimmer = { path = "../../crates/context-trimmer" }
+tool-output-cache = { path = "../../crates/tool-output-cache" }
+retry-budget = { path = "../../crates/retry-budget" }
+json-repair = { path = "../../crates/json-repair" }
 
 

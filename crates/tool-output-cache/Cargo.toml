@@ -1,0 +1,8 @@
+[package]
+name = "tool-output-cache"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+name = "tool_output_cache"
+path = "src/lib.rs"

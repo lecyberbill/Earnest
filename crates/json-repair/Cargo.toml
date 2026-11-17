@@ -1,0 +1,13 @@
+[package]
+name = "json-repair"
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+description = "Réparation chirurgicale et totale (infaillible) de documents JSON tronqués, enterrés dans de la prose ou enveloppés de fences Markdown — zéro dépendance, zéro unsafe, zéro I/O."
+
+[lib]
+name = "json_repair"
+path = "src/lib.rs"
+
+[profile.release]
+panic = "abort"

@@ -172,16 +172,24 @@ Add EARNEST to your MCP client configuration (`claude_desktop_config.json` or `m
 
 ```text
 Ernest/
+├── crates/                     # Vendored Rust core crates (context-trimmer, tool-output-cache, retry-budget, json-repair, kv-wal-engine)
 ├── earnest/                    # Python Core: Agent runtime, tools, DB & telemetry
-├── earnest-core/               # Rust Native Engine: High performance ReAct loop & server
+├── earnest-core/               # Rust Native Engine: High performance ReAct loop, SSE streaming & server
 ├── earnest-ide/                # Governance IDE
 │   ├── core/                   # Rust backend: MCP server, Shadow Worktree, Invariants
 │   ├── src-tauri/              # Desktop wrapper (Tauri v2)
 │   └── ui/                     # Vanilla JS + Monaco Editor UI cockpit
 ├── earnest-bcpe/               # Experience Knowledge Base (RAG & Incident Memory)
+├── ui/                         # Operation Center Cockpit (Vanilla Web Components + Tauri)
 ├── tests/                      # Formal test suites & Invariant verification harness
 └── .ide/                       # Project-level governance policy & invariant definitions
 ```
+
+### 🎛️ Operation Center (Cockpit) Highlights
+- **Real-Time SSE Streaming & Cancel**: Live ReAct step/tool/final events over `GET /api/runs/{id}/stream` with immediate cooperative cancellation (`POST /api/runs/{id}/cancel`).
+- **Dynamic Models & Context Window**: Auto-discovers loaded models from local/cloud providers (`/api/providers/models`), displays active context length, and honors `max_steps=0` (unlimited) with anti-loop protection.
+- **Multi-Agent Pipeline & Live Logs**: Orchestrates Architect → Dev → QA pipelines, streams live structured logs in the **Logs** tab, and supports sandboxed HTML artifact preview.
+- **Interactive Chat & TTS**: Markdown rendering, animated assistant status, and **Read / Stop** voice synthesis toggle.
 
 ---
 

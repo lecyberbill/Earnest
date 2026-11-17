@@ -15,7 +15,7 @@ tiny_http = "0.12"
 rust-embed = "8.2"
 regex = "1.10"
 urlencoding = "2.1"
-context-trimmer = { path = "../../context-trimmer" }
-tool-output-cache = { path = "../../tool-output-cache" }
-retry-budget = { path = "../../retry-budget" }
-json-repair = { path = "../../json-repair" }
+context-trimmer = { path = "../crates/context-trimmer" }
+tool-output-cache = { path = "../crates/tool-output-cache" }
+retry-budget = { path = "../crates/retry-budget" }
+json-repair = { path = "../crates/json-repair" }

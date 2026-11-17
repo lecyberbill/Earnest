@@ -1,0 +1,12 @@
+# C2-P3 query: fn open|fn replay
+[package]
+name = "kv-wal-engine"
+version = "0.1.0"
+edition = "2021"
+description = "Crash-safe key/value engine on a CRC-framed write-ahead log"
+
+[lib]
+name = "kv_wal_engine"
+path = "src/lib.rs"
+
+[dependencies]

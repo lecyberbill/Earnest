@@ -155,10 +155,35 @@ impl<'a> ReActEngine<'a> {
                         };
                         let existing = std::fs::read_to_string(&abs_path)
                             .map_err(|e| format!("Édition ciblée impossible sur '{}': {}", file_rel, e))?;
-                        if !existing.contains(target) {
-                            return Err(format!("Bloc 'target' introuvable dans '{}' pour l'édition ciblée.", file_rel));
+                        let m = atomic_patch::match_block(&existing, target);
+                        match m.status {
+                            atomic_patch::MatchStatus::Exact => {
+                                return Ok(existing.replacen(target, replacement, 1));
+                            }
+                            atomic_patch::MatchStatus::Ambiguous => {
+                                return Err(format!(
+                                    "Bloc 'target' ambigu dans '{}': {}",
+                                    file_rel,
+                                    m.context.unwrap_or_default()
+                                ));
+                            }
+                            atomic_patch::MatchStatus::Fuzzy => {
+                                let pos = m.position.map(|p| format!("ligne {}:{}", p.line, p.column)).unwrap_or_default();
+                                return Err(format!(
+                                    "Bloc 'target' non exact dans '{}' (proche de {}: {}). Utilisez le texte exact.",
+                                    file_rel,
+                                    pos,
+                                    m.context.unwrap_or_default()
+                                ));
+                            }
+                            atomic_patch::MatchStatus::NotFound => {
+                                return Err(format!(
+                                    "Bloc 'target' introuvable dans '{}' pour l'édition ciblée. {}",
+                                    file_rel,
+                                    m.context.unwrap_or_default()
+                                ));
+                            }
                         }
-                        return Ok(existing.replacen(target, replacement, 1));
                     }
                     Ok(String::new())
                 };

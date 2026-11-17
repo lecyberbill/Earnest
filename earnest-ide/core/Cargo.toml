@@ -24,5 +24,6 @@ context-trimmer = { path = "../../crates/context-trimmer" }
 tool-output-cache = { path = "../../crates/tool-output-cache" }
 retry-budget = { path = "../../crates/retry-budget" }
 json-repair = { path = "../../crates/json-repair" }
+atomic-patch = { path = "../../crates/atomic-patch" }
 
 

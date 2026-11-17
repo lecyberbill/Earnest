@@ -85,13 +85,48 @@ pub fn edit_file(path_str: &str, target: &str, replacement: &str) -> Result<Valu
     let content = fs::read_to_string(&path)
         .map_err(|e| format!("Impossible de lire le fichier {}: {}", path_str, e))?;
 
-    let count = content.matches(target).count();
-    if count == 0 {
-        return Err("Le texte cible (target) est introuvable dans le fichier. Assurez-vous d'inclure l'indentation et les sauts de ligne exacts.".to_string());
+    let match_res = atomic_patch::match_block(&content, target);
+    match match_res.status {
+        atomic_patch::MatchStatus::Exact => {
+            let new_content = content.replacen(target, replacement, 1);
+            let diff = atomic_patch::generate_unified_diff(&content, &new_content);
+            let tx = atomic_patch::Transaction::new().add_op(atomic_patch::PatchOperation {
+                path: path.clone(),
+                new_content: new_content.clone(),
+            });
+            match tx.commit() {
+                atomic_patch::TransactionOutcome::Committed { .. } => Ok(serde_json::json!({
+                    "status": "success",
+                    "path": path_str,
+                    "bytes_written": new_content.len(),
+                    "diff_lines": diff.lines.len(),
+                    "diff_preview": diff.preview
+                })),
+                atomic_patch::TransactionOutcome::RolledBack { reason, .. } => {
+                    Err(format!("Échec commit atomique ({}): {}", path_str, reason))
+                }
+            }
+        }
+        atomic_patch::MatchStatus::Ambiguous => Err(format!(
+            "Bloc 'target' ambigu dans '{}': {}",
+            path_str,
+            match_res.context.unwrap_or_else(|| "plusieurs occurrences".to_string())
+        )),
+        atomic_patch::MatchStatus::Fuzzy => {
+            let pos = match_res.position.map(|p| format!("ligne {}:{}", p.line, p.column)).unwrap_or_default();
+            Err(format!(
+                "Correspondance approximative uniquement ({}) dans '{}' ({}). Fournissez le bloc exact pour éditer.",
+                pos,
+                path_str,
+                match_res.context.unwrap_or_default()
+            ))
+        }
+        atomic_patch::MatchStatus::NotFound => Err(format!(
+            "Le texte cible (target) est introuvable dans '{}'. {}",
+            path_str,
+            match_res.context.unwrap_or_default()
+        )),
     }
-
-    let new_content = content.replace(target, replacement);
-    write_file(path_str, &new_content)
 }
 
 pub fn rename_file_or_dir(old_path_str: &str, new_path_str: &str) -> Result<Value, String> {

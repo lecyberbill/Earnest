@@ -1,0 +1,12 @@
+[package]
+name = "atomic-patch"
+version = "0.1.0"
+edition = "2021"
+description = "Atomic patch engine with zero external dependencies"
+license = "MIT"
+
+[dependencies]
+# Intentionally empty — std only (no-external-deps contract)
+
+[dev-dependencies]
+# No dev-dependencies either

@@ -131,6 +131,19 @@ impl<'a> ReActEngine<'a> {
 
                 let resolve_patch = |file_rel: &str, raw_patch: &str, item: &Value| -> Result<String, String> {
                     if !raw_patch.is_empty() {
+                        let trimmed = raw_patch.trim();
+                        let lower = trimmed.to_lowercase();
+                        if trimmed.len() < 120
+                            && (lower == "noop"
+                                || lower == "no-op"
+                                || lower.starts_with("# no-op")
+                                || lower.starts_with("// no-op"))
+                        {
+                            return Err(format!(
+                                "Contenu factice '{}' refusé sur '{}' : pour valider sans écraser le fichier, appelez write_code avec stage_only: false et patch: \"\".",
+                                trimmed, file_rel
+                            ));
+                        }
                         return Ok(raw_patch.to_string());
                     }
                     if let (Some(target), Some(replacement)) = (item["target"].as_str(), item["replacement"].as_str()) {

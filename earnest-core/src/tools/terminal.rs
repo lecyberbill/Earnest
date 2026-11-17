@@ -1,5 +1,4 @@
 use std::process::Command;
-use std::time::Duration;
 use serde_json::Value;
 
 // Liste des commandes strictement interdites pour garantir l'intégrité de l'hôte
@@ -15,7 +14,7 @@ pub fn is_forbidden(command: &str) -> bool {
     FORBIDDEN_PATTERNS.iter().any(|pat| lower.contains(pat))
 }
 
-pub fn execute_terminal(command: &str, timeout_secs: u64) -> Result<Value, String> {
+pub fn execute_terminal(command: &str, _timeout_secs: u64) -> Result<Value, String> {
     if is_forbidden(command) {
         return Err(format!("Commande bloquée par les garde-fous de sécurité : '{}'", command));
     }

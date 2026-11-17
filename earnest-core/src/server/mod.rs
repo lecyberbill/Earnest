@@ -2,7 +2,7 @@ pub mod assets;
 
 use std::sync::Arc;
 use std::thread;
-use std::io::{Cursor, Read};
+use std::io::Cursor;
 use std::path::Path;
 use std::fs;
 use tiny_http::{Server, Response, Header, Method};

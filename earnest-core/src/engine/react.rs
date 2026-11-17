@@ -145,7 +145,7 @@ Quand ta mission est entièrement accomplie et vérifiée sur disque, fournis di
         let mut step_order = 1;
         let mut total_tokens = 0;
         let mut final_answer = String::new();
-        let mut active_backend_name = String::from("rust-native");
+        let mut active_backend_name: String;
         static GLOBAL_TOOL_CACHE: OnceLock<Mutex<tool_output_cache::ToolCache>> = OnceLock::new();
         let cache_mutex = GLOBAL_TOOL_CACHE.get_or_init(|| Mutex::new(tool_output_cache::ToolCache::new(128)));
         let mut llm_budget = retry_budget::RetryBudget::new(10, 5);

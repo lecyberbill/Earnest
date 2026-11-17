@@ -5,6 +5,17 @@ class Store {
         const isTauriBuiltin = window.location.port !== '8080';
         const isTauriOrCustomScheme = window.location.protocol === 'tauri:' || window.location.protocol === 'file:' || window.location.hostname === 'tauri.localhost' || (isTauriDev && isTauriBuiltin);
         this.apiBase = isTauriOrCustomScheme ? 'http://127.0.0.1:8080' : window.location.origin;
+        if (isTauriOrCustomScheme && typeof window !== 'undefined' && !window.__earnestFetchPatched) {
+            window.__earnestFetchPatched = true;
+            const origFetch = window.fetch.bind(window);
+            const apiBase = this.apiBase;
+            window.fetch = (input, init) => {
+                if (typeof input === 'string' && input.startsWith('/api/')) {
+                    return origFetch(`${apiBase}${input}`, init);
+                }
+                return origFetch(input, init);
+            };
+        }
     }
 
     async getSettings() {

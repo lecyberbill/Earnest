@@ -1242,31 +1242,39 @@ impl<'a> ReActEngine<'a> {
                 }
                 if !misses.is_empty() {
                     let computed: Vec<(usize, (String, Option<String>))> = std::thread::scope(|s| {
+                        let ws_root = &self.workspace_root;
                         let handles: Vec<_> = misses.into_iter().map(|(idx, name, args)| {
                             s.spawn(move || {
+                                let resolve_ws = |raw: &str| -> String {
+                                    if Path::new(raw).is_absolute() {
+                                        raw.to_string()
+                                    } else {
+                                        ws_root.join(raw).to_string_lossy().to_string()
+                                    }
+                                };
                                 let out = match name {
                                     "read_file" => {
-                                        let path = args["path"].as_str().unwrap_or("");
+                                        let path = resolve_ws(args["path"].as_str().unwrap_or(""));
                                         let start_line = args["start_line"].as_u64().map(|v| v as usize);
                                         let end_line = args["end_line"].as_u64().map(|v| v as usize);
-                                        match read_file(path, start_line, end_line) {
+                                        match read_file(&path, start_line, end_line) {
                                             Ok(res) => res.to_string(),
                                             Err(e) => serde_json::json!({"status": "error", "error": e}).to_string(),
                                         }
                                     }
                                     "grep_search" => {
                                         let query = args["query"].as_str().unwrap_or("");
-                                        let root = args["root_path"].as_str().unwrap_or(".");
+                                        let root = resolve_ws(args["root_path"].as_str().unwrap_or("."));
                                         let max = args["max_results"].as_u64().map(|v| v as usize);
-                                        match grep_search(root, query, max) {
+                                        match grep_search(&root, query, max) {
                                             Ok(res) => res.to_string(),
                                             Err(e) => serde_json::json!({"status": "error", "error": e}).to_string(),
                                         }
                                     }
                                     "list_files" => {
-                                        let root = args["root_path"].as_str().unwrap_or(".");
+                                        let root = resolve_ws(args["root_path"].as_str().unwrap_or("."));
                                         let depth = args["max_depth"].as_u64().map(|v| v as usize);
-                                        match list_files(root, depth) {
+                                        match list_files(&root, depth) {
                                             Ok(res) => res.to_string(),
                                             Err(e) => serde_json::json!({"status": "error", "error": e}).to_string(),
                                         }
@@ -1494,29 +1502,41 @@ impl<'a> SubAgentRunner<'a> {
             }).to_string();
         }
 
+        let ws_root = if Path::new(&self.project_id).is_dir() {
+            PathBuf::from(&self.project_id)
+        } else {
+            PathBuf::from(".")
+        };
+        let resolve_ws = |raw: &str| -> String {
+            if Path::new(raw).is_absolute() {
+                raw.to_string()
+            } else {
+                ws_root.join(raw).to_string_lossy().to_string()
+            }
+        };
         match name {
             "read_file" => {
-                let path = args["path"].as_str().unwrap_or("");
+                let path = resolve_ws(args["path"].as_str().unwrap_or(""));
                 let start_line = args["start_line"].as_u64().map(|v| v as usize);
                 let end_line = args["end_line"].as_u64().map(|v| v as usize);
-                match read_file(path, start_line, end_line) {
+                match read_file(&path, start_line, end_line) {
                     Ok(res) => res.to_string(),
                     Err(e) => serde_json::json!({"status": "error", "error": e}).to_string(),
                 }
             }
             "grep_search" => {
                 let query = args["query"].as_str().unwrap_or("");
-                let root = args["root_path"].as_str().unwrap_or(".");
+                let root = resolve_ws(args["root_path"].as_str().unwrap_or("."));
                 let max = args["max_results"].as_u64().map(|v| v as usize);
-                match grep_search(root, query, max) {
+                match grep_search(&root, query, max) {
                     Ok(res) => res.to_string(),
                     Err(e) => serde_json::json!({"status": "error", "error": e}).to_string(),
                 }
             }
             "list_files" => {
-                let root = args["root_path"].as_str().unwrap_or(".");
+                let root = resolve_ws(args["root_path"].as_str().unwrap_or("."));
                 let depth = args["max_depth"].as_u64().map(|v| v as usize);
-                match list_files(root, depth) {
+                match list_files(&root, depth) {
                     Ok(res) => res.to_string(),
                     Err(e) => serde_json::json!({"status": "error", "error": e}).to_string(),
                 }

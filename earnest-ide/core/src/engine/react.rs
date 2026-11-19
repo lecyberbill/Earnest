@@ -1109,6 +1109,14 @@ impl<'a> ReActEngine<'a> {
             GovernanceMode::Constrained => "MODE 2 (CONTRAINT PAR INVARIANTS) : Toute modification de code passe IMPÉRATIVEMENT par 'write_code' et est validée en sandbox isolée (shadow worktree) par les sondes cryptographiques scellées. Modifie UN seul fichier à la fois : utilise 'target'/'replacement' pour les éditions ciblées, ou 'stage_only: true' fichier par fichier puis un dernier appel 'write_code' (sans 'stage_only' sur le dernier fichier modifié) pour lancer les sondes et fusionner. Les fichiers déjà présents sur le disque ou déjà stagés dans le shadow worktree sont conservés : ne réécris JAMAIS tout le projet dans un seul gros appel 'files'. N'émets JAMAIS de message texte seul sans appel d'outil tant que tous les contrats ne sont pas validés par 'write_code'. Si tu es bloqué par un contrat, utilise 'request_contract_mutation'.",
         };
 
+        let workspace_map_context = match symbol_index::workspace_map(&self.workspace_root, 15, 5) {
+            Ok(map) if !map.trim().is_empty() => {
+                let bounded: String = map.chars().take(2_000).collect();
+                format!("\n\n[CARTE WORKSPACE (symbol-index)]\n{}\n", bounded)
+            }
+            _ => String::new(),
+        };
+
         let system_prompt = format!(
             "Tu es Earnest IDE, un ingénieur logiciel agentique d'élite encadré par un système déterministe de gouvernance par invariants cryptographiques.\n\
             Politique active : {}\n\n\
@@ -1117,9 +1125,10 @@ impl<'a> ReActEngine<'a> {
             2. Examine scrupuleusement le code existant avec 'read_file' et 'list_files'.\n\
             3. En cas de bug, découverte ou piège résolu, transmets-le dans la base d'expérience via 'kb_propose'.\n\
             4. Respecte strictement les règles du mode de gouvernance actif.\n\
-            5. Atlas projet : maintiens '.ide/atlas.md' (carte des modules, APIs publiques, décisions) aux jalons et consulte-le avec 'read_file' quand tu as besoin de contexte.{}\n",
+            5. Atlas projet : maintiens '.ide/atlas.md' (carte des modules, APIs publiques, décisions) aux jalons et consulte-le avec 'read_file' quand tu as besoin de contexte.{}{}\n",
             mode_desc,
-            memory_context
+            memory_context,
+            workspace_map_context
         );
 
         let mut messages = vec![

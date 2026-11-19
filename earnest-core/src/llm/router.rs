@@ -157,10 +157,16 @@ impl LLMRouter {
         let mut last_err = String::from("Aucun moteur configuré");
 
         for b in &self.backends {
+            if crate::llm::client::is_cancelled() {
+                return Err("Run annulé par l'utilisateur.".to_string());
+            }
             let client = LLMClient::new(&b.provider_type, &b.base_url, &b.model, b.api_key.clone());
             match client.chat_completion(messages, tools, think_effort) {
                 Ok(resp) => return Ok((resp, b.id.clone())),
                 Err(e) => {
+                    if crate::llm::client::is_cancelled() || e.to_lowercase().contains("annulé") {
+                        return Err(e);
+                    }
                     last_err = format!("Moteur {} échoué: {}", b.name, e);
                 }
             }

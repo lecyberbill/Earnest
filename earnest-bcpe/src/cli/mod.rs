@@ -8,8 +8,9 @@ use crate::config::{default_data_dir, default_db_path, AppConfig};
 use crate::core::check::check;
 use crate::core::incidents::{log_extract, report_incident};
 use crate::core::lifecycle::{
-    approve_repro, archive, audit_sample, backup, edit, import_lexicon, lint, product_version_with,
-    reindex, restore, review_queue, validate, EditPatch,
+    approve_repro, archive_with_reason, audit_sample, backup, edit, export_product, import_lexicon,
+    ingest_lexicon, kb_stats, lint, product_version_with, reindex, restore, review_queue,
+    validate, EditPatch,
 };
 use crate::core::repro::revalidate;
 use crate::core::time::now_iso;
@@ -94,7 +95,30 @@ enum Command {
         depends_on: Option<String>,
     },
     #[command(about = "Archive une entree (humain)")]
-    Archive { entry_id: i64 },
+    Archive {
+        entry_id: i64,
+        #[arg(long)]
+        reason: Option<String>,
+    },
+    #[command(about = "Ingere automatiquement les symboles d'un SDK/dossier dans le lexique")]
+    Ingest {
+        #[arg(long)]
+        product: String,
+        #[arg(long)]
+        from: PathBuf,
+    },
+    #[command(about = "Affiche les statistiques de la base")]
+    Stats {
+        #[arg(long)]
+        product: Option<String>,
+    },
+    #[command(about = "Exporte la base d'un produit en Markdown ou JSON")]
+    Export {
+        #[arg(long)]
+        product: String,
+        #[arg(long, default_value = "md")]
+        format: String,
+    },
     #[command(about = "Restaure une entree archivee (humain)")]
     Restore { entry_id: i64 },
     #[command(
@@ -281,10 +305,28 @@ pub fn run() -> KbResult<()> {
             );
             Ok(())
         }
-        Command::Archive { entry_id } => {
+        Command::Archive { entry_id, reason } => {
             let mut conn = open_db(&db_path)?;
-            let entry = archive(&mut conn, entry_id)?;
+            let entry = archive_with_reason(&mut conn, entry_id, reason.as_deref())?;
             println!("entree {} archivee", entry.entry_id);
+            Ok(())
+        }
+        Command::Ingest { product, from } => {
+            let mut conn = open_db(&db_path)?;
+            let report = ingest_lexicon(&mut conn, &product, &from)?;
+            println!("{}", serde_json::to_string_pretty(&report)?);
+            Ok(())
+        }
+        Command::Stats { product } => {
+            let conn = open_db(&db_path)?;
+            let report = kb_stats(&conn, product.as_deref())?;
+            println!("{}", serde_json::to_string_pretty(&report)?);
+            Ok(())
+        }
+        Command::Export { product, format } => {
+            let conn = open_db(&db_path)?;
+            let out = export_product(&conn, &product, &format)?;
+            println!("{out}");
             Ok(())
         }
         Command::Restore { entry_id } => {

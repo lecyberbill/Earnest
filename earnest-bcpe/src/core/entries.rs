@@ -11,7 +11,7 @@ use crate::core::time::now_iso;
 use crate::core::version::is_valid_version;
 use crate::error::{KbError, KbResult};
 use crate::models::{
-    EntryFull, EntrySummary, GetInput, IdentifierRow, ProposeInput, ProposeResult,
+    EntryFull, EntrySummary, GetInput, IdentifierRow, ProposeInput, ProposeResult, SimilarEntry,
 };
 
 #[derive(Debug, Clone)]
@@ -435,12 +435,60 @@ pub fn propose(
         warnings.push("aucune_consultation".to_string());
     }
 
+    let similar_entries = find_similar_entries(conn, &input.product_id, entry_id, &sanitized.title);
+
     Ok(ProposeResult {
         entry_id,
         version,
         status,
         warnings,
+        similar_entries,
     })
+}
+
+fn find_similar_entries(
+    conn: &Connection,
+    product_id: &str,
+    exclude_entry_id: i64,
+    title: &str,
+) -> Vec<SimilarEntry> {
+    let tokens: Vec<String> = title
+        .split(|c: char| !c.is_alphanumeric() && c != '_')
+        .map(str::trim)
+        .filter(|t| t.len() >= 4)
+        .take(5)
+        .map(|t| format!("\"{}\"", t.replace('"', "\"\"")))
+        .collect();
+    if tokens.is_empty() {
+        return Vec::new();
+    }
+    let fts_query = tokens.join(" OR ");
+    let mut stmt = match conn.prepare(
+        "SELECT e.entry_id, e.subject_key, e.title, e.status
+         FROM entries e
+         JOIN entries_fts_tri f ON f.rowid = e.entry_id
+         WHERE f.entries_fts_tri MATCH ?1
+           AND e.product_id = ?2
+           AND e.entry_id != ?3
+           AND e.status != 'archive'
+         ORDER BY bm25(entries_fts_tri) ASC
+         LIMIT 3",
+    ) {
+        Ok(s) => s,
+        Err(_) => return Vec::new(),
+    };
+    let rows = match stmt.query_map(params![fts_query, product_id, exclude_entry_id], |r| {
+        Ok(SimilarEntry {
+            entry_id: r.get(0)?,
+            subject_key: r.get(1)?,
+            title: r.get(2)?,
+            status: r.get(3)?,
+        })
+    }) {
+        Ok(r) => r,
+        Err(_) => return Vec::new(),
+    };
+    rows.filter_map(Result::ok).collect()
 }
 
 pub fn get(conn: &Connection, input: &GetInput) -> KbResult<EntryFull> {

@@ -57,11 +57,30 @@ pub fn validate(
 }
 
 pub fn archive(conn: &mut Connection, entry_id: i64) -> KbResult<crate::models::EntryRow> {
+    archive_with_reason(conn, entry_id, None)
+}
+
+pub fn archive_with_reason(
+    conn: &mut Connection,
+    entry_id: i64,
+    reason: Option<&str>,
+) -> KbResult<crate::models::EntryRow> {
     let entry = require_entry(conn, entry_id)?;
     if entry.status == "archive" {
         return Err(KbError::ForbiddenStatus(
             "l'entrée est déjà archivée".to_string(),
         ));
+    }
+    if let Some(reason_text) = reason.map(str::trim).filter(|s| !s.is_empty()) {
+        let snapshot = snapshot_entry(conn, &entry)?;
+        let snapshot_json = serde_json::to_string(&snapshot).map_err(KbError::Json)?;
+        let now = now_iso();
+        conn.execute(
+            "INSERT INTO entry_history (entry_id, version, snapshot, changed_by, reason, changed_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+            params![entry.entry_id, entry.version, snapshot_json, "humain:cli", reason_text, now],
+        )
+        .map_err(KbError::Db)?;
     }
     conn.execute(
         "UPDATE entries SET status='archive', validation_mode=NULL WHERE entry_id=?1",
@@ -1038,4 +1057,210 @@ pub fn review_queue(conn: &Connection, product: Option<&str>) -> KbResult<Vec<Re
         items.push(row.map_err(KbError::Db)?);
     }
     Ok(items)
+}
+
+/// Ingère automatiquement les symboles et identifiants d'API d'un dossier ou fichier source
+/// (`.d.ts`, `.ts`, `.js`, `.py`, `.rs`, etc.) dans `lexicon_identifiers` via `symbol-index`.
+pub fn ingest_lexicon(
+    conn: &mut Connection,
+    product_id: &str,
+    from_path: &Path,
+) -> KbResult<serde_json::Value> {
+    ensure_product(conn, product_id)?;
+    if !from_path.exists() {
+        return Err(KbError::NotFound(format!(
+            "chemin d'ingestion introuvable: {}",
+            from_path.display()
+        )));
+    }
+
+    let mut symbols_set: HashSet<String> = HashSet::new();
+    let mut symbols_indexed = 0usize;
+
+    if from_path.is_dir() {
+        let index = symbol_index::SymbolIndex::build(from_path)
+            .map_err(KbError::Io)?;
+        symbols_indexed = index.len();
+        for entry in index.entries() {
+            if entry.name.len() >= 2 {
+                symbols_set.insert(entry.name.clone());
+            }
+        }
+    } else if from_path.is_file() {
+        let mut index = symbol_index::SymbolIndex::new();
+        let parent = from_path.parent().unwrap_or_else(|| Path::new("."));
+        index.index_file(parent, from_path).map_err(KbError::Io)?;
+        symbols_indexed = index.len();
+        for entry in index.entries() {
+            if entry.name.len() >= 2 {
+                symbols_set.insert(entry.name.clone());
+            }
+        }
+    }
+
+    // Extraction complémentaire pour les signatures de méthodes/propriétés `.d.ts` (ex: `openDocument(...): Document`)
+    let method_re = regex::Regex::new(r"^\s*(?:readonly\s+)?([A-Za-z_][A-Za-z0-9_]{2,})\s*(?:\(|:)").unwrap();
+    let mut stack = vec![from_path.to_path_buf()];
+    while let Some(cur) = stack.pop() {
+        if cur.is_dir() {
+            if let Ok(rd) = fs::read_dir(&cur) {
+                for e in rd.flatten() {
+                    let p = e.path();
+                    let name = e.file_name().to_string_lossy().to_string();
+                    if p.is_dir() && !matches!(name.as_str(), ".git" | "node_modules" | "target" | ".ide") {
+                        stack.push(p);
+                    } else if p.is_file() {
+                        stack.push(p);
+                    }
+                }
+            }
+        } else if cur.extension().and_then(|e| e.to_str()).map(|e| e.eq_ignore_ascii_case("ts") || e.eq_ignore_ascii_case("js")).unwrap_or(false) {
+            if let Ok(content) = fs::read_to_string(&cur) {
+                for line in content.lines() {
+                    if let Some(cap) = method_re.captures(line) {
+                        if let Some(m) = cap.get(1) {
+                            let ident = m.as_str();
+                            if !matches!(ident, "const" | "let" | "var" | "return" | "import" | "export" | "default" | "extends" | "implements") {
+                                symbols_set.insert(ident.to_string());
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    let tx = conn.transaction().map_err(KbError::Db)?;
+    let mut added = 0usize;
+    for ident in &symbols_set {
+        let changed = tx
+            .execute(
+                "INSERT OR IGNORE INTO lexicon_identifiers (product_id, identifier) VALUES (?1, ?2)",
+                params![product_id, ident],
+            )
+            .map_err(KbError::Db)?;
+        added += changed;
+    }
+    tx.commit().map_err(KbError::Db)?;
+
+    Ok(serde_json::json!({
+        "product_id": product_id,
+        "symbols_indexed": symbols_indexed,
+        "unique_identifiers": symbols_set.len(),
+        "identifiers_added": added
+    }))
+}
+
+/// Retourne des statistiques synthétiques sur la base (totaux, lexique, top entrées, file a_revoir).
+pub fn kb_stats(conn: &Connection, product: Option<&str>) -> KbResult<serde_json::Value> {
+    if let Some(pid) = product {
+        ensure_product(conn, pid)?;
+    }
+
+    let filter = if product.is_some() { "WHERE product_id = ?1" } else { "" };
+    let counts_sql = format!(
+        "SELECT
+            COUNT(CASE WHEN status = 'valide' THEN 1 END),
+            COUNT(CASE WHEN status = 'non_teste' THEN 1 END),
+            COUNT(CASE WHEN status = 'a_revoir' THEN 1 END),
+            COUNT(CASE WHEN status = 'archive' THEN 1 END)
+         FROM entries {filter}"
+    );
+    let (valide, non_teste, a_revoir, archive): (i64, i64, i64, i64) = if let Some(pid) = product {
+        conn.query_row(&counts_sql, params![pid], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)))
+            .map_err(KbError::Db)?
+    } else {
+        conn.query_row(&counts_sql, [], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)))
+            .map_err(KbError::Db)?
+    };
+
+    let lex_count: i64 = if let Some(pid) = product {
+        conn.query_row("SELECT COUNT(*) FROM lexicon_identifiers WHERE product_id = ?1", params![pid], |r| r.get(0))
+            .map_err(KbError::Db)?
+    } else {
+        conn.query_row("SELECT COUNT(*) FROM lexicon_identifiers", [], |r| r.get(0))
+            .map_err(KbError::Db)?
+    };
+
+    Ok(serde_json::json!({
+        "product": product,
+        "entries": {
+            "valide": valide,
+            "non_teste": non_teste,
+            "a_revoir": a_revoir,
+            "archive": archive
+        },
+        "lexicon_identifiers": lex_count
+    }))
+}
+
+/// Exporte les entrées actives d'un produit en Markdown ou JSON.
+pub fn export_product(conn: &Connection, product_id: &str, format: &str) -> KbResult<String> {
+    ensure_product(conn, product_id)?;
+    let mut stmt = conn
+        .prepare(
+            "SELECT entry_id, subject_key, kind, title, status, symptom, cause, correction, example, use_count, fail_count
+             FROM entries
+             WHERE product_id = ?1 AND status != 'archive'
+             ORDER BY CASE status WHEN 'valide' THEN 0 WHEN 'non_teste' THEN 1 ELSE 2 END, (use_count - fail_count) DESC, entry_id ASC",
+        )
+        .map_err(KbError::Db)?;
+
+    let rows: Vec<serde_json::Value> = stmt
+        .query_map(params![product_id], |r| {
+            Ok(serde_json::json!({
+                "entry_id": r.get::<_, i64>(0)?,
+                "subject_key": r.get::<_, String>(1)?,
+                "kind": r.get::<_, String>(2)?,
+                "title": r.get::<_, String>(3)?,
+                "status": r.get::<_, String>(4)?,
+                "symptom": r.get::<_, Option<String>>(5)?,
+                "cause": r.get::<_, Option<String>>(6)?,
+                "correction": r.get::<_, String>(7)?,
+                "example": r.get::<_, Option<String>>(8)?,
+                "use_count": r.get::<_, i64>(9)?,
+                "fail_count": r.get::<_, i64>(10)?
+            }))
+        })
+        .map_err(KbError::Db)?
+        .filter_map(Result::ok)
+        .collect();
+
+    if format.eq_ignore_ascii_case("json") {
+        return serde_json::to_string_pretty(&serde_json::json!({
+            "product_id": product_id,
+            "entries": rows
+        }))
+        .map_err(KbError::Json);
+    }
+
+    let mut md = format!("# Base de connaissances : `{product_id}`\n\n");
+    if rows.is_empty() {
+        md.push_str("_Aucune entrée active._\n");
+        return Ok(md);
+    }
+    for r in rows {
+        md.push_str(&format!(
+            "## [{}] {} (`{}`)\n- **ID** : {} | **Type** : {} | **Succès/Échecs** : {}/{}\n",
+            r["status"].as_str().unwrap_or(""),
+            r["title"].as_str().unwrap_or(""),
+            r["subject_key"].as_str().unwrap_or(""),
+            r["entry_id"],
+            r["kind"].as_str().unwrap_or(""),
+            r["use_count"],
+            r["fail_count"]
+        ));
+        if let Some(sym) = r["symptom"].as_str().filter(|s| !s.is_empty()) {
+            md.push_str(&format!("- **Symptôme** : {sym}\n"));
+        }
+        if let Some(cause) = r["cause"].as_str().filter(|s| !s.is_empty()) {
+            md.push_str(&format!("- **Cause** : {cause}\n"));
+        }
+        md.push_str(&format!("\n**Correction** :\n{}\n", r["correction"].as_str().unwrap_or("")));
+        if let Some(ex) = r["example"].as_str().filter(|s| !s.is_empty()) {
+            md.push_str(&format!("\n```\n{ex}\n```\n"));
+        }
+        md.push_str("\n---\n\n");
+    }
+    Ok(md)
 }

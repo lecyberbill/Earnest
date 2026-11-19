@@ -193,11 +193,13 @@ version = "0.1.0"
 dependencies = [
  "chrono",
  "clap",
+ "log-sanitizer",
  "regex",
  "rusqlite",
  "schemars",
  "serde",
  "serde_json",
+ "symbol-index",
  "tempfile",
  "yaml_serde",
 ]
@@ -398,6 +400,10 @@ name = "log"
 version = "0.4.35"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "5d15f86d12da44cd8d4ec3c73984537eb7f4cadcb9776a575a0a8a05ca11005c"
+
+[[package]]
+name = "log-sanitizer"
+version = "0.1.0"
 
 [[package]]
 name = "memchr"
@@ -631,6 +637,10 @@ name = "strsim"
 version = "0.11.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7da8b5736845d9f2fcb837ea5d9e2628564b3b043a70948a3f0b778838c5fb4f"
+
+[[package]]
+name = "symbol-index"
+version = "0.1.0"
 
 [[package]]
 name = "syn"

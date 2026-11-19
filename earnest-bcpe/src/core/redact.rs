@@ -8,7 +8,7 @@ pub fn redact_text(config: &AppConfig, value: &str) -> String {
             .replace_all(&output, rule.replacement.as_str())
             .into_owned();
     }
-    output
+    log_sanitizer::sanitize_text(&output)
 }
 
 pub fn redact_opt(config: &AppConfig, value: &Option<String>) -> Option<String> {

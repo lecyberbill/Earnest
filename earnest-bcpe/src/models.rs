@@ -143,11 +143,21 @@ pub struct ProposeInput {
 }
 
 #[derive(Debug, Clone, Serialize)]
+pub struct SimilarEntry {
+    pub entry_id: i64,
+    pub subject_key: String,
+    pub title: String,
+    pub status: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
 pub struct ProposeResult {
     pub entry_id: i64,
     pub version: i64,
     pub status: String,
     pub warnings: Vec<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub similar_entries: Vec<SimilarEntry>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]

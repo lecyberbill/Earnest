@@ -159,6 +159,12 @@ fn run_query(
                     WHEN 'a_revoir' THEN 2
                     ELSE 3
                   END,
+                  CASE
+                    WHEN e.product_version IS NOT NULL
+                     AND e.product_version = (SELECT current_version FROM products WHERE product_id = e.product_id)
+                    THEN 0 ELSE 1
+                  END,
+                  (e.use_count - e.fail_count) DESC,
                   rank ASC, e.entry_id ASC
          LIMIT ? OFFSET ?"
     );

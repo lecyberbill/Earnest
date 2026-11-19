@@ -731,3 +731,56 @@ fn p18_list_create_retract_and_graceful_unknown_product() {
     assert_eq!(ret["status"], json!("retracted"), "{ret}");
     assert_eq!(state_of(&kb, entry_id).0, "archive");
 }
+
+#[test]
+fn p19_ingest_dedup_sanitizer_stats_export() {
+    let kb = TestKb::new();
+    let mut server = McpServer::new(kb.open_second(), AppConfig::load(None).unwrap()).with_actor("agent:mcp#456");
+
+    mcp_call(&mut server, "kb_create_product", json!({"product_id": "indesign-server", "display_name": "Adobe InDesign Server"}));
+
+    // 1. Auto-ingestion d'un fichier .d.ts / .ts dans le lexique
+    let sdk_dir = tempfile::tempdir().unwrap();
+    let dts = sdk_dir.path().join("api.d.ts");
+    std::fs::write(&dts, "export interface Document {\n  saveACopy(dest: string): void;\n}\nexport function openProjectDocument(): Document;\n").unwrap();
+
+    let mut conn = kb.open_second();
+    let report = kb::core::lifecycle::ingest_lexicon(&mut conn, "indesign-server", sdk_dir.path()).unwrap();
+    assert!(report["identifiers_added"].as_u64().unwrap() >= 2, "{report}");
+
+    // 2. Sanitisation des secrets + détection de quasi-doublons dans kb_propose
+    let p1 = mcp_call(&mut server, "kb_propose", json!({
+        "product_id": "indesign-server",
+        "subject_key": "save-copy-timeout",
+        "kind": "piege",
+        "title": "Erreur timeout lors de saveACopy sur serveur",
+        "correction": "Utiliser Bearer secret_token_12345678 ou sk-proj-abcdef1234567890",
+        "source": "agent"
+    }));
+    let id1 = p1["entry_id"].as_i64().unwrap();
+    let full1 = mcp_call(&mut server, "kb_get", json!({"entry_id": id1}));
+    let corr = full1["entry"]["correction"].as_str().unwrap();
+    assert!(!corr.contains("secret_token_12345678"), "{corr}");
+    assert!(!corr.contains("sk-proj-abcdef1234567890"), "{corr}");
+    assert!(corr.contains("[REDACTED"), "{corr}");
+    assert!(corr.contains("[REDACTED:API_KEY]"), "{corr}");
+
+    let p2 = mcp_call(&mut server, "kb_propose", json!({
+        "product_id": "indesign-server",
+        "subject_key": "save-copy-timeout-v2",
+        "kind": "piege",
+        "title": "Timeout saveACopy serveur InDesign",
+        "correction": "Autre contournement",
+        "source": "agent"
+    }));
+    assert!(!p2["similar_entries"].as_array().unwrap().is_empty(), "{p2}");
+
+    // 3. Stats & Export
+    let stats = kb::core::lifecycle::kb_stats(&conn, Some("indesign-server")).unwrap();
+    assert_eq!(stats["entries"]["non_teste"], json!(2));
+    assert!(stats["lexicon_identifiers"].as_i64().unwrap() >= 2);
+
+    let md = kb::core::lifecycle::export_product(&conn, "indesign-server", "md").unwrap();
+    assert!(md.contains("save-copy-timeout"));
+    assert!(md.contains("Adobe") || md.contains("indesign-server"));
+}

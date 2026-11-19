@@ -22,6 +22,8 @@ regex = "1"
 yaml_serde = "0.10"
 chrono = { version = "0.4", features = ["clock"] }
 schemars = "0.8"
+log-sanitizer = { path = "../crates/log-sanitizer" }
+symbol-index = { path = "../crates/symbol-index" }
 
 [dev-dependencies]
 tempfile = "3"

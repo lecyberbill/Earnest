@@ -165,6 +165,20 @@ impl<'a> ReActEngine<'a> {
                     Err(e) => serde_json::json!({"status": "error", "error": e.to_string()}).to_string(),
                 }
             }
+            "workspace_map" => {
+                let root_str = args["path"].as_str().unwrap_or(".");
+                let max_files = args["max_files"].as_u64().unwrap_or(25).clamp(1, 100) as usize;
+                let max_symbols = args["max_symbols_per_file"].as_u64().unwrap_or(8).clamp(1, 30) as usize;
+                let root = std::path::Path::new(root_str);
+                match symbol_index::workspace_map(root, max_files, max_symbols) {
+                    Ok(map) => serde_json::json!({
+                        "status": "ok",
+                        "map": map,
+                    })
+                    .to_string(),
+                    Err(e) => serde_json::json!({"status": "error", "error": e.to_string()}).to_string(),
+                }
+            }
             "create_artifact" => {
                 let title = args["title"].as_str().unwrap_or("livrable");
                 let content = args["content"].as_str().unwrap_or("");
@@ -325,7 +339,7 @@ Quand ta mission est entièrement accomplie et vérifiée sur disque, fournis di
                     last_tool_sig = sig;
                     repeat_tool_count = 1;
                 }
-                let is_cacheable_read = matches!(fn_name.as_str(), "recall_memory" | "read_file" | "list_files" | "web_fetch" | "symbol_search");
+                let is_cacheable_read = matches!(fn_name.as_str(), "recall_memory" | "read_file" | "list_files" | "web_fetch" | "symbol_search" | "workspace_map");
                 let raw_output = if is_cacheable_read {
                     let hit = cache_mutex.lock().ok().and_then(|mut c| c.get(fn_name, &args_key).map(|s| s.to_string()));
                     if let Some(cached) = hit {
@@ -670,5 +684,29 @@ mod tests {
         assert!(!matches.is_empty());
         assert_eq!(matches[0]["name"], "SymbolIndex");
         assert!(matches[0]["snippet"].as_str().unwrap().contains("SymbolIndex"));
+    }
+
+    #[test]
+    fn workspace_map_tool_returns_compact_map() {
+        let conn = rusqlite::Connection::open_in_memory().unwrap();
+        let router = LLMRouter::from_db(&conn);
+        let engine = ReActEngine {
+            conn: &conn,
+            router: &router,
+            project_id: "test".to_string(),
+            max_steps: 2,
+            think_effort: "low".to_string(),
+        };
+        let args = serde_json::json!({
+            "path": "../crates/symbol-index",
+            "max_files": 5,
+            "max_symbols_per_file": 4
+        });
+        let raw = engine.dispatch_tool("workspace_map", &args, "run_test");
+        let parsed: serde_json::Value = serde_json::from_str(&raw).unwrap();
+        assert_eq!(parsed["status"], "ok");
+        let map = parsed["map"].as_str().unwrap();
+        assert!(map.contains("src/indexer.rs:"));
+        assert!(map.contains("struct SymbolIndex("));
     }
 }

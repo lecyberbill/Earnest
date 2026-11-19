@@ -963,6 +963,30 @@ impl<'a> ReActEngine<'a> {
                     ),
                 }
             }
+            "workspace_map" => {
+                let sub_path = args["path"].as_str().unwrap_or("");
+                let max_files = args["max_files"].as_u64().unwrap_or(25).clamp(1, 100) as usize;
+                let max_symbols = args["max_symbols_per_file"].as_u64().unwrap_or(8).clamp(1, 30) as usize;
+                let root = if sub_path.is_empty() || sub_path == "." {
+                    self.workspace_root.clone()
+                } else {
+                    self.workspace_root.join(sub_path)
+                };
+                match symbol_index::workspace_map(&root, max_files, max_symbols) {
+                    Ok(map) => (
+                        serde_json::json!({
+                            "status": "ok",
+                            "map": map,
+                        })
+                        .to_string(),
+                        None,
+                    ),
+                    Err(e) => (
+                        serde_json::json!({"status": "error", "error": e.to_string()}).to_string(),
+                        None,
+                    ),
+                }
+            }
             _ => (serde_json::json!({"status": "error", "error": format!("Outil inconnu : {}", name)}).to_string(), None),
         }
     }
@@ -979,8 +1003,8 @@ impl<'a> ReActEngine<'a> {
             // Mode 3 (Architecture / Spec-First) : STRICTEMENT AUCUN write_file / edit_file / terminal_exec
             // Contrainte 2 : kb_search et consultation autorisés
             GovernanceMode::Architecture => {
-                let allowed_std = ["read_file", "list_files", "grep_search", "web_search", "web_fetch", "store_memory", "recall_memory", "recall_recent_runs", "kb_search"];
-                let allowed_gov = ["add_invariant", "submit_invariants", "request_architecture_review"];
+                let allowed_std = ["read_file", "list_files", "grep_search", "workspace_map", "web_search", "web_fetch", "store_memory", "recall_memory", "recall_recent_runs", "kb_search"];
+                let allowed_gov = ["add_invariant", "submit_invariants", "request_architecture_review", "symbol_search"];
 
                 let mut tools: Vec<Value> = std_tools.into_iter()
                     .filter(|t| allowed_std.contains(&t["function"]["name"].as_str().unwrap_or("")))
@@ -996,8 +1020,8 @@ impl<'a> ReActEngine<'a> {
 
             // Mode 2 (Contraint / Invariants & Shadow Sandbox)
             GovernanceMode::Constrained => {
-                let allowed_std = ["read_file", "list_files", "grep_search", "web_search", "web_fetch", "store_memory", "recall_memory", "recall_recent_runs", "kb_search", "kb_propose"];
-                let allowed_gov = ["write_code", "query_invariants", "request_contract_mutation", "report_checkpoint_status"];
+                let allowed_std = ["read_file", "list_files", "grep_search", "workspace_map", "web_search", "web_fetch", "store_memory", "recall_memory", "recall_recent_runs", "kb_search", "kb_propose"];
+                let allowed_gov = ["write_code", "query_invariants", "request_contract_mutation", "report_checkpoint_status", "symbol_search"];
 
                 let mut tools: Vec<Value> = std_tools.into_iter()
                     .filter(|t| allowed_std.contains(&t["function"]["name"].as_str().unwrap_or("")))

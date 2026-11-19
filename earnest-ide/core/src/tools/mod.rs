@@ -90,6 +90,21 @@ pub fn get_ide_tools_schemas() -> Vec<Value> {
         serde_json::json!({
             "type": "function",
             "function": {
+                "name": "workspace_map",
+                "description": "Génère une carte compacte et priorisée du workspace (types avant fonctions, 1 ligne par fichier) optimisée pour les prompts LLM.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "path": { "type": "string", "description": "Sous-répertoire optionnel (défaut: racine du workspace)" },
+                        "max_files": { "type": "integer", "description": "Nombre max de fichiers listés (défaut: 25)" },
+                        "max_symbols_per_file": { "type": "integer", "description": "Nombre max de symboles par fichier (défaut: 8)" }
+                    }
+                }
+            }
+        }),
+        serde_json::json!({
+            "type": "function",
+            "function": {
                 "name": "terminal_exec",
                 "description": "Exécute une commande terminal (cargo, git, python, npm, tests) sur la machine hôte.",
                 "parameters": {

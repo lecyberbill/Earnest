@@ -269,6 +269,26 @@ pub fn get_governance_tools_schemas() -> Vec<Value> {
         serde_json::json!({
             "type": "function",
             "function": {
+                "name": "add_invariant",
+                "description": "Ajoute ou met à jour UN contrat d'invariant dans .ide/invariants.json en Mode 3 Architecture (formulaire plat recommandé pour les modèles locaux). Appelle-le une fois par contrat puis termine par request_architecture_review.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "id": { "type": "string", "description": "Identifiant court du contrat (ex: C1, C2)" },
+                        "title": { "type": "string", "description": "Titre court du contrat" },
+                        "statement": { "type": "string", "description": "Exigence précise et vérifiable du contrat" },
+                        "target_file": { "type": "string", "description": "Fichier cible concerné (ex: limiter.py, src/lib.rs)" },
+                        "test_query": { "type": "string", "description": "Nom ou motif du test vérifiant ce contrat" },
+                        "runner": { "type": "string", "description": "Runner de sonde : 'cargo_test' (auto-détecte Rust/Python/Node) ou 'static'" },
+                        "criticality": { "type": "string", "description": "Criticité : high, medium, low (défaut: high)" }
+                    },
+                    "required": ["id", "title", "statement", "target_file", "test_query"]
+                }
+            }
+        }),
+        serde_json::json!({
+            "type": "function",
+            "function": {
                 "name": "submit_invariants",
                 "description": "Définit ou met à jour la proposition formelle d'invariants (spécification, contrats, sondes de test) dans .ide/invariants.json en Mode 3 Architecture.",
                 "parameters": {

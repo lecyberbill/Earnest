@@ -1238,8 +1238,18 @@ impl<'a> ReActEngine<'a> {
                 messages.push(ChatMessage { role: "assistant".to_string(), content: chat_res.content.clone(), images: None });
             }
 
-            // S'il n'y a aucun appel d'outil, conclusion (sauf si Mode 2 et que le modèle s'est arrêté en cours de route)
+            // S'il n'y a aucun appel d'outil, conclusion (sauf si Mode 2 ou Mode 3 et que le modèle s'est arrêté en cours de route)
             if chat_res.tool_calls.is_empty() {
+                if policy.mode == GovernanceMode::Architecture && empty_tool_nudges < 2 {
+                    empty_tool_nudges += 1;
+                    println!("  🔄 [ANTI-STALL] Texte seul en Mode 3 ({}/2 consécutifs), relance automatique...", empty_tool_nudges);
+                    messages.push(ChatMessage {
+                        role: "user".to_string(),
+                        content: "En Mode 3 Architecture, n'écris pas le code en texte libre : appelle immédiatement `add_invariant` pour formaliser chaque contrat (id, title, statement, target_file, test_query), puis appelle `request_architecture_review` pour soumettre l'architecture à validation.".to_string(),
+                        images: None,
+                    });
+                    continue;
+                }
                 if policy.mode == GovernanceMode::Constrained && empty_tool_nudges < 3 {
                     empty_tool_nudges += 1;
                     println!("  🔄 [ANTI-STALL] Texte seul en Mode 2 ({}/3 consécutifs), relance automatique...", empty_tool_nudges);

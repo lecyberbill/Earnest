@@ -151,17 +151,24 @@ document.addEventListener('DOMContentLoaded', () => {
     const actBtnKb = document.getElementById('act-btn-kb');
     const actBtnSettings = document.getElementById('act-btn-settings');
     const btnOpenSettings = document.getElementById('btn-open-settings');
+    let currentRunAbortController = null;
+    function stopCurrentRun() {
+        fetch('/api/ide/run/cancel', { method: 'POST' }).catch(() => {});
+        if (currentRunAbortController) {
+            try { currentRunAbortController.abort(); } catch (e) {}
+            currentRunAbortController = null;
+        }
+        if (typeof currentEventSource !== 'undefined' && currentEventSource) {
+            try { currentEventSource.close(); } catch (e) {}
+            currentEventSource = null;
+        }
+        if (btnAgentSend) btnAgentSend.disabled = false;
+        if (btnAgentStop) btnAgentStop.style.display = 'none';
+    }
+
     const btnAgentStop = document.getElementById('btn-agent-stop');
     if (btnAgentStop) {
-        btnAgentStop.addEventListener('click', () => {
-            fetch('/api/ide/run/cancel', { method: 'POST' }).catch(() => {});
-            if (typeof currentEventSource !== 'undefined' && currentEventSource) {
-                try { currentEventSource.close(); } catch (e) {}
-                currentEventSource = null;
-            }
-            if (btnAgentSend) btnAgentSend.disabled = false;
-            btnAgentStop.style.display = 'none';
-        });
+        btnAgentStop.addEventListener('click', stopCurrentRun);
     }
     const chatModelSel = document.getElementById('chat-model-select');
     if (chatModelSel) {
@@ -2299,7 +2306,15 @@ document.addEventListener('DOMContentLoaded', () => {
             flex-direction: column;
             gap: 0.5rem;
         `;
-        assistantBubble.innerHTML = `<div style="display:flex;align-items:center;justify-content:space-between;gap:8px;color:var(--accent-cyan); font-weight:600;"><span>⚡ ${t('chat.thinking')}</span><button onclick="fetch('http://127.0.0.1:8090/api/ide/run/cancel',{method:'POST'}).catch(()=>{});this.disabled=true;this.textContent='⏹️...';" style="background:rgba(239,68,68,0.18);color:#f87171;border:1px solid rgba(239,68,68,0.4);border-radius:4px;padding:2px 8px;font-size:0.72rem;cursor:pointer;">⏹️ Stop</button></div>`;
+        assistantBubble.innerHTML = `<div style="display:flex;align-items:center;justify-content:space-between;gap:8px;color:var(--accent-cyan); font-weight:600;"><span>⚡ ${t('chat.thinking')}</span><button class="btn-inline-stop" style="background:rgba(239,68,68,0.18);color:#f87171;border:1px solid rgba(239,68,68,0.4);border-radius:4px;padding:2px 8px;font-size:0.72rem;cursor:pointer;">⏹️ Stop</button></div>`;
+        const inlineStopBtn = assistantBubble.querySelector('.btn-inline-stop');
+        if (inlineStopBtn) {
+            inlineStopBtn.addEventListener('click', () => {
+                inlineStopBtn.disabled = true;
+                inlineStopBtn.textContent = '⏹️ Arrêté';
+                stopCurrentRun();
+            });
+        }
         const hbEl = document.createElement('div');
         hbEl.className = 'agent-heartbeat';
         hbEl.style.cssText = 'font-size:0.75rem; color:var(--text-muted); font-style:italic; margin-top:0.25rem;';
@@ -2339,9 +2354,11 @@ document.addEventListener('DOMContentLoaded', () => {
                 }
             }
 
+            currentRunAbortController = new AbortController();
             const res = await fetch('/api/ide/run/stream', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
+                signal: currentRunAbortController.signal,
                 body: JSON.stringify({
                     prompt: enrichedPrompt,
                     project: state.currentRoot || 'earnest_ide_workspace',
@@ -2522,13 +2539,21 @@ document.addEventListener('DOMContentLoaded', () => {
                 }
             }
         } catch (err) {
-            assistantBubble.innerHTML = `<div style="color:var(--accent-rose);">❌ Erreur d'exécution Copilote: ${escapeHtml(err.message)}</div>`;
+            if (err && err.name === 'AbortError') {
+                const abortDiv = document.createElement('div');
+                abortDiv.style.cssText = 'color:#fbbf24; font-size:0.78rem; margin-top:0.4rem;';
+                abortDiv.textContent = '⏹️ Run interrompu par l\'utilisateur.';
+                assistantBubble.appendChild(abortDiv);
+            } else {
+                assistantBubble.innerHTML = `<div style="color:var(--accent-rose);">❌ Erreur d'exécution Copilote: ${escapeHtml(err.message)}</div>`;
+            }
         } finally {
+            currentRunAbortController = null;
             clearInterval(hbTimer);
             hbEl.remove();
             btnAgentSend.disabled = false;
-        const stopBtnEnd = document.getElementById('btn-agent-stop');
-        if (stopBtnEnd) stopBtnEnd.style.display = 'none';
+            const stopBtnEnd = document.getElementById('btn-agent-stop');
+            if (stopBtnEnd) stopBtnEnd.style.display = 'none';
         }
     }
 

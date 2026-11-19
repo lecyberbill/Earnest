@@ -2974,9 +2974,18 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     async function switchProject(proj) {
+        const nextRoot = proj.root_path || '.';
+        if (state.currentRoot === nextRoot && state.currentProjectId === proj.id && state.openTabs) {
+            return;
+        }
+        if (state.currentRoot && chatStream && chatStream.innerHTML.trim()) {
+            try {
+                localStorage.setItem(`earnest_chat_cache_${state.currentRoot}`, chatStream.innerHTML);
+            } catch (_) {}
+        }
         state.currentProjectId = proj.id;
         state.currentProjectName = proj.name;
-        state.currentRoot = proj.root_path || '.';
+        state.currentRoot = nextRoot;
         localStorage.setItem('earnest_last_project_id', proj.id || proj.name);
         fetch('/api/ide/kv_state', {
             method: 'POST',
@@ -3003,18 +3012,28 @@ document.addEventListener('DOMContentLoaded', () => {
         // Restaurer le dernier historique de chat du projet si disponible
         let restored = false;
         try {
-            const pParam = encodeURIComponent(state.currentRoot || state.currentProjectName || 'earnest_ide_workspace');
-            const hRes = await fetch(`/api/ide/history?project=${pParam}`);
-            if (hRes.ok) {
-                const hData = await hRes.json();
-                const runs = Array.isArray(hData) ? hData : (hData.runs || []);
-                if (runs.length > 0 && typeof restoreRunTraces === 'function') {
-                    const latest = runs[runs.length - 1];
-                    await restoreRunTraces(latest.id, latest.prompt);
-                    restored = true;
-                }
+            const cachedChat = localStorage.getItem(`earnest_chat_cache_${state.currentRoot}`);
+            if (cachedChat && cachedChat.trim()) {
+                chatStream.innerHTML = cachedChat;
+                chatStream.scrollTop = chatStream.scrollHeight;
+                restored = true;
             }
-        } catch (e) {}
+        } catch (_) {}
+        if (!restored) {
+            try {
+                const pParam = encodeURIComponent(state.currentRoot || state.currentProjectName || 'earnest_ide_workspace');
+                const hRes = await fetch(`/api/ide/history?project=${pParam}`);
+                if (hRes.ok) {
+                    const hData = await hRes.json();
+                    const runs = Array.isArray(hData) ? hData : (hData.runs || []);
+                    if (runs.length > 0 && typeof restoreRunTraces === 'function') {
+                        const latest = runs[0];
+                        await restoreRunTraces(latest.id, latest.prompt);
+                        restored = true;
+                    }
+                }
+            } catch (e) {}
+        }
 
         if (!restored) {
             chatStream.innerHTML = `

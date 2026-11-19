@@ -881,6 +881,7 @@ impl<'a> ReActEngine<'a> {
 
                 let mcp = crate::mcp::McpClient::new(
                     [
+                        r"D:\Tools\earnest-bcpe\kb.exe",
                         r"earnest-bcpe\target\release\kb.exe",
                         r"..\earnest-bcpe\target\release\kb.exe",
                         r"..\..\earnest-bcpe\target\release\kb.exe",
@@ -888,7 +889,7 @@ impl<'a> ReActEngine<'a> {
                     ]
                     .into_iter()
                     .find(|p| std::path::Path::new(p).exists())
-                    .unwrap_or(r"earnest-bcpe\target\release\kb.exe"),
+                    .unwrap_or(r"D:\Tools\earnest-bcpe\kb.exe"),
                     &["serve".to_string(), "--db".to_string(), r"earnest-bcpe\kb.db".to_string()]
                 );
 
@@ -900,8 +901,7 @@ impl<'a> ReActEngine<'a> {
                     "kind": kind,
                     "source": "agent_discovery",
                     "title": title,
-                    "correction": correction,
-                    "auto_validate": true
+                    "correction": correction
                 });
 
                 if let Some(s) = symptom { propose_args["symptom"] = serde_json::json!(s); }

@@ -3,6 +3,10 @@
 //! Le matcher localise un bloc `target` dans un document `source`. En cas
 //! d'échec, il expose un contexte (`context`) permettant au caller de
 //! diagnostiquer la divergence.
+//!
+//! [`apply_patch`] va plus loin : il remplace un bloc en tolérant les écarts
+//! d'indentation et de fins de ligne (CRLF ↔ LF), sans jamais choisir
+//! silencieusement entre deux candidats.
 
 /// Statut du matching hiérarchique.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -33,6 +37,14 @@ pub struct MatchResult {
     pub position: Option<Position>,
     /// Contexte de diagnostic (fourni sur `NotFound`, ou sur ambiguïté).
     pub context: Option<String>,
+}
+
+impl MatchResult {
+    /// `true` si le statut est [`MatchStatus::NotFound`] ou
+    /// [`MatchStatus::Ambiguous`] (donc inutilisable sans arbitrage humain).
+    pub fn is_error(&self) -> bool {
+        matches!(self.status, MatchStatus::NotFound | MatchStatus::Ambiguous)
+    }
 }
 
 /// Seuil de similarité (0.0 à 1.0) pour accepter un match `fuzzy`.
@@ -108,6 +120,185 @@ pub fn match_block(source: &str, target: &str) -> MatchResult {
     }
 }
 
+// ---------------------------------------------------------------------------
+// Remplacement tolérant (indentation + fins de ligne)
+// ---------------------------------------------------------------------------
+
+/// Construit un `MatchResult` d'erreur (aucune position exploitable).
+fn error(status: MatchStatus, context: String) -> MatchResult {
+    MatchResult {
+        status,
+        position: None,
+        context: Some(context),
+    }
+}
+
+/// Longueur de l'indentation de tête (espaces et tabulations).
+fn indent_len(line: &str) -> usize {
+    line.as_bytes()
+        .iter()
+        .take_while(|b| **b == b' ' || **b == b'\t')
+        .count()
+}
+
+/// Retire l'indentation commune (*dédent* relatif) d'un bloc de lignes.
+///
+/// Les lignes vides ou blanches deviennent `""` ; l'indentation relative
+/// (sous-blocs imbriqués) est préservée. Le décalage retiré n'est pas
+/// retourné : le caller recalcule l'indentation de base du bloc réellement
+/// trouvé dans le fichier.
+fn dedent_lines<'a>(lines: &[&'a str]) -> Vec<&'a str> {
+    let min = lines
+        .iter()
+        .filter(|l| !l.trim().is_empty())
+        .map(|l| indent_len(l))
+        .min()
+        .unwrap_or(0);
+
+    lines
+        .iter()
+        .map(|l| {
+            if l.trim().is_empty() {
+                ""
+            } else if l.len() >= min {
+                &l[min..]
+            } else {
+                ""
+            }
+        })
+        .collect()
+}
+
+/// Localise toutes les fenêtres de `haystack` égales à `needle` après
+/// normalisation de l'indentation commune (dédent relatif des deux côtés).
+fn fuzzy_matches(haystack: &[&str], needle: &[&str]) -> Vec<usize> {
+    if needle.is_empty() || needle.len() > haystack.len() {
+        return Vec::new();
+    }
+
+    let needle_norm = dedent_lines(needle);
+    let mut starts = Vec::new();
+
+    for (start, window) in haystack.windows(needle.len()).enumerate() {
+        if dedent_lines(window) == needle_norm {
+            starts.push(start);
+        }
+    }
+
+    starts
+}
+
+/// Remplace `search` par `replace` dans `source`, de façon tolérante.
+///
+/// Stratégie en deux passes :
+///
+/// 1. **Exact** : si `search` apparaît une seule fois littéralement, il est
+///    remplacé tel quel. Plus d'une occurrence ⇒ `Err(Ambiguous)`.
+/// 2. **Fuzzy (indentation)** : `\r\n` est normalisé en `\n` puis les deux
+///    blocs sont dédentés relativement. Le bloc est retrouvé même si le
+///    fichier l'indente différemment (4, 8, … espaces) ; `replace` est
+///    ré-indenté avec l'indentation de base du bloc trouvé, et les fins de
+///    ligne d'origine (`\r\n` si `source` est en CRLF) sont préservées.
+///    Plus d'une correspondance floue ⇒ `Err(Ambiguous)` : jamais
+///    d'ambiguïté silencieuse.
+///
+/// # Erreurs
+///
+/// Le type d'erreur est [`MatchResult`] lui-même, avec
+/// `status = Ambiguous` (plusieurs candidats) ou `status = NotFound`
+/// (aucun candidat), et un `context` explicatif.
+pub fn apply_patch(source: &str, search: &str, replace: &str) -> Result<String, MatchResult> {
+    if search.trim().is_empty() {
+        return Err(error(MatchStatus::NotFound, "recherche vide".to_string()));
+    }
+
+    // ---- Passe 1 : correspondance exacte ----
+    let occurrences = source.matches(search).count();
+    if occurrences == 1 {
+        return Ok(source.replacen(search, replace, 1));
+    }
+    if occurrences > 1 {
+        return Err(error(
+            MatchStatus::Ambiguous,
+            format!(
+                "recherche exacte présente {} fois — spécifiez un contexte plus large",
+                occurrences
+            ),
+        ));
+    }
+
+    // ---- Passe 2 : fallback normalisé (indentation + fins de ligne) ----
+    let uses_crlf = source.contains("\r\n");
+    let source_lf = source.replace("\r\n", "\n");
+    let search_lf = search.replace("\r\n", "\n");
+    let replace_lf = replace.replace("\r\n", "\n");
+
+    let source_lines: Vec<&str> = source_lf.lines().collect();
+    let search_lines: Vec<&str> = search_lf.lines().collect();
+
+    let starts = fuzzy_matches(&source_lines, &search_lines);
+
+    if starts.is_empty() {
+        return Err(error(
+            MatchStatus::NotFound,
+            format!(
+                "aucune correspondance, même après normalisation d'indentation, dans {} lignes",
+                source_lines.len()
+            ),
+        ));
+    }
+
+    if starts.len() > 1 {
+        let lines: Vec<usize> = starts.iter().map(|s| s + 1).collect();
+        return Err(error(
+            MatchStatus::Ambiguous,
+            format!(
+                "correspondance approximative ambiguë : {} occurrences (lignes {:?})",
+                starts.len(),
+                lines
+            ),
+        ));
+    }
+
+    let start = starts[0];
+    let matched_first = source_lines[start];
+    let base_indent = matched_first[..indent_len(matched_first)].to_string();
+
+    // `replace` est d'abord dédenté relativement (comme `search`), puis
+    // l'indentation de base du bloc réellement trouvé lui est ré-appliquée :
+    // un `replace` écrit à la même indentation relative que `search` produit
+    // donc exactement le même résultat quel que soit l'écart du fichier.
+    let replace_lines: Vec<&str> = replace_lf.lines().collect();
+    let replace_norm = dedent_lines(&replace_lines);
+
+    let mut new_lines: Vec<String> = Vec::with_capacity(replace_norm.len());
+    for line in replace_norm {
+        if line.is_empty() {
+            new_lines.push(String::new());
+        } else {
+            new_lines.push(format!("{}{}", base_indent, line));
+        }
+    }
+
+    // Reconstruction en préservant l'ordre et les fins de ligne d'origine.
+    let mut out: Vec<String> = Vec::with_capacity(source_lines.len() + new_lines.len());
+    out.extend(source_lines[..start].iter().map(|s| (*s).to_string()));
+    out.extend(new_lines);
+    out.extend(
+        source_lines[start + search_lines.len()..]
+            .iter()
+            .map(|s| (*s).to_string()),
+    );
+
+    let eol = if uses_crlf { "\r\n" } else { "\n" };
+    let mut result = out.join(eol);
+    if source_lf.ends_with('\n') {
+        result.push_str(eol);
+    }
+
+    Ok(result)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -124,5 +315,44 @@ mod tests {
         let r = match_block("a\nb\nc", "zzz-not-here");
         assert_eq!(r.status, MatchStatus::NotFound);
         assert!(r.context.is_some());
+    }
+
+    #[test]
+    fn apply_patch_exact_replaces_once() {
+        let source = "alpha\nbeta\ngamma\n";
+        let out = apply_patch(source, "beta", "BETA").expect("remplacement exact attendu");
+        assert_eq!(out, "alpha\nBETA\ngamma\n");
+    }
+
+    #[test]
+    fn apply_patch_exact_ambiguous_is_refused() {
+        let source = "x = 1;\ny = 2;\nx = 1;\n";
+        let err = apply_patch(source, "x = 1;", "x = 9;").expect_err("ambiguïté exacte attendue");
+        assert_eq!(err.status, MatchStatus::Ambiguous);
+        assert!(err.is_error());
+    }
+
+    #[test]
+    fn apply_patch_fuzzy_indent_shift() {
+        // Le search est écrit sans indentation, le fichier indente de 4 espaces.
+        let source = "fn main() {\n    let x = 1;\n    let y = 2;\n}\n";
+        let out = apply_patch(source, "let x = 1;\nlet y = 2;", "let z = 3;\nlet w = 4;")
+            .expect("fallback indentation attendu");
+        assert_eq!(out, "fn main() {\n    let z = 3;\n    let w = 4;\n}\n");
+    }
+
+    #[test]
+    fn apply_patch_preserves_crlf() {
+        let source = "a\r\n    keep\r\nb\r\n";
+        let out = apply_patch(source, "keep", "KEEP").expect("remplacement attendu");
+        assert_eq!(out, "a\r\n    KEEP\r\nb\r\n");
+        assert!(!out.replace("\r\n", "").contains('\n'), "aucun LF isolé");
+    }
+
+    #[test]
+    fn apply_patch_fuzzy_ambiguous_is_refused() {
+        let source = "    dup();\n    other();\n    dup();\n";
+        let err = apply_patch(source, "dup();", "done();").expect_err("ambiguïté fuzzy attendue");
+        assert_eq!(err.status, MatchStatus::Ambiguous);
     }
 }

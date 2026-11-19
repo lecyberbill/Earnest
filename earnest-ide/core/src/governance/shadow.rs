@@ -517,6 +517,7 @@ impl ShadowRunner {
         // 1. Rust (Cargo workspace ou crate racine / sous-crates)
         if self.shadow_path.join("Cargo.toml").is_file() {
             cmds.push(("rust", "cargo test --all-targets".to_string()));
+            cmds.push(("rust-clippy", "cargo clippy --all-targets -- -D warnings".to_string()));
         } else if let Ok(entries) = fs::read_dir(self.shadow_path.join("crates")) {
             for entry in entries.flatten() {
                 let manifest = entry.path().join("Cargo.toml");
@@ -524,6 +525,7 @@ impl ShadowRunner {
                     if let Ok(rel) = manifest.strip_prefix(&self.shadow_path) {
                         let rel_str = rel.to_string_lossy().replace('\\', "/");
                         cmds.push(("rust", format!("cargo test --manifest-path {} --all-targets", rel_str)));
+                        cmds.push(("rust-clippy", format!("cargo clippy --manifest-path {} --all-targets -- -D warnings", rel_str)));
                     }
                 }
             }

@@ -372,7 +372,7 @@ fn handle_request(mut req: tiny_http::Request) {
             let conn = get_connection(None).unwrap();
             let project = query.get("project").map(|s| s.as_str()).unwrap_or("earnest_ide");
             let mut list = Vec::new();
-            if let Ok(mut stmt) = conn.prepare("SELECT id, prompt, status, model, total_tokens, duration_ms, created_at FROM runs WHERE project_id = ? ORDER BY id DESC LIMIT 20") {
+            if let Ok(mut stmt) = conn.prepare("SELECT id, prompt, status, model, total_tokens, duration_ms, created_at FROM runs WHERE project_id = ? ORDER BY created_at DESC, rowid DESC LIMIT 20") {
                 if let Ok(rows) = stmt.query_map([project], |row| {
                     Ok(serde_json::json!({
                         "id": row.get::<_, String>(0)?,

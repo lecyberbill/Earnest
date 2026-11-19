@@ -99,7 +99,12 @@ impl<'a> ReActEngine<'a> {
             // 1. write_code (Mode 2 - Sandbox Shadow)
             "write_code" => {
                 let target_contract_id = args["target_contract_id"].as_str().or_else(|| args["contract_id"].as_str()).unwrap_or("");
-                let target_file = args["target_file"].as_str().unwrap_or("");
+                let raw_target_file = args["target_file"].as_str().unwrap_or("");
+                let target_file_owned = match ShadowRunner::normalize_rel_path(&self.workspace_root, raw_target_file) {
+                    Ok(rel) => rel,
+                    Err(e) => return (serde_json::json!({"status": "error", "error": e}).to_string(), None),
+                };
+                let target_file = target_file_owned.as_str();
                 let patch = args["patch"].as_str().unwrap_or("");
 
                 // Vérification cryptographique stricte du SHA-256 vs invariants.lock
@@ -198,7 +203,12 @@ impl<'a> ReActEngine<'a> {
                     let mut staged = Vec::new();
                     if let Some(files_arr) = args["files"].as_array().filter(|a| !a.is_empty()) {
                         for item in files_arr {
-                            let f = item["target_file"].as_str().or_else(|| item["path"].as_str()).unwrap_or("");
+                            let raw_f = item["target_file"].as_str().or_else(|| item["path"].as_str()).unwrap_or("");
+                            let f_owned = match ShadowRunner::normalize_rel_path(&self.workspace_root, raw_f) {
+                                Ok(rel) => rel,
+                                Err(e) => return (serde_json::json!({"status": "error", "error": e}).to_string(), None),
+                            };
+                            let f = f_owned.as_str();
                             let p = item["patch"].as_str().or_else(|| item["content"].as_str()).unwrap_or("");
                             if !f.is_empty() {
                                 match resolve_patch(f, p, item) {
@@ -236,7 +246,12 @@ impl<'a> ReActEngine<'a> {
                 let exec_result = if let Some(files_arr) = args["files"].as_array().filter(|a| !a.is_empty()) {
                     let mut owned_pairs: Vec<(String, String)> = Vec::with_capacity(files_arr.len());
                     for item in files_arr {
-                        let f = item["target_file"].as_str().or_else(|| item["path"].as_str()).unwrap_or("");
+                        let raw_f = item["target_file"].as_str().or_else(|| item["path"].as_str()).unwrap_or("");
+                        let f_owned = match ShadowRunner::normalize_rel_path(&self.workspace_root, raw_f) {
+                            Ok(rel) => rel,
+                            Err(e) => return (serde_json::json!({"status": "error", "error": e}).to_string(), None),
+                        };
+                        let f = f_owned.as_str();
                         let p = item["patch"].as_str().or_else(|| item["content"].as_str()).unwrap_or("");
                         if !f.is_empty() {
                             match resolve_patch(f, p, item) {

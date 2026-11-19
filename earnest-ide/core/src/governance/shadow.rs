@@ -150,9 +150,53 @@ impl ShadowRunner {
         Ok(())
     }
 
+    /// Normalise un chemin cible (absolu dans `workspace_root` ou relatif) en chemin relatif propre.
+    pub fn normalize_rel_path(workspace_root: &Path, raw: &str) -> Result<String, String> {
+        let raw_norm = raw.trim().replace('\\', "/");
+        if raw_norm.is_empty() {
+            return Ok(String::new());
+        }
+        let root_str = workspace_root.to_string_lossy().replace('\\', "/");
+        let root_clean = root_str
+            .strip_prefix("//?/")
+            .unwrap_or(&root_str)
+            .trim_end_matches('/');
+
+        let rel = if cfg!(target_os = "windows") {
+            let raw_lower = raw_norm.to_ascii_lowercase();
+            let root_lower = root_clean.to_ascii_lowercase();
+            if let Some(rest) = raw_lower.strip_prefix(&root_lower) {
+                if rest.is_empty() || rest.starts_with('/') {
+                    raw_norm[root_clean.len()..].trim_start_matches('/').to_string()
+                } else {
+                    raw_norm.clone()
+                }
+            } else {
+                raw_norm.clone()
+            }
+        } else if let Some(rest) = raw_norm.strip_prefix(root_clean) {
+            if rest.is_empty() || rest.starts_with('/') {
+                rest.trim_start_matches('/').to_string()
+            } else {
+                raw_norm.clone()
+            }
+        } else {
+            raw_norm.clone()
+        };
+
+        if Path::new(&rel).is_absolute() || rel.split('/').any(|seg| seg == "..") {
+            return Err(format!(
+                "Chemin cible hors du workspace refusé : '{}' (workspace: '{}')",
+                raw, root_clean
+            ));
+        }
+        Ok(rel)
+    }
+
     /// Applique le patch sur la cible dans le shadow worktree
     pub fn apply_patch_in_shadow(&self, target_rel_path: &str, patch_or_content: &str) -> Result<(), String> {
-        let target_in_shadow = self.shadow_path.join(target_rel_path);
+        let clean_rel = Self::normalize_rel_path(&self.workspace_root, target_rel_path)?;
+        let target_in_shadow = self.shadow_path.join(&clean_rel);
         if let Some(parent) = target_in_shadow.parent() {
             fs::create_dir_all(parent).map_err(|e| e.to_string())?;
         }

@@ -2750,29 +2750,61 @@ document.addEventListener('DOMContentLoaded', () => {
                 gap: 0.5rem;
             `;
 
-            (data.traces || []).forEach(tr => {
-                if (tr.step_type === 'thought') {
-                    const d = document.createElement('div');
-                    d.className = 'markdown-body';
-                    d.style.color = 'var(--text-muted)';
-                    d.innerHTML = typeof marked !== 'undefined' ? marked.parse(`💭 ${tr.payload || ''}`) : escapeHtml(`💭 ${tr.payload || ''}`);
-                    assistantBubble.appendChild(d);
-                } else if (tr.step_type === 'tool_call') {
-                    const d = document.createElement('div');
-                    d.style.cssText = 'color:var(--accent-amber); font-weight:600; padding:2px 6px; background:rgba(245,158,11,0.1); border-radius:3px;';
-                    d.textContent = `⚙️ Outil : ${tr.tool_name || 'action'} (${tr.payload})`;
-                    assistantBubble.appendChild(d);
-                } else if (tr.step_type === 'answer') {
-                    const d = document.createElement('div');
-                    d.className = 'markdown-body';
-                    d.style.color = 'var(--text-primary)';
-                    d.innerHTML = typeof marked !== 'undefined' ? marked.parse(tr.payload || '') : escapeHtml(tr.payload || '');
-                    assistantBubble.appendChild(d);
+            let renderedCount = 0;
+            const renderTraces = (traces) => {
+                for (let i = renderedCount; i < traces.length; i++) {
+                    const tr = traces[i];
+                    if (tr.step_type === 'thought') {
+                        const d = document.createElement('div');
+                        d.className = 'markdown-body';
+                        d.style.color = 'var(--text-muted)';
+                        d.innerHTML = typeof marked !== 'undefined' ? marked.parse(`💭 ${tr.payload || ''}`) : escapeHtml(`💭 ${tr.payload || ''}`);
+                        assistantBubble.appendChild(d);
+                    } else if (tr.step_type === 'tool_call') {
+                        const d = document.createElement('div');
+                        d.style.cssText = 'color:var(--accent-amber); font-weight:600; padding:2px 6px; background:rgba(245,158,11,0.1); border-radius:3px;';
+                        d.textContent = `⚙️ Outil : ${tr.tool_name || 'action'} (${tr.payload})`;
+                        assistantBubble.appendChild(d);
+                    } else if (tr.step_type === 'answer') {
+                        const d = document.createElement('div');
+                        d.className = 'markdown-body';
+                        d.style.color = 'var(--text-primary)';
+                        d.innerHTML = typeof marked !== 'undefined' ? marked.parse(tr.payload || '') : escapeHtml(tr.payload || '');
+                        assistantBubble.appendChild(d);
+                    }
                 }
-            });
+                renderedCount = traces.length;
+                chatStream.scrollTop = chatStream.scrollHeight;
+            };
 
+            renderTraces(data.traces || []);
             chatStream.appendChild(assistantBubble);
             chatStream.scrollTop = chatStream.scrollHeight;
+
+            const runStatus = data.run?.status || data.status || '';
+            if (runStatus === 'running') {
+                const liveBanner = document.createElement('div');
+                liveBanner.style.cssText = 'font-size:0.74rem; color:var(--accent-cyan); font-style:italic;';
+                liveBanner.textContent = '⏳ Run toujours en cours en arrière-plan…';
+                assistantBubble.appendChild(liveBanner);
+                const followTimer = setInterval(async () => {
+                    if (!assistantBubble.isConnected) {
+                        clearInterval(followTimer);
+                        return;
+                    }
+                    try {
+                        const r2 = await fetch(`/api/ide/run_detail?run_id=${encodeURIComponent(runId)}`);
+                        if (!r2.ok) return;
+                        const d2 = await r2.json();
+                        renderTraces(d2.traces || []);
+                        const st2 = d2.run?.status || d2.status || '';
+                        if (st2 !== 'running') {
+                            clearInterval(followTimer);
+                            liveBanner.remove();
+                        }
+                    } catch (_) {}
+                }, 1500);
+            }
         } catch (e) {
             alert(`Impossible de charger les traces du run: ${e.message}`);
         }

@@ -7,5 +7,5 @@
 pub mod indexer;
 pub mod reader;
 
-pub use indexer::{SymbolEntry, SymbolIndex, SymbolKind};
+pub use indexer::{SymbolEntry, SymbolIndex, SymbolKind, workspace_map};
 pub use reader::{LineSnippet, read_line_range, read_symbol_snippet};

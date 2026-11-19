@@ -190,8 +190,8 @@ Ernest/
 - **Dynamic Models & Context Window**: Auto-discovers loaded models from local/cloud providers (`/api/providers/models`), displays active context length, and honors `max_steps=0` (unlimited) with anti-loop protection.
 - **Multi-Agent Pipeline & Live Logs**: Orchestrates Architect → Dev → QA pipelines, streams live structured logs in the **Logs** tab, and supports sandboxed HTML artifact preview.
 - **Interactive Chat & TTS**: Markdown rendering, animated assistant status, and **Read / Stop** voice synthesis toggle.
-- **IDE Governance & Safety**: Polyglot `project-integrity-gate` before Shadow Worktree merge, per-run Git **Time-Travel** checkpoints (`/api/ide/checkpoint/restore`), `symbol_search` (`symbol-index`), automatic secret redaction (`log-sanitizer`), and configurable Ollama `num_ctx` (`EARNEST_OLLAMA_NUM_CTX`).
-- **BCPE MCP Protocol (`earnest-bcpe`)**: 11 agent tools including `kb_list_products`, `kb_create_product`, `kb_retract`, and non-blocking `unknown_product` handling on `kb_search`/`kb_check`.
+- **IDE Governance & Safety**: Polyglot `project-integrity-gate` (`cargo test` + `cargo clippy -D warnings` for Rust) before Shadow Worktree merge, per-run Git **Time-Travel** checkpoints (`/api/ide/checkpoint/restore`), live **Logs IDE** tab, `symbol_search` + `workspace_map` (`symbol-index`), `atomic-patch` (LCS diff + indentation-tolerant `apply_patch`), automatic secret redaction (`log-sanitizer`), and configurable Ollama `num_ctx` (`EARNEST_OLLAMA_NUM_CTX`).
+- **BCPE MCP Protocol (`earnest-bcpe`)**: 11 agent tools including `kb_list_products`, `kb_create_product`, `kb_retract`, non-blocking `unknown_product` handling on `kb_search`/`kb_check`, plus `kb ingest` (auto-lexicon), `kb stats`, and `kb export`.
 
 ---
 

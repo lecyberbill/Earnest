@@ -1,5 +1,6 @@
 //! Workspace symbol scanner and fuzzy search index.
 
+use std::collections::BTreeMap;
 use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
@@ -17,6 +18,33 @@ pub enum SymbolKind {
     TypeAlias,
     Export,
     Module,
+}
+
+impl SymbolKind {
+    /// Short tag used in compact workspace maps (`struct`, `enum`, `fn`, ...).
+    pub fn tag(self) -> &'static str {
+        match self {
+            Self::Function => "fn",
+            Self::Struct => "struct",
+            Self::Enum => "enum",
+            Self::Trait => "trait",
+            Self::Impl => "impl",
+            Self::Class => "class",
+            Self::Interface => "interface",
+            Self::TypeAlias => "type",
+            Self::Export => "export",
+            Self::Module => "mod",
+        }
+    }
+
+    /// Priority rank for compact map ordering (types first, then functions/exports).
+    pub fn priority_rank(self) -> u8 {
+        match self {
+            Self::Struct | Self::Enum | Self::Trait | Self::Class | Self::Interface | Self::TypeAlias => 0,
+            Self::Impl | Self::Module => 1,
+            Self::Function | Self::Export => 2,
+        }
+    }
 }
 
 /// A single indexed symbol with its file path and 1-based line number.
@@ -102,6 +130,54 @@ impl SymbolIndex {
 
         scored.sort_by(|a, b| b.0.cmp(&a.0).then_with(|| a.1.name.len().cmp(&b.1.name.len())).then_with(|| a.1.line.cmp(&b.1.line)));
         scored.into_iter().take(limit).map(|(_, e)| e).collect()
+    }
+
+    /// Renders a compact, deterministic workspace map (`file: kind Name(L#), ...`)
+    /// prioritizing types before functions/exports, bounded by `max_files` and `max_symbols_per_file`.
+    pub fn to_compact_map(&self, max_files: usize, max_symbols_per_file: usize) -> String {
+        if self.entries.is_empty() || max_files == 0 {
+            return String::new();
+        }
+
+        let mut by_file: BTreeMap<String, Vec<&SymbolEntry>> = BTreeMap::new();
+        for entry in &self.entries {
+            let rel = entry.file.to_string_lossy().replace('\\', "/");
+            by_file.entry(rel).or_default().push(entry);
+        }
+
+        let total_files = by_file.len();
+        let mut lines = Vec::new();
+
+        for (file, mut syms) in by_file.into_iter().take(max_files) {
+            syms.sort_by(|a, b| {
+                a.kind
+                    .priority_rank()
+                    .cmp(&b.kind.priority_rank())
+                    .then_with(|| a.line.cmp(&b.line))
+            });
+
+            let rendered: Vec<String> = syms
+                .iter()
+                .take(max_symbols_per_file)
+                .map(|s| format!("{} {}(L{})", s.kind.tag(), s.name, s.line))
+                .collect();
+
+            let hidden = syms.len().saturating_sub(rendered.len());
+            let mut line = format!("{}: {}", file, rendered.join(", "));
+            if hidden > 0 {
+                if !rendered.is_empty() {
+                    line.push_str(", ");
+                }
+                line.push_str(&format!("(+{} more)", hidden));
+            }
+            lines.push(line);
+        }
+
+        if total_files > max_files {
+            lines.push(format!("...: (+{} more files)", total_files - max_files));
+        }
+
+        lines.join("\n")
     }
 
     fn scan_dir(&mut self, root: &Path, dir: &Path) -> io::Result<()> {
@@ -282,4 +358,21 @@ fn score_symbol(name: &str, query: &str) -> Option<i32> {
     } else {
         None
     }
+}
+
+/// Scans `root` and returns a compact workspace symbol map bounded by
+/// `max_files` and `max_symbols_per_file`.
+pub fn workspace_map(
+    root: &Path,
+    max_files: usize,
+    max_symbols_per_file: usize,
+) -> io::Result<String> {
+    if !root.exists() {
+        return Err(io::Error::new(
+            io::ErrorKind::NotFound,
+            format!("workspace root not found: {}", root.display()),
+        ));
+    }
+    let index = SymbolIndex::build(root)?;
+    Ok(index.to_compact_map(max_files, max_symbols_per_file))
 }

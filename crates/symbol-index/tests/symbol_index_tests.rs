@@ -1,6 +1,6 @@
 use std::fs;
 use std::path::PathBuf;
-use symbol_index::{SymbolIndex, SymbolKind, read_line_range, read_symbol_snippet};
+use symbol_index::{SymbolIndex, SymbolKind, read_line_range, read_symbol_snippet, workspace_map};
 
 fn temp_dir(name: &str) -> PathBuf {
     let mut p = std::env::temp_dir();
@@ -94,4 +94,31 @@ fn targeted_line_range_reader_bounds_output() {
     assert_eq!(ctx.end_line, 27);
 
     let _ = fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn workspace_map_prioritizes_types_and_truncates_cleanly() {
+    let dir = temp_dir("workspace_map");
+    fs::create_dir_all(dir.join("src")).unwrap();
+    fs::write(
+        dir.join("src/b.rs"),
+        "pub fn z_helper() {}\npub struct Beta {}\npub enum Mode { A, B }\npub fn a_helper() {}\n",
+    )
+    .unwrap();
+    fs::write(dir.join("src/a.rs"), "pub struct Alpha {}\n").unwrap();
+    fs::write(dir.join("src/c.rs"), "pub fn gamma() {}\n").unwrap();
+
+    let map = workspace_map(&dir, 2, 2).unwrap();
+    let lines: Vec<&str> = map.lines().collect();
+    // Sorted files: src/a.rs, src/b.rs, plus truncation line for src/c.rs
+    assert_eq!(lines.len(), 3, "{map}");
+    assert_eq!(lines[0], "src/a.rs: struct Alpha(L1)");
+    assert_eq!(lines[1], "src/b.rs: struct Beta(L2), enum Mode(L3), (+2 more)");
+    assert_eq!(lines[2], "...: (+1 more files)");
+
+    let empty_dir = temp_dir("workspace_map_empty");
+    assert_eq!(workspace_map(&empty_dir, 10, 10).unwrap(), "");
+
+    let _ = fs::remove_dir_all(&dir);
+    let _ = fs::remove_dir_all(&empty_dir);
 }

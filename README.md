@@ -172,7 +172,7 @@ Add EARNEST to your MCP client configuration (`claude_desktop_config.json` or `m
 
 ```text
 Ernest/
-├── crates/                     # Vendored Rust core crates (context-trimmer, tool-output-cache, retry-budget, json-repair, kv-wal-engine)
+├── crates/                     # Pure-Rust zero-dep crates (atomic-patch, symbol-index, log-sanitizer, context-trimmer, tool-output-cache, retry-budget, json-repair, kv-wal-engine)
 ├── earnest/                    # Python Core: Agent runtime, tools, DB & telemetry
 ├── earnest-core/               # Rust Native Engine: High performance ReAct loop, SSE streaming & server
 ├── earnest-ide/                # Governance IDE
@@ -190,6 +190,8 @@ Ernest/
 - **Dynamic Models & Context Window**: Auto-discovers loaded models from local/cloud providers (`/api/providers/models`), displays active context length, and honors `max_steps=0` (unlimited) with anti-loop protection.
 - **Multi-Agent Pipeline & Live Logs**: Orchestrates Architect → Dev → QA pipelines, streams live structured logs in the **Logs** tab, and supports sandboxed HTML artifact preview.
 - **Interactive Chat & TTS**: Markdown rendering, animated assistant status, and **Read / Stop** voice synthesis toggle.
+- **IDE Governance & Safety**: Polyglot `project-integrity-gate` before Shadow Worktree merge, per-run Git **Time-Travel** checkpoints (`/api/ide/checkpoint/restore`), `symbol_search` (`symbol-index`), automatic secret redaction (`log-sanitizer`), and configurable Ollama `num_ctx` (`EARNEST_OLLAMA_NUM_CTX`).
+- **BCPE MCP Protocol (`earnest-bcpe`)**: 11 agent tools including `kb_list_products`, `kb_create_product`, `kb_retract`, and non-blocking `unknown_product` handling on `kb_search`/`kb_check`.
 
 ---
 

@@ -83,6 +83,11 @@ impl ShadowRunner {
             if let Some(parent) = self.shadow_path.parent() {
                 fs::create_dir_all(parent).map_err(|e| e.to_string())?;
             }
+            // Nettoie toute entrée orpheline dans .git/worktrees/ si le dossier a été supprimé
+            let _ = Command::new("git")
+                .args(["worktree", "prune"])
+                .current_dir(&self.workspace_root)
+                .output();
             let shadow_str = self.shadow_path.to_string_lossy();
             let out = Command::new("git")
                 .args(["worktree", "add", "--detach", &shadow_str, "HEAD"])

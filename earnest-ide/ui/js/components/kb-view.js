@@ -127,8 +127,8 @@ export class KbView {
                         </div>
 
                         <div style="display: flex; justify-content: flex-end; gap: 0.6rem; margin-top: 0.5rem;">
-                            <button id="kb-modal-cancel" style="background: transparent; border: 1px solid var(--border-subtle); color: #fff; padding: 6px 14px; border-radius: 4px; cursor: pointer; font-size: 0.78rem;">Annuler</button>
-                            <button id="kb-modal-submit" class="btn-primary" style="padding: 6px 16px; font-size: 0.78rem; font-weight: 700;">Enregistrer & Sceller</button>
+                            <button id="kb-modal-cancel" style="background: transparent; border: 1px solid var(--border-subtle); color: #fff; padding: 6px 14px; border-radius: 4px; cursor: pointer; font-size: 0.78rem;">${window.t ? window.t('btn.cancel') : 'Cancel'}</button>
+                            <button id="kb-modal-submit" class="btn-primary" style="padding: 6px 16px; font-size: 0.78rem; font-weight: 700;">${window.t ? window.t('kb.btn_save_seal') : 'Save & Seal'}</button>
                         </div>
                     </div>
                 </div>
@@ -288,7 +288,7 @@ export class KbView {
                 alert("Erreur réseau: " + err.message);
             } finally {
                 btnSubmit.disabled = false;
-                btnSubmit.textContent = "Enregistrer & Sceller";
+                btnSubmit.textContent = window.t ? window.t('kb.btn_save_seal') : "Save & Seal";
             }
         });
     }
@@ -299,7 +299,7 @@ export class KbView {
             const data = await res.json();
             this.entries = data.entries || [];
             const badge = this.container.querySelector('#kb-count-badge');
-            if (badge) badge.textContent = `${this.entries.length} vérités`;
+            if (badge) badge.textContent = `${this.entries.length} ${window.t ? window.t('kb.truths') : 'truths'}`;
 
             if (this.entries.length > 0 && !this.selectedEntryId) {
                 this.selectedEntryId = this.entries[0].entry_id;
@@ -423,17 +423,17 @@ export class KbView {
                 <div style="display: flex; flex-direction: column; align-items: flex-end; gap: 0.4rem;">
                     ${isValide ? `
                         <div style="display: flex; align-items: center; gap: 5px; color: #34d399; font-size: 0.78rem; font-family: var(--font-mono); background: rgba(16, 185, 129, 0.15); border: 1px solid rgba(16, 185, 129, 0.3); padding: 4px 10px; border-radius: 6px;">
-                            <span>✓</span> Validé par <strong>${item.validated_by || 'humain'}</strong>
+                            <span>✓</span> ${window.t ? window.t('kb.status_validated_by') : 'Validated by'} <strong>${item.validated_by || 'human'}</strong>
                         </div>
                         <button id="kb-btn-revisit" class="icon-btn" style="border: 1px solid var(--border-subtle); padding: 4px 10px; font-size: 0.72rem; border-radius: 4px; color: var(--accent-amber);">
-                            ⚠️ Déclasser / Marquer à réviser
+                            ${window.t ? window.t('kb.btn_revisit') : '⚠️ Downgrade / Mark for review'}
                         </button>
                     ` : `
                         <div style="color: #facc15; font-size: 0.78rem; font-family: var(--font-mono); background: rgba(234, 179, 8, 0.15); border: 1px solid rgba(234, 179, 8, 0.3); padding: 4px 10px; border-radius: 6px;">
-                            ⏳ Découvert par l'agent (Non encore scellé)
+                            ${window.t ? window.t('kb.status_unsealed') : '⏳ Discovered by agent (Not yet sealed)'}
                         </div>
                         <button id="kb-btn-validate-seal" class="btn-primary" style="padding: 6px 14px; font-size: 0.78rem; font-weight: 700; background: #10b981; border-color: #059669;">
-                            ✓ Valider et Sceller cette Vérité
+                            ${window.t ? window.t('kb.btn_validate_seal') : '✓ Validate and Seal this Truth'}
                         </button>
                     `}
                 </div>

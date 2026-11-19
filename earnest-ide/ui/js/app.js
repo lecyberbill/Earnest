@@ -762,9 +762,9 @@ document.addEventListener('DOMContentLoaded', () => {
             box-shadow: 0 6px 20px rgba(0,0,0,0.5); font-size: 0.76rem;
         `;
         bar.innerHTML = `
-            <span style="color: var(--accent-cyan); font-weight: 600;">⚡ Modification IA appliquée</span>
-            <button id="btn-review-accept" style="background: rgba(16,185,129,0.2); color: #34d399; border: 1px solid #34d399; border-radius: 4px; padding: 2px 8px; cursor: pointer;">✓ Accepter</button>
-            <button id="btn-review-reject" style="background: rgba(244,63,94,0.2); color: #fb7185; border: 1px solid #fb7185; border-radius: 4px; padding: 2px 8px; cursor: pointer;">✕ Rejeter (Ctrl+Z)</button>
+            <span style="color: var(--accent-cyan); font-weight: 600;">${window.t ? window.t('review.ai_applied') : '⚡ AI modification applied'}</span>
+            <button id="btn-review-accept" style="background: rgba(16,185,129,0.2); color: #34d399; border: 1px solid #34d399; border-radius: 4px; padding: 2px 8px; cursor: pointer;">${window.t ? window.t('review.accept') : '✓ Accept'}</button>
+            <button id="btn-review-reject" style="background: rgba(244,63,94,0.2); color: #fb7185; border: 1px solid #fb7185; border-radius: 4px; padding: 2px 8px; cursor: pointer;">${window.t ? window.t('review.reject') : '✕ Reject (Ctrl+Z)'}</button>
         `;
         const wrapper = document.getElementById('editor-section-wrapper');
         if (wrapper) wrapper.appendChild(bar);
@@ -1138,7 +1138,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 alert(`Erreur : ${err.message}`);
             } finally {
                 btnCentralRunInvariants.disabled = false;
-                btnCentralRunInvariants.textContent = '⚡ Revalider les Invariants';
+                btnCentralRunInvariants.textContent = window.t ? window.t('gov.revalidate_btn') : '⚡ Revalidate Invariants';
             }
         });
     }
@@ -3204,16 +3204,18 @@ document.addEventListener('DOMContentLoaded', () => {
 
             if (mode === 'normal') {
                 govIndicator.style.background = '#94a3b8';
-                govModeText.textContent = 'Mode 1: Normal';
+                govModeText.textContent = window.t ? window.t('gov.mode_normal') : 'Mode 1: Normal';
                 govBadge.title = 'Mode normal : tous outils ouverts';
             } else if (mode === 'architecture') {
                 govIndicator.style.background = '#38bdf8';
-                govModeText.textContent = 'Mode 3: Archi';
+                govModeText.textContent = window.t ? window.t('gov.mode_archi') : 'Mode 3: Archi';
                 govBadge.title = 'Mode Architecture Spec-First : Zéro code, conception invariants';
             } else if (mode === 'constrained') {
                 const isVerified = data.integrity && data.integrity.status === 'verified';
                 govIndicator.style.background = isVerified ? '#4ade80' : '#f87171';
-                govModeText.textContent = isVerified ? 'Mode 2: Contraint 🔒' : 'Mode 2: Corrompu ⚠️';
+                govModeText.textContent = isVerified
+                    ? (window.t ? window.t('gov.mode_constrained') : 'Mode 2: Constrained 🔒')
+                    : (window.t ? window.t('gov.mode_corrupted') : 'Mode 2: Corrupted ⚠️');
                 govBadge.title = isVerified
                     ? `Mode Contraint : ${data.contracts.count} contrat(s) scellé(s) SHA-256`
                     : 'Alerte : Sceau cryptographique non vérifié !';
@@ -3228,36 +3230,37 @@ document.addEventListener('DOMContentLoaded', () => {
         govModalBody.innerHTML = '';
 
         if (approvalData.type === 'architecture_review') {
-            govModalTitle.textContent = '🛡️ REVUE D\'ARCHITECTURE & INVARIANTS';
+            govModalTitle.textContent = window.t ? window.t('gov.modal_title_arch') : '🛡️ ARCHITECTURE & INVARIANTS REVIEW';
             govModalBadge.textContent = 'Mode 3 → Mode 2';
             govModalBadge.style.background = 'rgba(56, 189, 248, 0.2)';
             govModalBadge.style.color = '#38bdf8';
-            btnGovApprove.textContent = 'Approuver & Sceller (SHA-256)';
+            btnGovApprove.textContent = window.t ? window.t('btn.approve_seal') : 'Approve & Seal (SHA-256)';
 
+            const specFallback = window.t ? window.t('gov.spec_complete') : 'Full specification';
             govModalBody.innerHTML = `
                 <div style="background: rgba(15, 23, 42, 0.6); padding: 0.75rem; border-radius: 4px; border-left: 3px solid #38bdf8;">
-                    <div style="color: #38bdf8; font-weight: 700; margin-bottom: 0.25rem;">Résumé exécutif proposé :</div>
-                    <div class="markdown-body">${typeof marked !== 'undefined' ? marked.parse(approvalData.summary || 'Spécification complète') : escapeHtml(approvalData.summary || 'Spécification complète')}</div>
+                    <div style="color: #38bdf8; font-weight: 700; margin-bottom: 0.25rem;">${window.t ? window.t('gov.summary_label') : 'Proposed executive summary:'}</div>
+                    <div class="markdown-body">${typeof marked !== 'undefined' ? marked.parse(approvalData.summary || specFallback) : escapeHtml(approvalData.summary || specFallback)}</div>
                 </div>
                 <div style="color: var(--text-muted); font-size: 0.7rem;">
-                    Hash calculé : <code>${escapeHtml(approvalData.invariants_hash || 'SHA-256')}</code><br>
-                    En approuvant, les fichiers <code>.ide/invariants.json</code> et <code>.ide/invariants.lock</code> seront scellés en lecture seule (chmod 444) et le projet basculera en <strong>Mode 2 Contraint</strong>.
+                    ${window.t ? window.t('gov.hash_label') : 'Computed hash:'} <code>${escapeHtml(approvalData.invariants_hash || 'SHA-256')}</code><br>
+                    ${window.t ? window.t('gov.seal_notice_prefix') : 'By approving, files'} <code>.ide/invariants.json</code> ${window.t ? window.t('gov.seal_notice_mid') : 'and'} <code>.ide/invariants.lock</code> ${window.t ? window.t('gov.seal_notice_suffix') : 'will be sealed read-only (chmod 444) and the project will switch to'} <strong>${window.t ? window.t('gov.seal_notice_mode') : 'Mode 2 Constrained'}</strong>.
                 </div>
             `;
         } else if (approvalData.type === 'contract_mutation') {
-            govModalTitle.textContent = '⚡ DEMANDE DE MUTATION DE CONTRAT';
-            govModalBadge.textContent = 'Mutation Assistée';
+            govModalTitle.textContent = window.t ? window.t('gov.modal_title_mutation') : '⚡ CONTRACT MUTATION REQUEST';
+            govModalBadge.textContent = window.t ? window.t('gov.badge_mutation') : 'Assisted Mutation';
             govModalBadge.style.background = 'rgba(251, 191, 36, 0.2)';
             govModalBadge.style.color = '#fbbf24';
-            btnGovApprove.textContent = 'Valider Mutation & Recalculer Hash';
+            btnGovApprove.textContent = window.t ? window.t('gov.btn_validate_mutation') : 'Validate Mutation & Recompute Hash';
 
             govModalBody.innerHTML = `
                 <div style="background: rgba(15, 23, 42, 0.6); padding: 0.75rem; border-radius: 4px; border-left: 3px solid #fbbf24;">
-                    <div style="color: #fbbf24; font-weight: 700; margin-bottom: 0.25rem;">Contrat visé : ${escapeHtml(approvalData.target_contract_id)}</div>
-                    <div><strong>Justification :</strong> ${escapeHtml(approvalData.reason)}</div>
+                    <div style="color: #fbbf24; font-weight: 700; margin-bottom: 0.25rem;">${window.t ? window.t('gov.target_contract') : 'Target contract:'} ${escapeHtml(approvalData.target_contract_id)}</div>
+                    <div><strong>${window.t ? window.t('gov.reason_label') : 'Justification:'}</strong> ${escapeHtml(approvalData.reason)}</div>
                 </div>
                 <div>
-                    <label style="color: var(--text-muted); font-size: 0.7rem; font-weight: 700;">Diff proposé sur invariants.json :</label>
+                    <label style="color: var(--text-muted); font-size: 0.7rem; font-weight: 700;">${window.t ? window.t('gov.diff_label') : 'Proposed diff on invariants.json:'}</label>
                     <pre style="background: #0b0f19; padding: 0.5rem; border-radius: 4px; border: 1px solid var(--border-subtle); color: #4ade80; overflow-x: auto; max-height: 200px;">${escapeHtml(approvalData.diff || 'Diff unifié')}</pre>
                 </div>
             `;

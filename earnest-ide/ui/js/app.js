@@ -3231,8 +3231,17 @@ document.addEventListener('DOMContentLoaded', () => {
 
     if (btnGovReject) {
         btnGovReject.addEventListener('click', () => {
+            const pending = currentPendingApproval;
+            const reason = pending
+                ? prompt("Motif du refus (sera transmis à l'agent, laisser vide pour juste fermer) :", "")
+                : "";
+            if (reason === null) return;
             govApprovalModal.classList.remove('open');
             currentPendingApproval = null;
+            if (pending && reason.trim() && agentPrompt) {
+                agentPrompt.value = `Revue refusée par l'utilisateur. Motif : ${reason.trim()}`;
+                executeAgentPrompt();
+            }
         });
     }
 

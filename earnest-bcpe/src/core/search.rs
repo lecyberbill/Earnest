@@ -258,5 +258,6 @@ pub fn search(conn: &Connection, input: &SearchInput) -> KbResult<SearchResponse
         total: page.total,
         match_mode,
         message,
+        product_status: None,
     })
 }

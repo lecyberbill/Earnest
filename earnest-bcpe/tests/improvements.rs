@@ -326,13 +326,13 @@ fn p08_tool_list_has_no_human_action() {
         .filter_map(|tool| tool.get("name").and_then(Value::as_str))
         .map(str::to_string)
         .collect();
-    assert_eq!(names.len(), 8, "{names:?}");
+    assert_eq!(names.len(), 11, "{names:?}");
     for name in &names {
         for forbidden in ["validate", "archive", "delete", "restore", "edit"] {
             assert!(!name.contains(forbidden), "{name}");
         }
     }
-    for expected in ["kb_confirm", "kb_attach_repro"] {
+    for expected in ["kb_confirm", "kb_attach_repro", "kb_list_products", "kb_create_product", "kb_retract"] {
         assert!(names.contains(&expected.to_string()), "{expected} absent");
     }
 }
@@ -681,4 +681,53 @@ fn p17_hook_post_tool_use_reminder() {
     }));
     assert_eq!(code, 0, "{err}");
     assert!(out.trim().is_empty(), "{out}");
+}
+
+#[test]
+fn p18_list_create_retract_and_graceful_unknown_product() {
+    let kb = TestKb::new();
+    let mut server = McpServer::new(kb.open_second(), AppConfig::load(None).unwrap()).with_actor("agent:mcp#123");
+
+    // 1. kb_search & kb_check sur un produit inconnu : pas d'erreur bloquante
+    let search_unk = mcp_call(&mut server, "kb_search", json!({"product_id": "inconnu-xyz", "query": "test"}));
+    assert_eq!(search_unk["covered"], json!(false), "{search_unk}");
+    assert_eq!(search_unk["product_status"], json!("unknown_product"));
+
+    let check_unk = mcp_call(&mut server, "kb_check", json!({"product_id": "inconnu-xyz", "identifiers": ["fooBar"]}));
+    assert_eq!(check_unk["product_status"], json!("unknown_product"), "{check_unk}");
+    assert_eq!(check_unk["verdicts"][0]["verdict"], json!("inconnu"));
+
+    // 2. kb_create_product : validation slug + created + already_exists
+    let bad = mcp_call(&mut server, "kb_create_product", json!({"product_id": "Bad Slug!", "display_name": "Bad"}));
+    assert_eq!(error_code(&bad), Some("invalid_argument"), "{bad}");
+
+    let created = mcp_call(&mut server, "kb_create_product", json!({"product_id": "k4", "display_name": "vjoon K4"}));
+    assert_eq!(created["status"], json!("created"), "{created}");
+
+    let dup = mcp_call(&mut server, "kb_create_product", json!({"product_id": "k4", "display_name": "vjoon K4"}));
+    assert_eq!(dup["status"], json!("already_exists"), "{dup}");
+
+    // 3. kb_propose + kb_list_products + kb_retract
+    let prop = mcp_call(&mut server, "kb_propose", json!({
+        "product_id": "k4",
+        "subject_key": "test-mistake",
+        "kind": "piege",
+        "title": "Fausse piste",
+        "correction": "À rétracter",
+        "source": "agent"
+    }));
+    let entry_id = prop["entry_id"].as_i64().unwrap();
+
+    let list = mcp_call(&mut server, "kb_list_products", json!({}));
+    let k4 = list["products"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|p| p["product_id"] == "k4")
+        .unwrap();
+    assert_eq!(k4["counts"]["non_teste"], json!(1));
+
+    let ret = mcp_call(&mut server, "kb_retract", json!({"entry_id": entry_id, "reason": "Erreur agent"}));
+    assert_eq!(ret["status"], json!("retracted"), "{ret}");
+    assert_eq!(state_of(&kb, entry_id).0, "archive");
 }

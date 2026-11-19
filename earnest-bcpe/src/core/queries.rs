@@ -1,7 +1,10 @@
 use rusqlite::{params, Connection, OptionalExtension};
 
 use crate::error::{KbError, KbResult};
-use crate::models::{EntryRow, EntrySnapshot, IdentifierRow, LinkedEntry};
+use crate::models::{
+    CreateProductInput, CreateProductResponse, EntryRow, EntrySnapshot, IdentifierRow, LinkedEntry,
+    ListProductsResponse, ProductStatusCounts, ProductSummary,
+};
 
 pub fn product_exists(conn: &Connection, product_id: &str) -> KbResult<bool> {
     let exists: Option<i64> = conn
@@ -23,6 +26,86 @@ pub fn ensure_product(conn: &Connection, product_id: &str) -> KbResult<()> {
             "le produit '{product_id}' n'existe pas; créez-le avant d'écrire"
         )))
     }
+}
+
+pub fn list_products(conn: &Connection) -> KbResult<ListProductsResponse> {
+    let mut stmt = conn
+        .prepare(
+            "SELECT
+                p.product_id,
+                p.name,
+                p.current_version,
+                COUNT(CASE WHEN e.status = 'valide' THEN 1 END) AS valide_count,
+                COUNT(CASE WHEN e.status = 'non_teste' THEN 1 END) AS non_teste_count,
+                COUNT(CASE WHEN e.status = 'a_revoir' THEN 1 END) AS a_revoir_count
+            FROM products p
+            LEFT JOIN entries e ON p.product_id = e.product_id AND e.status != 'archive'
+            GROUP BY p.product_id
+            ORDER BY p.product_id ASC",
+        )
+        .map_err(KbError::Db)?;
+
+    let rows = stmt
+        .query_map([], |row| {
+            Ok(ProductSummary {
+                product_id: row.get(0)?,
+                display_name: row.get(1)?,
+                current_version: row.get(2)?,
+                counts: ProductStatusCounts {
+                    valide: row.get(3)?,
+                    non_teste: row.get(4)?,
+                    a_revoir: row.get(5)?,
+                },
+            })
+        })
+        .map_err(KbError::Db)?;
+
+    let mut products = Vec::new();
+    for row in rows {
+        products.push(row.map_err(KbError::Db)?);
+    }
+    Ok(ListProductsResponse { products })
+}
+
+pub fn create_product(
+    conn: &mut Connection,
+    input: &CreateProductInput,
+) -> KbResult<CreateProductResponse> {
+    let slug_re = regex::Regex::new(r"^[a-z0-9-]{2,64}$").map_err(|e| KbError::Internal(e.to_string()))?;
+    if !slug_re.is_match(&input.product_id) {
+        return Err(KbError::invalid(format!(
+            "product_id '{}' invalide : doit respecter ^[a-z0-9-]{{2,64}}$",
+            input.product_id
+        )));
+    }
+    let display_name = input.display_name.trim();
+    if display_name.is_empty() {
+        return Err(KbError::invalid("display_name ne peut pas être vide"));
+    }
+
+    if product_exists(conn, &input.product_id)? {
+        return Ok(CreateProductResponse {
+            status: "already_exists".to_string(),
+            product_id: input.product_id.clone(),
+        });
+    }
+
+    let version = input
+        .current_version
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty());
+
+    conn.execute(
+        "INSERT OR IGNORE INTO products (product_id, name, current_version) VALUES (?1, ?2, ?3)",
+        params![input.product_id, display_name, version],
+    )
+    .map_err(KbError::Db)?;
+
+    Ok(CreateProductResponse {
+        status: "created".to_string(),
+        product_id: input.product_id.clone(),
+    })
 }
 
 pub fn fetch_entry(conn: &Connection, entry_id: i64) -> KbResult<Option<EntryRow>> {

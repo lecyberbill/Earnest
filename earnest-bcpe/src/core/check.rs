@@ -155,5 +155,9 @@ pub fn check(conn: &Connection, config: &AppConfig, input: &CheckInput) -> KbRes
         });
     }
 
-    Ok(CheckResponse { summary, verdicts })
+    Ok(CheckResponse {
+        summary,
+        verdicts,
+        product_status: None,
+    })
 }

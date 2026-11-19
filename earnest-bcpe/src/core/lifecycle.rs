@@ -21,7 +21,7 @@ use crate::core::version::{is_valid_version, versions_match};
 use crate::error::{KbError, KbResult};
 use crate::models::{
     AttachReproInput, AttachReproResult, ConfirmInput, ConfirmResult, IdentifierInput, LintFinding,
-    OutcomeInput, OutcomeResult, ReviewItem,
+    OutcomeInput, OutcomeResult, RetractInput, RetractResponse, ReviewItem,
 };
 
 fn require_entry(conn: &Connection, entry_id: i64) -> KbResult<crate::models::EntryRow> {
@@ -69,6 +69,64 @@ pub fn archive(conn: &mut Connection, entry_id: i64) -> KbResult<crate::models::
     )
     .map_err(KbError::Db)?;
     require_entry(conn, entry_id)
+}
+
+/// Rétracter une entrée `non_teste` proposée par l'agent appelant (passe le statut à `archive`
+/// et journalise le motif dans `entry_history`).
+pub fn retract(
+    conn: &mut Connection,
+    input: &RetractInput,
+    actor: &str,
+) -> KbResult<RetractResponse> {
+    let reason = input.reason.trim();
+    if reason.is_empty() {
+        return Err(KbError::invalid("reason est obligatoire pour rétracter une entrée"));
+    }
+
+    let entry = require_entry(conn, input.entry_id)?;
+    if entry.status != "non_teste" {
+        return Err(KbError::ForbiddenStatus(format!(
+            "seule une entrée 'non_teste' peut être rétractée (statut courant: '{}')",
+            entry.status
+        )));
+    }
+
+    let proposed_by = entry.proposed_by.as_deref().unwrap_or("");
+    let same_actor = !proposed_by.is_empty()
+        && (proposed_by == actor
+            || (actor.starts_with("agent:mcp") && proposed_by.starts_with("agent:mcp")));
+    if !same_actor {
+        return Err(KbError::ForbiddenStatus(format!(
+            "rétractation refusée : l'entrée {} a été proposée par '{}', pas par '{}'",
+            input.entry_id, proposed_by, actor
+        )));
+    }
+
+    let snapshot = snapshot_entry(conn, &entry)?;
+    let snapshot_json = serde_json::to_string(&snapshot).map_err(KbError::Json)?;
+    let now = now_iso();
+    let new_version = entry.version + 1;
+
+    let tx = conn.transaction().map_err(KbError::Db)?;
+    tx.execute(
+        "INSERT INTO entry_history (entry_id, version, snapshot, changed_by, reason, changed_at)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+        params![entry.entry_id, entry.version, snapshot_json, actor, reason, now],
+    )
+    .map_err(KbError::Db)?;
+    tx.execute(
+        "UPDATE entries SET status='archive', validation_mode=NULL, version=?1, updated_at=?2
+         WHERE entry_id=?3",
+        params![new_version, now, entry.entry_id],
+    )
+    .map_err(KbError::Db)?;
+    tx.commit().map_err(KbError::Db)?;
+
+    Ok(RetractResponse {
+        status: "retracted".to_string(),
+        entry_id: input.entry_id,
+        reason: reason.to_string(),
+    })
 }
 
 pub fn restore(conn: &mut Connection, entry_id: i64) -> KbResult<crate::models::EntryRow> {

@@ -113,7 +113,7 @@ fn a04_no_human_tool_exposed() {
         .filter_map(|tool| tool.get("name").and_then(|name| name.as_str()))
         .map(|name| name.to_string())
         .collect();
-    assert_eq!(names.len(), 8);
+    assert_eq!(names.len(), 11);
     for name in &names {
         assert!(!name.contains("validate"));
         assert!(!name.contains("archive"));

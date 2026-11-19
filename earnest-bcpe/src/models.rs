@@ -177,6 +177,8 @@ pub struct SearchResponse {
     pub match_mode: &'static str,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub message: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub product_status: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
@@ -237,6 +239,61 @@ pub struct VerdictCounts {
 pub struct CheckResponse {
     pub summary: VerdictCounts,
     pub verdicts: Vec<CheckVerdict>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub product_status: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct ListProductsInput {}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct ProductStatusCounts {
+    pub valide: i64,
+    pub non_teste: i64,
+    pub a_revoir: i64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ProductSummary {
+    pub product_id: String,
+    pub display_name: String,
+    pub current_version: Option<String>,
+    pub counts: ProductStatusCounts,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ListProductsResponse {
+    pub products: Vec<ProductSummary>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct CreateProductInput {
+    pub product_id: String,
+    pub display_name: String,
+    #[serde(default)]
+    pub current_version: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CreateProductResponse {
+    pub status: String,
+    pub product_id: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct RetractInput {
+    pub entry_id: i64,
+    pub reason: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RetractResponse {
+    pub status: String,
+    pub entry_id: i64,
+    pub reason: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]

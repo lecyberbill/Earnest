@@ -1,10 +1,53 @@
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Mutex, OnceLock};
 use std::time::Instant;
-use std::collections::HashMap;
+use std::collections::{HashMap, VecDeque};
 use std::path::{Path, PathBuf};
 
 static CANCEL_RUN: AtomicBool = AtomicBool::new(false);
-static THINK_EFFORT: std::sync::OnceLock<std::sync::Mutex<String>> = std::sync::OnceLock::new();
+static THINK_EFFORT: OnceLock<Mutex<String>> = OnceLock::new();
+static LIVE_LOGS: OnceLock<Mutex<(u64, VecDeque<LiveLogEntry>)>> = OnceLock::new();
+
+#[derive(Clone, serde::Serialize)]
+pub struct LiveLogEntry {
+    pub id: u64,
+    pub timestamp: String,
+    pub level: String,
+    pub message: String,
+}
+
+pub fn push_live_log(level: &str, message: &str) {
+    let lock = LIVE_LOGS.get_or_init(|| Mutex::new((0, VecDeque::with_capacity(512))));
+    if let Ok(mut guard) = lock.lock() {
+        guard.0 += 1;
+        let id = guard.0;
+        let ts = chrono::Local::now().format("%H:%M:%S").to_string();
+        if guard.1.len() >= 500 {
+            guard.1.pop_front();
+        }
+        guard.1.push_back(LiveLogEntry {
+            id,
+            timestamp: ts,
+            level: level.to_string(),
+            message: log_sanitizer::sanitize_text(message),
+        });
+    }
+}
+
+pub fn get_live_logs(since_id: u64) -> Vec<LiveLogEntry> {
+    let lock = LIVE_LOGS.get_or_init(|| Mutex::new((0, VecDeque::with_capacity(512))));
+    if let Ok(guard) = lock.lock() {
+        return guard.1.iter().filter(|e| e.id > since_id).cloned().collect();
+    }
+    Vec::new()
+}
+
+pub fn clear_live_logs() {
+    let lock = LIVE_LOGS.get_or_init(|| Mutex::new((0, VecDeque::with_capacity(512))));
+    if let Ok(mut guard) = lock.lock() {
+        guard.1.clear();
+    }
+}
 use rusqlite::{params, Connection};
 use serde_json::Value;
 
@@ -1011,6 +1054,7 @@ impl<'a> ReActEngine<'a> {
         crate::llm::client::CANCEL_LLM.store(false, Ordering::SeqCst);
         let start = Instant::now();
         let run_id = format!("run_{}", &uuid::Uuid::new_v4().to_string().replace('-', "")[..12]);
+        push_live_log("INFO", &format!("🚀 Run {} démarré (projet={})", run_id, self.project_id));
         self.create_checkpoint(&run_id);
 
         // Charger ou initialiser la politique du projet (avec garde-fou Contrainte 4)
@@ -1143,6 +1187,7 @@ impl<'a> ReActEngine<'a> {
             if active_backend != active_backend_name {
                 context_budget_chars = self.router.estimate_context_chars(&active_backend);
                 println!("  🤖 [LLM] Backend actif : {} (budget contexte: {} chars)", active_backend, context_budget_chars);
+                push_live_log("STEP", &format!("🤖 Tour {} [{}] (budget {} chars)", step_order + 1, active_backend, context_budget_chars));
             }
             active_backend_name = active_backend;
             total_tokens += chat_res.total_tokens;
@@ -1251,6 +1296,7 @@ impl<'a> ReActEngine<'a> {
                 step_order += 1;
 
                 println!("  ⚡ [GOUVERNANCE IDE] {} {:?}", fn_name, fn_args);
+                push_live_log("TOOL", &format!("⚙ Appel {}({})", fn_name, context_trimmer::truncate_tool_output(&fn_args.to_string(), 180)));
                 let args_key = normalize_cache_args_key(&self.workspace_root, fn_args);
                 let sig = format!("{}:{}", fn_name, args_key);
                 if last_tool_sig.as_deref() == Some(&sig) {
@@ -1277,6 +1323,7 @@ impl<'a> ReActEngine<'a> {
 
                 let sanitized_output = log_sanitizer::sanitize_text(&raw_output);
                 let mut tool_output = context_trimmer::truncate_tool_output(&sanitized_output, 16_000);
+                push_live_log("OUTPUT", &format!("← {} : {}", fn_name, context_trimmer::truncate_tool_output(&tool_output, 220)));
                 if repeat_count >= 3 {
                     tool_output.push_str("\n\n[ANTI-LOOP] Attention : tu viens de répéter exactement le même appel 3 fois de suite. Change d'approche, passe à l'étape suivante ou conclus.");
                     repeat_count = 0;
@@ -1357,6 +1404,7 @@ impl<'a> ReActEngine<'a> {
             println!("  ⚠️ [IDE GOVERNANCE] Max steps limit ({}) reached ({}ms)", self.max_steps, duration_ms);
         } else {
             println!("  ✅ [IDE GOVERNANCE] Run completed ({} steps, {}ms)", step_order, duration_ms);
+            push_live_log("DONE", &format!("✅ Run {} terminé ({} étapes, {}ms)", run_id, step_order, duration_ms));
         }
 
         self.run_ide_hooks("on_run_complete");
@@ -1402,6 +1450,7 @@ impl<'a> ReActEngine<'a> {
                 .current_dir(&self.workspace_root)
                 .output();
             println!("  🔖 [CHECKPOINT] Sauvegardé ({} -> {})", run_id, target);
+            push_live_log("INFO", &format!("🔖 Checkpoint {} ({})", run_id, target));
         }
     }
 

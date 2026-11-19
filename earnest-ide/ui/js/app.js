@@ -279,9 +279,12 @@ document.addEventListener('DOMContentLoaded', () => {
     const btnTabTerm1 = document.getElementById('btn-tab-term-1');
     const btnTabTerm2 = document.getElementById('btn-tab-term-2');
     const btnTabProblems = document.getElementById('btn-tab-problems');
+    const btnTabLogs = document.getElementById('btn-tab-logs');
     const paneTerm1 = document.getElementById('pane-term-1');
     const paneTerm2 = document.getElementById('pane-term-2');
     const paneProblems = document.getElementById('pane-problems');
+    const paneLogs = document.getElementById('pane-logs');
+    const bottomLogsContent = document.getElementById('bottom-logs-content');
     const terminalOutput1 = document.getElementById('terminal-output-1');
     const terminalInput1 = document.getElementById('terminal-input-1');
     const terminalOutput2 = document.getElementById('terminal-output-2');
@@ -1686,8 +1689,8 @@ document.addEventListener('DOMContentLoaded', () => {
     // ====================================================
     function switchBottomTab(tabName) {
         state.activeBottomTab = tabName;
-        [btnTabTerm1, btnTabTerm2, btnTabProblems].forEach(b => b.classList.remove('active'));
-        [paneTerm1, paneTerm2, paneProblems].forEach(p => p.classList.remove('active'));
+        [btnTabTerm1, btnTabTerm2, btnTabProblems, btnTabLogs].forEach(b => b && b.classList.remove('active'));
+        [paneTerm1, paneTerm2, paneProblems, paneLogs].forEach(p => p && p.classList.remove('active'));
 
         if (tabName === 'term-1') {
             btnTabTerm1.classList.add('active');
@@ -1701,12 +1704,52 @@ document.addEventListener('DOMContentLoaded', () => {
             btnTabProblems.classList.add('active');
             paneProblems.classList.add('active');
             refreshDiagnostics();
+        } else if (tabName === 'logs') {
+            if (btnTabLogs) btnTabLogs.classList.add('active');
+            if (paneLogs) paneLogs.classList.add('active');
+            pollIdeLogs();
         }
     }
 
     btnTabTerm1.addEventListener('click', () => switchBottomTab('term-1'));
     btnTabTerm2.addEventListener('click', () => switchBottomTab('term-2'));
     btnTabProblems.addEventListener('click', () => switchBottomTab('problems'));
+    if (btnTabLogs) btnTabLogs.addEventListener('click', () => switchBottomTab('logs'));
+
+    let lastIdeLogId = 0;
+    async function pollIdeLogs() {
+        if (!bottomLogsContent) return;
+        try {
+            const res = await fetch(`/api/ide/logs?since=${lastIdeLogId}`);
+            if (!res.ok) return;
+            const entries = await res.json();
+            if (!Array.isArray(entries) || entries.length === 0) return;
+
+            if (lastIdeLogId === 0) bottomLogsContent.innerHTML = '';
+            const levelColor = {
+                INFO: '#60a5fa',
+                STEP: '#a78bfa',
+                TOOL: '#fbbf24',
+                OUTPUT: '#94a3b8',
+                WARN: '#f59e0b',
+                ERROR: '#f87171',
+                DONE: '#34d399',
+            };
+            for (const entry of entries) {
+                lastIdeLogId = Math.max(lastIdeLogId, entry.id || 0);
+                const row = document.createElement('div');
+                row.style.cssText = 'white-space: pre-wrap; word-break: break-word; margin-bottom: 2px;';
+                const c = levelColor[entry.level] || '#cbd5e1';
+                row.innerHTML = `<span style="color:#64748b;">[${escapeHtml(entry.timestamp || '')}]</span> <span style="color:${c};font-weight:600;">[${escapeHtml(entry.level || 'INFO')}]</span> ${escapeHtml(entry.message || '')}`;
+                bottomLogsContent.appendChild(row);
+            }
+            while (bottomLogsContent.children.length > 400) {
+                bottomLogsContent.removeChild(bottomLogsContent.firstChild);
+            }
+            bottomLogsContent.scrollTop = bottomLogsContent.scrollHeight;
+        } catch (_) {}
+    }
+    setInterval(pollIdeLogs, 1000);
 
     function bindTerminal(inputEl, outputEl) {
         inputEl.addEventListener('keydown', async (e) => {
@@ -1791,9 +1834,13 @@ document.addEventListener('DOMContentLoaded', () => {
         if (editorInstance) editorInstance.layout();
     });
 
-    btnClearTerminal.addEventListener('click', () => {
+    btnClearTerminal.addEventListener('click', async () => {
         if (state.activeBottomTab === 'term-1') terminalOutput1.innerHTML = '';
         if (state.activeBottomTab === 'term-2') terminalOutput2.innerHTML = '';
+        if (state.activeBottomTab === 'logs' && bottomLogsContent) {
+            bottomLogsContent.innerHTML = '<div style="color: var(--text-muted);">Logs effacés.</div>';
+            await fetch('/api/ide/logs/clear', { method: 'POST' }).catch(() => {});
+        }
     });
 
     // ====================================================

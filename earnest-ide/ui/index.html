@@ -1268,6 +1268,7 @@
                                 <button class="bottom-tab-btn active" id="btn-tab-term-1">Terminal 1</button>
                                 <button class="bottom-tab-btn" id="btn-tab-term-2">Terminal 2 (Build / Test)</button>
                                 <button class="bottom-tab-btn" id="btn-tab-problems">Problems &amp; Linter</button>
+                                <button class="bottom-tab-btn" id="btn-tab-logs">Logs IDE</button>
                             </div>
                             <div style="display: flex; gap: 4px;">
                                 <button class="icon-btn" id="btn-clear-terminal"
@@ -1304,6 +1305,14 @@
                         <div class="bottom-content-pane" id="pane-problems">
                             <div id="bottom-problems-content"
                                 style="padding: 0.75rem 1rem; overflow-y: auto; font-family: var(--font-mono); font-size: 0.8rem;">
+                            </div>
+                        </div>
+
+                        <!-- Onglet Logs IDE (stream console release) -->
+                        <div class="bottom-content-pane" id="pane-logs">
+                            <div id="bottom-logs-content"
+                                style="padding: 0.6rem 1rem; overflow-y: auto; height: 100%; font-family: var(--font-mono); font-size: 0.76rem; line-height: 1.45; color: #cbd5e1;">
+                                <div style="color: var(--text-muted);">En attente des logs moteur IDE...</div>
                             </div>
                         </div>
                     </div>

@@ -344,6 +344,19 @@ fn handle_request(mut req: tiny_http::Request) {
             return;
         }
 
+        if path == "/api/ide/logs" {
+            let since = query
+                .get("since")
+                .and_then(|s| s.parse::<u64>().ok())
+                .unwrap_or(0);
+            let logs = crate::engine::react::get_live_logs(since);
+            let resp = Response::from_string(serde_json::to_string(&logs).unwrap_or_else(|_| "[]".to_string()))
+                .with_header(json_header)
+                .with_header(cors_header);
+            req.respond(resp).ok();
+            return;
+        }
+
         if path == "/api/ide/checkpoints" {
             let ws_root = std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("."));
             let mut ids = Vec::new();
@@ -1640,6 +1653,15 @@ Garde l'indentation appropriée.";
                 "success": success,
                 "output": out_str
             }).to_string())
+                .with_header(json_header)
+                .with_header(cors_header);
+            req.respond(resp).ok();
+            return;
+        }
+
+        if path == "/api/ide/logs/clear" {
+            crate::engine::react::clear_live_logs();
+            let resp = Response::from_string(serde_json::json!({"status": "cleared"}).to_string())
                 .with_header(json_header)
                 .with_header(cors_header);
             req.respond(resp).ok();

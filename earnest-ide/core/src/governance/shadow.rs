@@ -1,6 +1,5 @@
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::process::Command;
 use serde::{Deserialize, Serialize};
 
 use super::invariants::{ContractSpec, ProbeSpec};

@@ -1,4 +1,3 @@
-use std::process::Command;
 use serde_json::Value;
 
 pub fn get_git_status(root_dir: &str) -> Result<Value, String> {

@@ -1,4 +1,3 @@
-use std::process::Command;
 use serde_json::Value;
 
 // Liste des commandes strictement interdites pour garantir l'intégrité de l'hôte

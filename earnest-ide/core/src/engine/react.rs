@@ -1219,7 +1219,7 @@ impl<'a> ReActEngine<'a> {
         // Prompt système adapté selon le Mode de gouvernance
         let mode_desc = match policy.mode {
             GovernanceMode::Normal => "MODE 1 (NORMAL) : Tu as un accès libre aux outils de développement usuels.",
-            GovernanceMode::Architecture => "MODE 3 (ARCHITECTURE / SPEC-FIRST) : Interdiction FORMELLE d'écrire ou modifier du code source directement. Tu dois concevoir l'architecture et formaliser les contrats d'invariants (préfère l'outil plat 'add_invariant' avec id, title, statement, target_file, test_query) puis demander la validation humaine via 'request_architecture_review'.",
+            GovernanceMode::Architecture => "MODE 3 (ARCHITECTURE / SPEC-FIRST) : Interdiction FORMELLE d'écrire ou modifier du code source directement. Ne rédige JAMAIS l'implémentation ni les tests dans ta réflexion : conçois uniquement l'architecture et formalise les contrats d'invariants (préfère l'outil plat 'add_invariant' avec id, title, statement, target_file, test_query) puis demande la validation humaine via 'request_architecture_review'.",
             GovernanceMode::Constrained => "MODE 2 (CONTRAINT PAR INVARIANTS) : Toute modification de code passe IMPÉRATIVEMENT par 'write_code' et est validée en sandbox isolée (shadow worktree) par les sondes cryptographiques scellées. Modifie UN seul fichier à la fois : utilise 'target'/'replacement' pour les éditions ciblées, ou 'stage_only: true' fichier par fichier puis un dernier appel 'write_code' (sans 'stage_only' sur le dernier fichier modifié) pour lancer les sondes et fusionner. Les fichiers déjà présents sur le disque ou déjà stagés dans le shadow worktree sont conservés : ne réécris JAMAIS tout le projet dans un seul gros appel 'files'. N'émets JAMAIS de message texte seul sans appel d'outil tant que tous les contrats ne sont pas validés par 'write_code'. Si tu es bloqué par un contrat, utilise 'request_contract_mutation'.",
         };
 
@@ -1374,12 +1374,17 @@ impl<'a> ReActEngine<'a> {
 
             // S'il n'y a aucun appel d'outil, conclusion (sauf si Mode 2 ou Mode 3 et que le modèle s'est arrêté en cours de route)
             if chat_res.tool_calls.is_empty() {
-                if policy.mode == GovernanceMode::Architecture && empty_tool_nudges < 2 {
+                if policy.mode == GovernanceMode::Architecture && empty_tool_nudges < 3 {
                     empty_tool_nudges += 1;
-                    println!("  🔄 [ANTI-STALL] Texte seul en Mode 3 ({}/2 consécutifs), relance automatique...", empty_tool_nudges);
+                    println!("  🔄 [ANTI-STALL] Texte seul en Mode 3 ({}/3 consécutifs), relance automatique...", empty_tool_nudges);
+                    let msg = if chat_res.content.is_empty() {
+                        "Ta réflexion a été tronquée avant d'appeler un outil. Sois très concis (n'écris aucun code dans ta pensée) et appelle immédiatement `add_invariant` pour le premier contrat, puis `request_architecture_review`."
+                    } else {
+                        "En Mode 3 Architecture, n'écris pas le code en texte libre : appelle immédiatement `add_invariant` pour formaliser chaque contrat (id, title, statement, target_file, test_query), puis appelle `request_architecture_review` pour soumettre l'architecture à validation."
+                    };
                     messages.push(ChatMessage {
                         role: "user".to_string(),
-                        content: "En Mode 3 Architecture, n'écris pas le code en texte libre : appelle immédiatement `add_invariant` pour formaliser chaque contrat (id, title, statement, target_file, test_query), puis appelle `request_architecture_review` pour soumettre l'architecture à validation.".to_string(),
+                        content: msg.to_string(),
                         images: None,
                     });
                     continue;

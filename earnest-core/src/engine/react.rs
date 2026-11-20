@@ -133,13 +133,6 @@ impl<'a> ReActEngine<'a> {
                     .or_else(|| args["target_file"].as_str())
                     .unwrap_or(".");
                 let root = std::path::Path::new(root_str);
-                if tool_guard::path::has_traversal(root) {
-                    let err = tool_guard::error::GuardError::PathTraversal {
-                        requested: root_str.to_string(),
-                        allowed_root: ".".to_string(),
-                    };
-                    return serde_json::json!({"status": "error", "error": err.to_string()}).to_string();
-                }
                 if tool_guard::path::is_system_sensitive(root) {
                     let err = tool_guard::error::GuardError::SystemPath { requested: root_str.to_string() };
                     return serde_json::json!({"status": "error", "error": err.to_string()}).to_string();
@@ -187,13 +180,6 @@ impl<'a> ReActEngine<'a> {
                     .or_else(|| args["target_file"].as_str())
                     .unwrap_or(".");
                 let root = std::path::Path::new(root_str);
-                if tool_guard::path::has_traversal(root) {
-                    let err = tool_guard::error::GuardError::PathTraversal {
-                        requested: root_str.to_string(),
-                        allowed_root: ".".to_string(),
-                    };
-                    return serde_json::json!({"status": "error", "error": err.to_string()}).to_string();
-                }
                 if tool_guard::path::is_system_sensitive(root) {
                     let err = tool_guard::error::GuardError::SystemPath { requested: root_str.to_string() };
                     return serde_json::json!({"status": "error", "error": err.to_string()}).to_string();

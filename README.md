@@ -172,7 +172,7 @@ Add EARNEST to your MCP client configuration (`claude_desktop_config.json` or `m
 
 ```text
 Ernest/
-├── crates/                     # Pure-Rust zero-dep crates (atomic-patch, symbol-index, loop-detector, tool-guard, token-compactor, log-sanitizer, context-trimmer, tool-output-cache, retry-budget, json-repair, kv-wal-engine)
+├── crates/                     # Pure-Rust zero-dep crates (atomic-patch, symbol-index, loop-detector, tool-guard, token-compactor, agent-scheduler, log-sanitizer, context-trimmer, tool-output-cache, retry-budget, json-repair, kv-wal-engine)
 ├── earnest/                    # Python Core: Agent runtime, tools, DB & telemetry
 ├── earnest-core/               # Rust Native Engine: High performance ReAct loop, SSE streaming & server
 ├── earnest-ide/                # Governance IDE

@@ -1383,6 +1383,7 @@ impl<'a> ReActEngine<'a> {
             loop_detector::Config::new(24, 3, 5, 2).unwrap_or_default(),
         );
         let mut empty_tool_nudges: usize = 0;
+        let mut merged_successfully = false;
 
         for _ in 0..self.max_steps {
             if CANCEL_RUN.load(Ordering::SeqCst) {
@@ -1467,7 +1468,7 @@ impl<'a> ReActEngine<'a> {
                     });
                     continue;
                 }
-                if policy.mode == GovernanceMode::Constrained && empty_tool_nudges < 3 {
+                if policy.mode == GovernanceMode::Constrained && !merged_successfully && empty_tool_nudges < 3 {
                     empty_tool_nudges += 1;
                     println!("  🔄 [ANTI-STALL] Texte seul en Mode 2 ({}/3 consécutifs), relance automatique...", empty_tool_nudges);
                     messages.push(ChatMessage {
@@ -1613,6 +1614,9 @@ impl<'a> ReActEngine<'a> {
                     tool_cache.insert(fn_name, &args_key, tool_output.clone(), path_hint);
                 } else if matches!(fn_name.as_str(), "write_code" | "edit_file" | "write_file" | "shadow_copy" | "shadow_validate_and_merge") {
                     loop_detector.reset_progress();
+                    if matches!(fn_name.as_str(), "write_code" | "shadow_validate_and_merge") {
+                        merged_successfully = raw_output.contains("\"merged_to_workspace\":true");
+                    }
                     if let Some(path) = fn_args["path"].as_str().or_else(|| fn_args["target_file"].as_str()) {
                         tool_cache.invalidate_path(path);
                     }

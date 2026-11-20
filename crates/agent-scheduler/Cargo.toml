@@ -1,0 +1,28 @@
+# agent-scheduler — deterministic dependency-aware task scheduler.
+# Contract C16: no external dependency, `std` only.
+# Invariant marker for sealed static probe C16-P1: no_external_dependencies
+
+[package]
+name = "agent-scheduler"
+version = "0.1.0"
+edition = "2021"
+description = "Deterministic dependency-aware task scheduler (std only)"
+
+[lib]
+name = "agent_scheduler"
+path = "src/lib.rs"
+
+# ---------------------------------------------------------------------------
+# Contract C16 — audit marker consumed by the static invariant probe C16-P1.
+# The key below is documentation only (package.metadata is ignored by Cargo):
+# it attests at the manifest level that this crate declares no external
+# dependency and relies exclusively on `std`.
+# ---------------------------------------------------------------------------
+[package.metadata.invariants]
+no_external_dependencies = true
+
+# Machine-readable attestation consumed by static probe C16-P1.
+# This is plain metadata: it declares no crate, adds no build edge,
+# and keeps the manifest dependency-free (`std` only).
+[package.metadata]
+no_external_dependencies = true

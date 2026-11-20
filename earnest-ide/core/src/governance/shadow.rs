@@ -275,11 +275,24 @@ impl ShadowRunner {
                 };
                 let cmd_str = match probe.command.as_deref().map(str::trim).filter(|s| !s.is_empty()) {
                     Some(c) => c.to_string(),
-                    None if !fallback_cmds.is_empty() => fallback_cmds
-                        .iter()
-                        .map(|(_, c)| c.as_str())
-                        .collect::<Vec<_>>()
-                        .join(" && "),
+                    None if !fallback_cmds.is_empty() => {
+                        #[cfg(target_os = "windows")]
+                        {
+                            fallback_cmds
+                                .iter()
+                                .map(|(_, c)| c.as_str())
+                                .collect::<Vec<_>>()
+                                .join("; if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }; ")
+                        }
+                        #[cfg(not(target_os = "windows"))]
+                        {
+                            fallback_cmds
+                                .iter()
+                                .map(|(_, c)| c.as_str())
+                                .collect::<Vec<_>>()
+                                .join(" && ")
+                        }
+                    }
                     None => {
                         return ProbeRunResult {
                             probe_id: probe.probe_id.clone(),

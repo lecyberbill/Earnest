@@ -1,4 +1,5 @@
-use wf_core::{generate_schema_json, parse_workflow_yaml, validate_workflow};
+use std::collections::HashMap;
+use wf_core::{execute_workflow, generate_schema_json, parse_workflow_yaml, validate_workflow, ExecutionOptions};
 
 const SAMPLE_WORKFLOW: &str = r#"
 version: "0.1"
@@ -145,4 +146,110 @@ fn generates_valid_json_schema() {
     let json = generate_schema_json();
     let val: serde_json::Value = serde_json::from_str(&json).unwrap();
     assert_eq!(val["title"], "WorkflowSpec");
+}
+
+#[test]
+fn runtime_executes_local_vfs_if_each_and_dry_run() {
+    let tmp = std::env::temp_dir().join(format!("wf_core_rt_{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&tmp);
+    std::fs::create_dir_all(tmp.join("in")).unwrap();
+    std::fs::write(tmp.join("in/a.txt"), "hello").unwrap();
+    std::fs::write(tmp.join("in/b.txt"), "world").unwrap();
+
+    let yaml = format!(
+        r#"
+version: "0.1"
+name: "local_copy"
+connections:
+  local_fs:
+    driver: local
+    root: "{}"
+steps:
+  - id: list_in
+    action: vfs.list
+    params:
+      conn: local_fs
+      path: "in"
+      glob: "*.txt"
+    output: files
+  - id: check_non_empty
+    action: flow.if
+    condition: "files.data.len() > 0"
+    then:
+      - id: loop_files
+        action: flow.each
+        items: "{{{{ files.data }}}}"
+        as: item
+        steps:
+          - id: copy_one
+            action: vfs.transfer
+            params:
+              src: {{ conn: local_fs, path: "in/{{{{ item.name }}}}" }}
+              dst: {{ conn: local_fs, path: "out/{{{{ item.name }}}}" }}
+              overwrite: true
+"#,
+        tmp.to_string_lossy().replace('\\', "/")
+    );
+
+    let spec = parse_workflow_yaml(&yaml).unwrap();
+
+    // 1. Dry-run ne doit pas écrire sur disque
+    let dry = execute_workflow(
+        &spec,
+        ExecutionOptions {
+            dry_run: true,
+            ..Default::default()
+        },
+    )
+    .unwrap();
+    assert!(dry.success);
+    assert!(!tmp.join("out/a.txt").exists());
+
+    // 2. Exécution réelle copie a.txt et b.txt
+    let real = execute_workflow(&spec, ExecutionOptions::default()).unwrap();
+    assert!(real.success, "error: {:?}", real.error);
+    assert_eq!(std::fs::read_to_string(tmp.join("out/a.txt")).unwrap(), "hello");
+    assert_eq!(std::fs::read_to_string(tmp.join("out/b.txt")).unwrap(), "world");
+
+    let _ = std::fs::remove_dir_all(&tmp);
+}
+
+#[test]
+fn runtime_handles_on_error_and_redacts_secrets() {
+    let yaml = r#"
+version: "0.1"
+name: "error_recovery"
+connections:
+  local_fs:
+    driver: local
+    root: "."
+steps:
+  - id: will_fail
+    action: flow.fail
+    params:
+      code: "E_TEST"
+      message: "bad token super_secret_token_xyz"
+    on_error:
+      - id: log_err
+        action: sys.log
+        params:
+          level: error
+          message: "Recovered: {{ error.message }}"
+"#;
+    let spec = parse_workflow_yaml(yaml).unwrap();
+    let mut secrets = HashMap::new();
+    secrets.insert("api_key".to_string(), "super_secret_token_xyz".to_string());
+    let report = execute_workflow(
+        &spec,
+        ExecutionOptions {
+            secrets,
+            ..Default::default()
+        },
+    )
+    .unwrap();
+    assert!(report.success);
+    assert_eq!(report.logs[0].status, "failed");
+    assert!(!report.logs[0].error.as_ref().unwrap().contains("super_secret_token_xyz"));
+    assert_eq!(report.logs[1].step_id, "log_err");
+    assert_eq!(report.logs[1].status, "success");
 }

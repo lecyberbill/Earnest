@@ -60,16 +60,21 @@ def execute_in_sandbox(
             env["PYTHONIOENCODING"] = "utf-8"
             env["PYTHONUTF8"] = "1"
 
-            res = subprocess.run(
-                cmd,
-                cwd=working_dir,
-                env=env,
-                capture_output=True,
-                text=True,
-                encoding="utf-8",
-                errors="replace",
-                timeout=timeout_sec
-            )
+            kwargs: Dict[str, Any] = {
+                "cwd": working_dir,
+                "env": env,
+                "stdin": subprocess.DEVNULL,
+                "stdout": subprocess.PIPE,
+                "stderr": subprocess.PIPE,
+                "text": True,
+                "encoding": "utf-8",
+                "errors": "replace",
+                "timeout": timeout_sec,
+            }
+            if sys.platform == "win32":
+                kwargs["creationflags"] = subprocess.CREATE_NO_WINDOW
+
+            res = subprocess.run(cmd, **kwargs)
             return {
                 "exit_code": res.returncode,
                 "stdout": res.stdout,

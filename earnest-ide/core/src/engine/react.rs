@@ -666,12 +666,62 @@ impl<'a> ReActEngine<'a> {
                     Err(e) => (serde_json::json!({"status": "error", "error": e}).to_string(), None),
                 }
             }
+            "shadow_check" => {
+                let filter = args["filter"].as_str();
+                let check_only = args["check_only"].as_bool().unwrap_or(false);
+                let runner = ShadowRunner::new(&self.workspace_root, &policy.shadow_env.path, policy.shadow_env.timeout_ms);
+                match runner.run_shadow_check(filter, check_only) {
+                    Ok(res) => (res.to_string(), None),
+                    Err(e) => (serde_json::json!({"status": "error", "error": e}).to_string(), None),
+                }
+            }
+            "shadow_copy" => {
+                let raw_from = args["from_path"].as_str().unwrap_or("");
+                let raw_to = args["to_path"].as_str().unwrap_or("");
+                let from_rel = match ShadowRunner::normalize_rel_path(&self.workspace_root, raw_from) {
+                    Ok(r) => r,
+                    Err(e) => return (serde_json::json!({"status": "error", "error": e}).to_string(), None),
+                };
+                let to_rel = match ShadowRunner::normalize_rel_path(&self.workspace_root, raw_to) {
+                    Ok(r) => r,
+                    Err(e) => return (serde_json::json!({"status": "error", "error": e}).to_string(), None),
+                };
+                let runner = ShadowRunner::new(&self.workspace_root, &policy.shadow_env.path, policy.shadow_env.timeout_ms);
+                if let Err(e) = runner.prepare_shadow_worktree() {
+                    return (serde_json::json!({"status": "error", "error": e}).to_string(), None);
+                }
+                let shadow_root = self.workspace_root.join(&policy.shadow_env.path);
+                let src_shadow = shadow_root.join(&from_rel);
+                let src_path = if src_shadow.is_file() { src_shadow } else { self.workspace_root.join(&from_rel) };
+                if !src_path.is_file() {
+                    return (serde_json::json!({"status": "error", "error": format!("Fichier source introuvable: {}", from_rel)}).to_string(), None);
+                }
+                let dst_path = shadow_root.join(&to_rel);
+                if let Some(parent) = dst_path.parent() {
+                    std::fs::create_dir_all(parent).ok();
+                }
+                match std::fs::copy(&src_path, &dst_path) {
+                    Ok(bytes) => (serde_json::json!({
+                        "status": "STAGED",
+                        "from": from_rel,
+                        "to": to_rel,
+                        "bytes": bytes,
+                        "message": "Fichier copié dans shadow_worktree sans consommer de tokens. Vous pouvez l'éditer avec write_code (target/replacement) ou le valider."
+                    }).to_string(), None),
+                    Err(e) => (serde_json::json!({"status": "error", "error": e.to_string()}).to_string(), None),
+                }
+            }
             "read_file" => {
                 let path = args["path"].as_str().unwrap_or("");
                 let resolved = if Path::new(path).is_absolute() {
                     PathBuf::from(path)
                 } else {
-                    self.workspace_root.join(path)
+                    let shadow_candidate = self.workspace_root.join(&policy.shadow_env.path).join(path);
+                    if policy.mode == GovernanceMode::Constrained && shadow_candidate.is_file() {
+                        shadow_candidate
+                    } else {
+                        self.workspace_root.join(path)
+                    }
                 };
                 let start_line = args["start_line"].as_u64().map(|v| v as usize);
                 let end_line = args["end_line"].as_u64().map(|v| v as usize);
@@ -1021,7 +1071,7 @@ impl<'a> ReActEngine<'a> {
             // Mode 2 (Contraint / Invariants & Shadow Sandbox)
             GovernanceMode::Constrained => {
                 let allowed_std = ["read_file", "list_files", "grep_search", "workspace_map", "web_search", "web_fetch", "store_memory", "recall_memory", "recall_recent_runs", "kb_search", "kb_propose"];
-                let allowed_gov = ["write_code", "query_invariants", "request_contract_mutation", "report_checkpoint_status", "symbol_search"];
+                let allowed_gov = ["write_code", "shadow_check", "shadow_copy", "query_invariants", "request_contract_mutation", "report_checkpoint_status", "symbol_search"];
 
                 let mut tools: Vec<Value> = std_tools.into_iter()
                     .filter(|t| allowed_std.contains(&t["function"]["name"].as_str().unwrap_or("")))
@@ -1117,6 +1167,22 @@ impl<'a> ReActEngine<'a> {
             _ => String::new(),
         };
 
+        let shadow_context = if policy.mode == GovernanceMode::Constrained {
+            let runner = ShadowRunner::new(&self.workspace_root, &policy.shadow_env.path, policy.shadow_env.timeout_ms);
+            let staged = runner.list_shadow_staged_files();
+            if staged.is_empty() {
+                String::new()
+            } else {
+                format!(
+                    "\n\n[SHADOW WORKTREE ACTIF ({} fichier(s) déjà stagé(s))]\n{}\n(Utilise `shadow_check` pour compiler/tester en sandbox sans tout relire, ou `read_file` qui lit automatiquement la version shadow.)",
+                    staged.len(),
+                    staged.iter().take(25).cloned().collect::<Vec<_>>().join(", ")
+                )
+            }
+        } else {
+            String::new()
+        };
+
         let system_prompt = format!(
             "Tu es Earnest IDE, un ingénieur logiciel agentique d'élite encadré par un système déterministe de gouvernance par invariants cryptographiques.\n\
             Politique active : {}\n\n\
@@ -1125,10 +1191,11 @@ impl<'a> ReActEngine<'a> {
             2. Examine scrupuleusement le code existant avec 'read_file' et 'list_files'.\n\
             3. En cas de bug, découverte ou piège résolu, transmets-le dans la base d'expérience via 'kb_propose'.\n\
             4. Respecte strictement les règles du mode de gouvernance actif.\n\
-            5. Atlas projet : maintiens '.ide/atlas.md' (carte des modules, APIs publiques, décisions) aux jalons et consulte-le avec 'read_file' quand tu as besoin de contexte.{}{}\n",
+            5. Atlas projet : maintiens '.ide/atlas.md' (carte des modules, APIs publiques, décisions) aux jalons et consulte-le avec 'read_file' quand tu as besoin de contexte.{}{}{}\n",
             mode_desc,
             memory_context,
-            workspace_map_context
+            workspace_map_context,
+            shadow_context
         );
 
         let mut messages = vec![
@@ -1255,7 +1322,7 @@ impl<'a> ReActEngine<'a> {
                     println!("  🔄 [ANTI-STALL] Texte seul en Mode 2 ({}/3 consécutifs), relance automatique...", empty_tool_nudges);
                     messages.push(ChatMessage {
                         role: "user".to_string(),
-                        content: "Continue : si la tâche n'est pas encore terminée et validée, appelle immédiatement le prochain outil nécessaire (par ex. `write_code` avec `stage_only: true` pour stager un fichier à la fois, `stage_only: false` pour lancer la validation finale, ou `read_file`/`grep_search`). Si la tâche est vraiment terminée et validée, donne ta réponse finale.".to_string(),
+                        content: "Continue : si la tâche n'est pas encore terminée et validée, sois bref et appelle immédiatement un seul outil ciblé (`shadow_check` pour compiler/tester dans la sandbox, `shadow_copy` pour dupliquer un fichier sans le réécrire, `write_code` avec `target`/`replacement` ou `stage_only: true` sur un fichier, puis `stage_only: false` pour la validation finale). Si la tâche est vraiment terminée et validée, donne ta réponse finale.".to_string(),
                         images: None,
                     });
                     continue;

@@ -388,6 +388,35 @@ pub fn get_governance_tools_schemas() -> Vec<Value> {
                     "required": ["failed_probe_id", "root_cause_analysis", "next_attempt_strategy", "request_type"]
                 }
             }
+        }),
+        serde_json::json!({
+            "type": "function",
+            "function": {
+                "name": "shadow_check",
+                "description": "Exécute rapidement `cargo check` / `cargo test` / `pytest` dans `.ide/shadow_worktree` sans fusionner ni consommer le budget d'échecs des sondes. Idéal pour itérer sur la compilation ou un test ciblé après `write_code(..., stage_only: true)`.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "filter": { "type": "string", "description": "Nom de test ou fichier optionnel à filtrer" },
+                        "check_only": { "type": "boolean", "description": "Si true (Rust), exécute uniquement `cargo check --all-targets` sans lancer les tests (défaut: false)" }
+                    }
+                }
+            }
+        }),
+        serde_json::json!({
+            "type": "function",
+            "function": {
+                "name": "shadow_copy",
+                "description": "Copie directement un fichier vers une nouvelle destination dans `.ide/shadow_worktree` sans charger son contenu dans le contexte LLM (économise les tokens et évite les erreurs de recopie).",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "from_path": { "type": "string", "description": "Chemin relatif source (cherché dans shadow_worktree puis workspace)" },
+                        "to_path": { "type": "string", "description": "Chemin relatif destination dans shadow_worktree" }
+                    },
+                    "required": ["from_path", "to_path"]
+                }
+            }
         })
     ]
 }

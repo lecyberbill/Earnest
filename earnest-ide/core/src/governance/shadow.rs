@@ -651,5 +651,91 @@ impl ShadowRunner {
             duration_ms: start.elapsed().as_millis(),
         })
     }
+
+    /// Liste les fichiers modifiés ou non suivis actuellement présents dans `.ide/shadow_worktree`.
+    pub fn list_shadow_staged_files(&self) -> Vec<String> {
+        if !self.shadow_path.exists() {
+            return Vec::new();
+        }
+        let Ok(out) = Command::new("git")
+            .args(["status", "--porcelain"])
+            .current_dir(&self.shadow_path)
+            .output()
+        else {
+            return Vec::new();
+        };
+        if !out.status.success() {
+            return Vec::new();
+        }
+        String::from_utf8_lossy(&out.stdout)
+            .lines()
+            .filter_map(|line| {
+                let trimmed = line.trim_end();
+                if trimmed.len() > 3 {
+                    Some(trimmed[3..].trim().replace('\\', "/"))
+                } else {
+                    None
+                }
+            })
+            .collect()
+    }
+
+    /// Exécute une vérification rapide (compile/test ciblé) dans `.ide/shadow_worktree`
+    /// sans fusionner ni compter comme un échec de sonde scellée.
+    pub fn run_shadow_check(&self, filter: Option<&str>, check_only: bool) -> Result<serde_json::Value, String> {
+        self.prepare_shadow_worktree()?;
+
+        let clean_filter = filter
+            .map(str::trim)
+            .filter(|s| !s.is_empty() && s.chars().all(|c| c.is_ascii_alphanumeric() || matches!(c, '_' | '-' | '.' | '/' | ':')));
+
+        let mut args_owned: Vec<String> = Vec::new();
+        let program: &str = if self.shadow_path.join("Cargo.toml").is_file() {
+            if check_only {
+                args_owned.extend(["check".to_string(), "--all-targets".to_string()]);
+            } else {
+                args_owned.extend(["test".to_string(), "--all-targets".to_string()]);
+                if let Some(f) = clean_filter {
+                    args_owned.push(f.to_string());
+                }
+            }
+            "cargo"
+        } else if self.shadow_path.join("pyproject.toml").is_file()
+            || self.shadow_path.join("pytest.ini").is_file()
+            || self.shadow_path.join("tests").is_dir()
+        {
+            args_owned.extend(["-m".to_string(), "pytest".to_string(), "-q".to_string()]);
+            if let Some(f) = clean_filter {
+                args_owned.push(f.to_string());
+            }
+            "python"
+        } else if self.shadow_path.join("go.mod").is_file() {
+            args_owned.extend(["test".to_string(), "./...".to_string()]);
+            "go"
+        } else {
+            return Err("Aucun projet Rust, Python ou Go détecté dans shadow_worktree.".to_string());
+        };
+
+        let mut cmd = Command::new(program);
+        cmd.args(&args_owned).current_dir(&self.shadow_path);
+        if program == "cargo" {
+            let shared_target = self.workspace_root.join(".ide").join("shadow_target");
+            cmd.env("CARGO_TARGET_DIR", &shared_target);
+        }
+
+        let cmd_display = format!("{} {}", program, args_owned.join(" "));
+        let out = cmd.output().map_err(|e| format!("Échec exécution '{}': {}", cmd_display, e))?;
+        let exit_code = out.status.code().unwrap_or(-1);
+        let stdout: String = String::from_utf8_lossy(&out.stdout).chars().take(8_000).collect();
+        let stderr: String = String::from_utf8_lossy(&out.stderr).chars().take(8_000).collect();
+
+        Ok(serde_json::json!({
+            "status": if out.status.success() { "ok" } else { "failed" },
+            "command": cmd_display,
+            "exit_code": exit_code,
+            "stdout": stdout,
+            "stderr": stderr,
+        }))
+    }
 }
 

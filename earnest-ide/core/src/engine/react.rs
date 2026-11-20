@@ -1316,6 +1316,9 @@ impl<'a> ReActEngine<'a> {
         let mut llm_budget = retry_budget::RetryBudget::new(10, 5);
         let mut last_tool_sig: Option<String> = None;
         let mut repeat_count: usize = 0;
+        let mut loop_detector = loop_detector::LoopDetector::new(
+            loop_detector::Config::new(24, 3, 5, 2).unwrap_or_default(),
+        );
         let mut empty_tool_nudges: usize = 0;
 
         for _ in 0..self.max_steps {
@@ -1480,6 +1483,10 @@ impl<'a> ReActEngine<'a> {
                 println!("  ⚡ [GOUVERNANCE IDE] {} {:?}", fn_name, fn_args);
                 push_live_log("TOOL", &format!("⚙ Appel {}({})", fn_name, context_trimmer::truncate_tool_output(&fn_args.to_string(), 180)));
                 let args_key = normalize_cache_args_key(&self.workspace_root, fn_args);
+                let mut hasher = std::collections::hash_map::DefaultHasher::new();
+                std::hash::Hash::hash(&args_key, &mut hasher);
+                let args_hash = std::hash::Hasher::finish(&hasher);
+                loop_detector.observe(fn_name, args_hash);
                 let sig = format!("{}:{}", fn_name, args_key);
                 if last_tool_sig.as_deref() == Some(&sig) {
                     repeat_count += 1;
@@ -1509,6 +1516,9 @@ impl<'a> ReActEngine<'a> {
                 if repeat_count >= 3 {
                     tool_output.push_str("\n\n[ANTI-LOOP] Attention : tu viens de répéter exactement le même appel 3 fois de suite. Change d'approche, passe à l'étape suivante ou conclus.");
                     repeat_count = 0;
+                } else if let loop_detector::Verdict::LoopDetected { rule, confidence } = loop_detector.evaluate() {
+                    tool_output.push_str(&format!("\n\n[ANTI-LOOP:{}] Motif répétitif ou cyclique détecté (score {}). Change d'approche ou passe à l'étape suivante.", rule, confidence));
+                    loop_detector.reset_progress();
                 }
 
                 if is_cacheable_read && interrupt_action.is_none() {
@@ -1518,7 +1528,8 @@ impl<'a> ReActEngine<'a> {
                         _ => None,
                     };
                     tool_cache.insert(fn_name, &args_key, tool_output.clone(), path_hint);
-                } else if matches!(fn_name.as_str(), "write_code" | "edit_file" | "write_file") {
+                } else if matches!(fn_name.as_str(), "write_code" | "edit_file" | "write_file" | "shadow_copy" | "shadow_validate_and_merge") {
+                    loop_detector.reset_progress();
                     if let Some(path) = fn_args["path"].as_str().or_else(|| fn_args["target_file"].as_str()) {
                         tool_cache.invalidate_path(path);
                     }

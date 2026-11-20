@@ -258,6 +258,9 @@ Quand ta mission est entièrement accomplie et vérifiée sur disque, fournis di
         let mut empty_tool_nudges: usize = 0;
         let mut last_tool_sig = String::new();
         let mut repeat_tool_count: usize = 0;
+        let mut loop_detector = loop_detector::LoopDetector::new(
+            loop_detector::Config::new(24, 3, 5, 2).unwrap_or_default(),
+        );
         let mut step_idx = 0usize;
         crate::llm::client::reset_cancel();
         loop {
@@ -332,6 +335,10 @@ Quand ta mission est entièrement accomplie et vérifiée sur disque, fournis di
                 push_live_log("TOOL", &format!("⚡ {} {}", fn_name, context_trimmer::truncate_tool_output(&fn_args.to_string(), 220)));
                 println!("  ⚡ [OUTIL RUST] {} {:?}", fn_name, fn_args);
                 let args_key = fn_args.to_string();
+                let mut hasher = std::collections::hash_map::DefaultHasher::new();
+                std::hash::Hash::hash(&args_key, &mut hasher);
+                let args_hash = std::hash::Hasher::finish(&hasher);
+                loop_detector.observe(fn_name, args_hash);
                 let sig = format!("{}:{}", fn_name, args_key);
                 if sig == last_tool_sig {
                     repeat_tool_count += 1;
@@ -361,6 +368,7 @@ Quand ta mission est entièrement accomplie et vérifiée sur disque, fournis di
                         c.insert(fn_name, &args_key, tool_output.clone(), path_hint);
                     }
                 } else if matches!(fn_name.as_str(), "store_memory" | "create_artifact" | "sandbox_exec" | "execute_terminal") {
+                    loop_detector.reset_progress();
                     if let Some(hint) = fn_args["path"].as_str().or_else(|| fn_args["key"].as_str()) {
                         if let Ok(mut c) = cache_mutex.lock() {
                             c.invalidate_path(hint);
@@ -390,6 +398,14 @@ Quand ta mission est entièrement accomplie et vérifiée sur disque, fournis di
                     content: "Attention [ANTI-LOOP] : tu viens d'appeler exactement le même outil avec les mêmes arguments 4 fois de suite. Change d'approche ou conclus ta mission.".to_string(),
                     images: None,
                 });
+            } else if let loop_detector::Verdict::LoopDetected { rule, confidence } = loop_detector.evaluate() {
+                push_live_log("WARN", &format!("🔁 [LOOP-DETECTOR] Règle '{}' déclenchée (score {}).", rule, confidence));
+                messages.push(ChatMessage {
+                    role: "user".to_string(),
+                    content: format!("Attention [ANTI-LOOP:{}] : motif répétitif ou cyclique détecté (score {}). Change de stratégie ou conclus.", rule, confidence),
+                    images: None,
+                });
+                loop_detector.reset_progress();
             }
         }
 

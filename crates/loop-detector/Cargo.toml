@@ -1,0 +1,8 @@
+[package]
+name = "loop-detector"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+name = "loop_detector"
+path = "src/lib.rs"

@@ -1,6 +1,7 @@
 use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::process::{Command, Stdio};
 use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
@@ -562,6 +563,52 @@ fn exec_action(ctx: &mut RuntimeCtx<'_>, step: &StepSpec) -> Result<Option<Value
                 None
             };
             Ok(Some(json!({ "size": meta.len(), "is_file": meta.is_file(), "sha256": hash })))
+        }
+        ActionSpec::SysExec { params } => {
+            let program = ctx.render_str(&params.program);
+            let args: Vec<String> = params.args.iter().map(|a| ctx.render_str(a)).collect();
+            if ctx.dry_run {
+                return Ok(Some(json!({
+                    "dry_run": true,
+                    "program": program,
+                    "args": args
+                })));
+            }
+            let mut cmd = Command::new(&program);
+            cmd.args(&args)
+                .stdin(Stdio::null())
+                .stdout(Stdio::piped())
+                .stderr(Stdio::piped());
+            if let Some(ref cwd) = params.cwd {
+                let rendered_cwd = ctx.render_str(cwd);
+                let p = Path::new(&rendered_cwd);
+                if tool_guard::path::is_system_sensitive(p) {
+                    return Err(format!("cwd système refusé : '{}'", rendered_cwd));
+                }
+                cmd.current_dir(p);
+            }
+            for (k, v) in &params.env {
+                cmd.env(k, ctx.render_str(v));
+            }
+            #[cfg(windows)]
+            {
+                use std::os::windows::process::CommandExt;
+                cmd.creation_flags(0x0800_0000);
+            }
+            let out = cmd
+                .output()
+                .map_err(|e| format!("sys.exec '{}': {}", program, e))?;
+            let code = out.status.code().unwrap_or(-1);
+            let stdout = ctx.sanitize(&String::from_utf8_lossy(&out.stdout));
+            let stderr = ctx.sanitize(&String::from_utf8_lossy(&out.stderr));
+            if !out.status.success() && !params.allow_non_zero {
+                return Err(format!("sys.exec '{}' exit {}: {}", program, code, stderr.trim()));
+            }
+            Ok(Some(json!({
+                "exit_code": code,
+                "stdout": stdout.trim_end(),
+                "stderr": stderr.trim_end()
+            })))
         }
         _ => Err("Action non implémentée dans le runtime local (Étape 2)".to_string()),
     }

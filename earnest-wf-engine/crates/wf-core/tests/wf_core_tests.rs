@@ -319,3 +319,43 @@ steps:
 
     let _ = std::fs::remove_dir_all(&tmp);
 }
+
+#[test]
+fn runtime_executes_sys_exec_in_dry_run_and_real_mode() {
+    let prog = if cfg!(windows) { "cmd" } else { "echo" };
+    let args = if cfg!(windows) {
+        r#"["/C", "echo", "hello_exec"]"#
+    } else {
+        r#"["hello_exec"]"#
+    };
+    let yaml = format!(
+        r#"
+version: "0.1"
+name: "exec_test"
+steps:
+  - id: run_cmd
+    action: sys.exec
+    params:
+      program: "{}"
+      args: {}
+"#,
+        prog, args
+    );
+    let spec = parse_workflow_yaml(&yaml).unwrap();
+    let dry = execute_workflow(
+        &spec,
+        ExecutionOptions {
+            dry_run: true,
+            ..Default::default()
+        },
+    )
+    .unwrap();
+    assert!(dry.success);
+    assert_eq!(dry.logs[0].output.as_ref().unwrap()["dry_run"], true);
+
+    let real = execute_workflow(&spec, ExecutionOptions::default()).unwrap();
+    assert!(real.success);
+    let out = real.logs[0].output.as_ref().unwrap();
+    assert_eq!(out["exit_code"], 0);
+    assert!(out["stdout"].as_str().unwrap().contains("hello_exec"));
+}

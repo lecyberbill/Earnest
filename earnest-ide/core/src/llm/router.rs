@@ -133,6 +133,9 @@ impl LLMRouter {
         let mut last_err = String::from("Aucun moteur configuré");
 
         for b in &self.backends {
+            if crate::llm::client::CANCEL_LLM.load(std::sync::atomic::Ordering::SeqCst) {
+                return Err("Run annulé par l'utilisateur.".to_string());
+            }
             let client = LLMClient::new(&b.provider_type, &b.base_url, &b.model, b.api_key.clone());
             
             // Circuit Breaker & Exponential Retry (jusqu'à 3 tentatives par backend)
@@ -144,10 +147,15 @@ impl LLMRouter {
                 match client.chat_completion_stream(messages, tools, think_effort, on_token) {
                     Ok(resp) => return Ok((resp, b.id.clone())),
                     Err(e) => {
+                        if crate::llm::client::CANCEL_LLM.load(std::sync::atomic::Ordering::SeqCst)
+                            || e.to_lowercase().contains("annulé")
+                        {
+                            return Err(e);
+                        }
                         attempts += 1;
                         last_err = format!("Moteur {} (tentative {}/{}) échoué: {}", b.name, attempts, max_retries + 1, e);
                         println!("  ⚠️ [LLM ROUTER] {}", last_err);
-                        if attempts > max_retries || e.contains("timed out") || e.contains("annulé") {
+                        if attempts > max_retries || e.contains("timed out") {
                             break;
                         }
                         std::thread::sleep(std::time::Duration::from_millis(backoff_ms));

@@ -97,7 +97,7 @@ if __name__ == '__main__':
 "#
         );
 
-        let mut child = Command::new(&self.interpreter_path)
+        let mut child = crate::hidden_command(&self.interpreter_path)
             .args(["-c", script_bridge])
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())

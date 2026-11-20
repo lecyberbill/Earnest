@@ -1231,7 +1231,7 @@ impl<'a> ReActEngine<'a> {
         F: FnMut(&str, usize, &str, Option<&str>, &str, &str),
     {
         if prompt.trim() == "/recall" {
-            let out = std::process::Command::new("git")
+            let out = crate::hidden_command("git")
                 .args(["checkout", "earnest-checkpoint-latest", "--", "."])
                 .current_dir(&self.workspace_root)
                 .output()
@@ -1709,19 +1709,19 @@ impl<'a> ReActEngine<'a> {
         if !self.workspace_root.join(".git").exists() {
             return;
         }
-        if let Ok(out) = std::process::Command::new("git")
+        if let Ok(out) = crate::hidden_command("git")
             .args(["stash", "create", "earnest-checkpoint"])
             .current_dir(&self.workspace_root)
             .output()
         {
             let hash = String::from_utf8_lossy(&out.stdout).trim().to_string();
             let target = if hash.is_empty() { "HEAD" } else { hash.as_str() };
-            let _ = std::process::Command::new("git")
+            let _ = crate::hidden_command("git")
                 .args(["tag", "-f", "earnest-checkpoint-latest", target])
                 .current_dir(&self.workspace_root)
                 .output();
             let ref_name = format!("refs/earnest/checkpoints/{}", run_id);
-            let _ = std::process::Command::new("git")
+            let _ = crate::hidden_command("git")
                 .args(["update-ref", &ref_name, target])
                 .current_dir(&self.workspace_root)
                 .output();
@@ -1739,9 +1739,9 @@ impl<'a> ReActEngine<'a> {
             let Some(cmd) = cmd_val.as_str() else { continue };
             println!("  🪝 [HOOK {}] {}", event, cmd);
             let status = if cfg!(target_os = "windows") {
-                std::process::Command::new("cmd").args(["/C", cmd]).current_dir(&self.workspace_root).status()
+                crate::hidden_command("cmd").args(["/C", cmd]).current_dir(&self.workspace_root).status()
             } else {
-                std::process::Command::new("sh").args(["-c", cmd]).current_dir(&self.workspace_root).status()
+                crate::hidden_command("sh").args(["-c", cmd]).current_dir(&self.workspace_root).status()
             };
             if let Ok(s) = status {
                 if !s.success() {

@@ -16,7 +16,7 @@ impl McpClient {
     }
 
     pub fn call_tool(&self, tool_name: &str, arguments: &Value) -> Result<Value, String> {
-        let mut child = Command::new(&self.command)
+        let mut child = crate::hidden_command(&self.command)
             .args(&self.args)
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())

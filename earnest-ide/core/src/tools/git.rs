@@ -2,7 +2,7 @@ use std::process::Command;
 use serde_json::Value;
 
 pub fn get_git_status(root_dir: &str) -> Result<Value, String> {
-    let output = Command::new("git")
+    let output = crate::hidden_command("git")
         .args(["status", "--porcelain=v1", "-b"])
         .current_dir(root_dir)
         .output()
@@ -51,7 +51,7 @@ pub fn get_git_status(root_dir: &str) -> Result<Value, String> {
 }
 
 pub fn get_git_diff(root_dir: &str, file_path: Option<&str>) -> Result<Value, String> {
-    let mut cmd = Command::new("git");
+    let mut cmd = crate::hidden_command("git");
     cmd.args(["diff", "HEAD"]);
     if let Some(fp) = file_path {
         if !fp.is_empty() {
@@ -71,7 +71,7 @@ pub fn get_git_diff(root_dir: &str, file_path: Option<&str>) -> Result<Value, St
 
 pub fn git_commit(root_dir: &str, message: &str) -> Result<Value, String> {
     // 1. git add -A
-    let add_out = Command::new("git")
+    let add_out = crate::hidden_command("git")
         .args(["add", "-A"])
         .current_dir(root_dir)
         .output()
@@ -82,7 +82,7 @@ pub fn git_commit(root_dir: &str, message: &str) -> Result<Value, String> {
     }
 
     // 2. git commit -m
-    let commit_out = Command::new("git")
+    let commit_out = crate::hidden_command("git")
         .args(["commit", "-m", message])
         .current_dir(root_dir)
         .output()

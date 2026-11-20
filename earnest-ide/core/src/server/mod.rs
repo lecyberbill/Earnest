@@ -361,7 +361,7 @@ fn handle_request(mut req: tiny_http::Request) {
             let ws_root = std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("."));
             let mut ids = Vec::new();
             if ws_root.join(".git").exists() {
-                if let Ok(out) = std::process::Command::new("git")
+                if let Ok(out) = crate::hidden_command("git")
                     .args(["for-each-ref", "--format=%(refname:short)", "refs/earnest/checkpoints/"])
                     .current_dir(&ws_root)
                     .output()
@@ -474,7 +474,7 @@ fn handle_request(mut req: tiny_http::Request) {
         }
 
         if path == "/api/ide/browse_folder" {
-            let output = std::process::Command::new("powershell")
+            let output = crate::hidden_command("powershell")
                 .args([
                     "-NoProfile",
                     "-STA",
@@ -1193,7 +1193,7 @@ Garde l'indentation appropriée.";
         }
 
         if path == "/api/ide/browse_folder" {
-            let output = std::process::Command::new("powershell")
+            let output = crate::hidden_command("powershell")
                 .args([
                     "-NoProfile",
                     "-STA",
@@ -1474,9 +1474,9 @@ Garde l'indentation appropriée.";
             }
 
             let out = if cfg!(target_os = "windows") {
-                std::process::Command::new("powershell").args(["-NoProfile", "-Command", cmd]).current_dir(&cur_cwd).output()
+                crate::hidden_command("powershell").args(["-NoProfile", "-Command", cmd]).current_dir(&cur_cwd).output()
             } else {
-                std::process::Command::new("sh").args(["-c", cmd]).current_dir(&cur_cwd).output()
+                crate::hidden_command("sh").args(["-c", cmd]).current_dir(&cur_cwd).output()
             };
             match out {
                 Ok(o) => {
@@ -1632,7 +1632,7 @@ Garde l'indentation appropriée.";
             let script_path = script_candidates.into_iter().find(|p| p.exists())
                 .unwrap_or_else(|| PathBuf::from("tests/validate_invariants.py"));
 
-            let output = std::process::Command::new(python_bin)
+            let output = crate::hidden_command(python_bin)
                 .arg(&script_path)
                 .current_dir(&root_path)
                 .output();
@@ -1684,7 +1684,7 @@ Garde l'indentation appropriée.";
             } else {
                 format!("refs/earnest/checkpoints/{}", run_id)
             };
-            let verify = std::process::Command::new("git")
+            let verify = crate::hidden_command("git")
                 .args(["rev-parse", "--verify", &target_ref])
                 .current_dir(&ws_root)
                 .output();
@@ -1699,7 +1699,7 @@ Garde l'indentation appropriée.";
                     return;
                 }
             };
-            let checkout = std::process::Command::new("git")
+            let checkout = crate::hidden_command("git")
                 .args(["checkout", &sha, "--", "."])
                 .current_dir(&ws_root)
                 .output();
@@ -1780,7 +1780,7 @@ Garde l'indentation appropriée.";
         }
 
         if path == "/api/ide/browse_folder" {
-            let output = std::process::Command::new("powershell")
+            let output = crate::hidden_command("powershell")
                 .args([
                     "-NoProfile",
                     "-STA",

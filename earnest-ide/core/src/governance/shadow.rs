@@ -46,7 +46,7 @@ impl ShadowRunner {
     fn ensure_initial_git_commit(&self) -> Result<(), String> {
         let git_dir = self.workspace_root.join(".git");
         if !git_dir.exists() {
-            let res = Command::new("git")
+            let res = crate::hidden_command("git")
                 .arg("init")
                 .current_dir(&self.workspace_root)
                 .output()
@@ -57,7 +57,7 @@ impl ShadowRunner {
         }
 
         // Vérifier si HEAD est valide
-        let head_check = Command::new("git")
+        let head_check = crate::hidden_command("git")
             .args(["rev-parse", "HEAD"])
             .current_dir(&self.workspace_root)
             .output();
@@ -65,7 +65,7 @@ impl ShadowRunner {
         let head_valid = head_check.map(|o| o.status.success()).unwrap_or(false);
         if !head_valid {
             // Créer un commit initial vide pour ancrer le dépôt
-            let _ = Command::new("git")
+            let _ = crate::hidden_command("git")
                 .args(["commit", "--allow-empty", "-m", "chore: initial commit for earnest governance shadow worktree"])
                 .current_dir(&self.workspace_root)
                 .output();
@@ -84,12 +84,12 @@ impl ShadowRunner {
                 fs::create_dir_all(parent).map_err(|e| e.to_string())?;
             }
             // Nettoie toute entrée orpheline dans .git/worktrees/ si le dossier a été supprimé
-            let _ = Command::new("git")
+            let _ = crate::hidden_command("git")
                 .args(["worktree", "prune"])
                 .current_dir(&self.workspace_root)
                 .output();
             let shadow_str = self.shadow_path.to_string_lossy();
-            let out = Command::new("git")
+            let out = crate::hidden_command("git")
                 .args(["worktree", "add", "--detach", &shadow_str, "HEAD"])
                 .current_dir(&self.workspace_root)
                 .output()
@@ -109,7 +109,7 @@ impl ShadowRunner {
     /// Copie les fichiers modifiés non-commités du workspace vers la sandbox (hors .git, .ide et fichiers déjà modifiés dans le shadow worktree)
     fn sync_active_changes_to_shadow(&self) -> Result<(), String> {
         let mut shadow_dirty = std::collections::HashSet::new();
-        if let Ok(sh_out) = Command::new("git")
+        if let Ok(sh_out) = crate::hidden_command("git")
             .args(["status", "--porcelain", "-uall"])
             .current_dir(&self.shadow_path)
             .output()
@@ -123,7 +123,7 @@ impl ShadowRunner {
             }
         }
 
-        let status_out = Command::new("git")
+        let status_out = crate::hidden_command("git")
             .args(["status", "--porcelain", "-uall"])
             .current_dir(&self.workspace_root)
             .output()
@@ -211,7 +211,7 @@ impl ShadowRunner {
             let tmp_patch = self.shadow_path.join(".ide_temp.patch");
             fs::write(&tmp_patch, patch_or_content).map_err(|e| e.to_string())?;
             let patch_str = tmp_patch.to_string_lossy();
-            let res = Command::new("git")
+            let res = crate::hidden_command("git")
                 .args(["apply", "--whitespace=nowarn", &patch_str])
                 .current_dir(&self.shadow_path)
                 .output();
@@ -306,13 +306,13 @@ impl ShadowRunner {
                 };
                 #[cfg(target_os = "windows")]
                 let mut cmd = {
-                    let mut c = Command::new("powershell");
+                    let mut c = crate::hidden_command("powershell");
                     c.args(["-NoProfile", "-NonInteractive", "-Command", &cmd_str]);
                     c
                 };
                 #[cfg(not(target_os = "windows"))]
                 let mut cmd = {
-                    let mut c = Command::new("sh");
+                    let mut c = crate::hidden_command("sh");
                     c.args(["-c", &cmd_str]);
                     c
                 };
@@ -477,7 +477,7 @@ impl ShadowRunner {
                 .map(|(p, _)| p.to_string())
                 .filter(|p| !p.is_empty())
                 .collect();
-            if let Ok(sh_out) = Command::new("git")
+            if let Ok(sh_out) = crate::hidden_command("git")
                 .args(["status", "--porcelain", "-uall"])
                 .current_dir(&self.shadow_path)
                 .output()
@@ -513,7 +513,7 @@ impl ShadowRunner {
             }
         } else {
             // Échec : Rollback en shadow, l'espace réel reste 100% intact
-            let _ = Command::new("git")
+            let _ = crate::hidden_command("git")
                 .args(["reset", "--hard", "HEAD"])
                 .current_dir(&self.shadow_path)
                 .output();
@@ -594,13 +594,13 @@ impl ShadowRunner {
         for (lang, cmd_str) in cmds {
             #[cfg(target_os = "windows")]
             let mut cmd = {
-                let mut c = Command::new("powershell");
+                let mut c = crate::hidden_command("powershell");
                 c.args(["-NoProfile", "-NonInteractive", "-Command", &cmd_str]);
                 c
             };
             #[cfg(not(target_os = "windows"))]
             let mut cmd = {
-                let mut c = Command::new("sh");
+                let mut c = crate::hidden_command("sh");
                 c.args(["-c", &cmd_str]);
                 c
             };
@@ -657,7 +657,7 @@ impl ShadowRunner {
         if !self.shadow_path.exists() {
             return Vec::new();
         }
-        let Ok(out) = Command::new("git")
+        let Ok(out) = crate::hidden_command("git")
             .args(["status", "--porcelain"])
             .current_dir(&self.shadow_path)
             .output()
@@ -716,7 +716,7 @@ impl ShadowRunner {
             return Err("Aucun projet Rust, Python ou Go détecté dans shadow_worktree.".to_string());
         };
 
-        let mut cmd = Command::new(program);
+        let mut cmd = crate::hidden_command(program);
         cmd.args(&args_owned).current_dir(&self.shadow_path);
         if program == "cargo" {
             let shared_target = self.workspace_root.join(".ide").join("shadow_target");

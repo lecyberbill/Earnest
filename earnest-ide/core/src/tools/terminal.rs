@@ -25,14 +25,14 @@ pub fn execute_terminal_in_dir(command: &str, _timeout_secs: u64, cwd: Option<&s
 
     #[cfg(target_os = "windows")]
     let mut cmd = {
-        let mut c = Command::new("powershell");
+        let mut c = crate::hidden_command("powershell");
         c.args(["-NoProfile", "-NonInteractive", "-Command", command]);
         c
     };
 
     #[cfg(not(target_os = "windows"))]
     let mut cmd = {
-        let mut c = Command::new("sh");
+        let mut c = crate::hidden_command("sh");
         c.args(["-c", command]);
         c
     };

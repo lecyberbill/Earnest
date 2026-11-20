@@ -14,7 +14,7 @@ pub fn run_project_diagnostics(root_dir: &str) -> Result<Value, String> {
             p.join("earnest-ide/core/Cargo.toml").to_string_lossy().to_string()
         };
 
-        if let Ok(output) = Command::new("cargo")
+        if let Ok(output) = crate::hidden_command("cargo")
             .args(["check", "--message-format=json", "--manifest-path", &manifest_path])
             .current_dir(root_dir)
             .output()

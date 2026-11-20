@@ -242,18 +242,50 @@ impl ShadowRunner {
                 let target_path = self.shadow_path.join(target_file);
                 let content = fs::read_to_string(&target_path).unwrap_or_default();
                 let query = probe.query.as_deref().unwrap_or("");
-                
-                // Vérification de présence des symboles demandés
+                let q_lower = query.to_lowercase();
+
                 let mut passed = true;
                 let mut err = None;
 
-                // Test heuristique AST : découpage des identifiants attendus
-                for token in query.split_whitespace() {
-                    let clean = token.trim_matches(|c| c == '\'' || c == '"' || c == ',' || c == '[' || c == ']');
-                    if clean.len() > 2 && !clean.ends_with(':') && !content.contains(clean) {
-                        passed = false;
-                        err = Some(format!("Symbole ou paramètre AST attendu non trouvé dans {}: '{}'", target_file, clean));
-                        break;
+                // Cas sémantique Cargo.toml : vérification réelle d'absence de dépendances externes
+                if target_file.ends_with("Cargo.toml")
+                    && (q_lower.contains("no_external_dep")
+                        || q_lower.contains("zero_dep")
+                        || q_lower.contains("std_only"))
+                {
+                    let mut in_deps = false;
+                    let mut current_section = "";
+                    for line in content.lines() {
+                        let trimmed = line.trim();
+                        if trimmed.is_empty() || trimmed.starts_with('#') {
+                            continue;
+                        }
+                        if trimmed.starts_with('[') && trimmed.ends_with(']') {
+                            current_section = trimmed;
+                            in_deps = matches!(
+                                trimmed,
+                                "[dependencies]" | "[dev-dependencies]" | "[build-dependencies]"
+                            );
+                            continue;
+                        }
+                        if in_deps {
+                            passed = false;
+                            err = Some(format!(
+                                "Dépendance externe détectée dans {} ({}): `{}`",
+                                target_file, current_section, trimmed
+                            ));
+                            break;
+                        }
+                    }
+                } else {
+                    // Test heuristique AST : découpage des identifiants attendus
+                    for token in query.split_whitespace() {
+                        let clean = token.trim_matches(|c| c == '\'' || c == '"' || c == ',' || c == '[' || c == ']');
+                        if clean.len() > 2 && !clean.ends_with(':') && !content.contains(clean) {
+                            passed = false;
+                            err = Some(format!("Symbole ou paramètre AST attendu non trouvé dans {}: '{}'", target_file, clean));
+                            break;
+                        }
                     }
                 }
 

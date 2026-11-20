@@ -210,9 +210,65 @@ pub fn tool_definitions() -> Vec<Value> {
                     "root_path": { "type": "string", "description": "Répertoire racine du projet" },
                     "contract_id": { "type": "string", "description": "Identifiant du contrat d'invariants (ex: 'contract_allocator')" },
                     "target_file": { "type": "string", "description": "Fichier source ciblé" },
-                    "patch": { "type": "string", "description": "Contenu complet ou diff unifié à appliquer" }
+                    "patch": { "type": "string", "description": "Contenu complet ou diff unifié à appliquer" },
+                    "stage_only": { "type": "boolean", "description": "Si true, écrit dans shadow_worktree sans lancer les sondes" }
                 },
                 "required": ["contract_id", "target_file", "patch"]
+            }
+        }),
+        json!({
+            "name": "ide_workspace_map",
+            "description": "Génère une carte compacte et priorisée du workspace (types avant fonctions, 1 ligne par fichier) via symbol-index.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "root_path": { "type": "string", "description": "Répertoire racine optionnel (défaut workspace)" },
+                    "max_files": { "type": "integer", "description": "Nombre max de fichiers (défaut 25)" },
+                    "max_symbols_per_file": { "type": "integer", "description": "Nombre max de symboles par fichier (défaut 8)" }
+                }
+            }
+        }),
+        json!({
+            "name": "ide_add_invariant",
+            "description": "Ajoute ou met à jour un contrat d'invariant plat dans .ide/invariants.json en Mode 3 Architecture.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "root_path": { "type": "string", "description": "Répertoire racine du projet (défaut workspace)" },
+                    "id": { "type": "string", "description": "Identifiant du contrat (ex: C1)" },
+                    "title": { "type": "string", "description": "Titre court" },
+                    "statement": { "type": "string", "description": "Exigence vérifiable du contrat" },
+                    "target_file": { "type": "string", "description": "Fichier cible" },
+                    "test_query": { "type": "string", "description": "Nom/motif du test vérifiant ce contrat" },
+                    "runner": { "type": "string", "description": "Runner: 'cargo_test' ou 'static'" },
+                    "criticality": { "type": "string", "description": "Criticité: high, medium, low" }
+                },
+                "required": ["id", "title", "statement", "target_file", "test_query"]
+            }
+        }),
+        json!({
+            "name": "ide_shadow_check",
+            "description": "Compile ou teste rapidement `.ide/shadow_worktree` sans fusionner ni toucher au projet réel.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "root_path": { "type": "string", "description": "Répertoire racine du projet" },
+                    "filter": { "type": "string", "description": "Filtre de test optionnel" },
+                    "check_only": { "type": "boolean", "description": "Si true (Rust), exécute uniquement cargo check --all-targets" }
+                }
+            }
+        }),
+        json!({
+            "name": "ide_shadow_validate_and_merge",
+            "description": "Valide les fichiers déjà stagés dans `.ide/shadow_worktree` contre le contrat scellé et les fusionne dans le projet réel sans réécrire de patch.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "root_path": { "type": "string", "description": "Répertoire racine du projet" },
+                    "contract_id": { "type": "string", "description": "Identifiant du contrat d'invariants à valider" },
+                    "target_file": { "type": "string", "description": "Fichier cible optionnel (défaut: target_file du contrat)" }
+                },
+                "required": ["contract_id"]
             }
         }),
 
@@ -368,8 +424,104 @@ impl McpServer {
                     .ok_or_else(|| format!("Contrat d'invariants '{}' introuvable", contract_id))?;
 
                 let runner = ShadowRunner::new(&r, &policy.shadow_env.path, policy.shadow_env.timeout_ms);
+                if args["stage_only"].as_bool().unwrap_or(false) {
+                    runner.prepare_shadow_worktree()?;
+                    let rel = ShadowRunner::normalize_rel_path(&r, target_file)?;
+                    let dest = r.join(&policy.shadow_env.path).join(&rel);
+                    if let Some(parent) = dest.parent() { std::fs::create_dir_all(parent).ok(); }
+                    std::fs::write(&dest, patch).map_err(|e| e.to_string())?;
+                    return Ok(json!({
+                        "status": "STAGED",
+                        "staged_file": rel,
+                        "message": "Fichier écrit dans shadow_worktree. Utilisez ide_shadow_check ou ide_shadow_validate_and_merge."
+                    }));
+                }
                 let result = runner.execute_contract_patch(&contract, target_file, patch);
 
+                Ok(json!({
+                    "success": result.success,
+                    "contract_id": result.contract_id,
+                    "merged_to_workspace": result.merged_to_workspace,
+                    "failure_reason": result.failure_reason,
+                    "probes": result.probes
+                }))
+            }
+            "ide_workspace_map" => {
+                let r = args["root_path"].as_str().map(|s| self.resolve_path(s)).unwrap_or_else(|| self.workspace_root.clone());
+                let max_files = args["max_files"].as_u64().unwrap_or(25).clamp(1, 100) as usize;
+                let max_symbols = args["max_symbols_per_file"].as_u64().unwrap_or(8).clamp(1, 30) as usize;
+                let map = symbol_index::workspace_map(&r, max_files, max_symbols).map_err(|e| e.to_string())?;
+                Ok(json!({"status": "ok", "map": map}))
+            }
+            "ide_add_invariant" => {
+                let r = args["root_path"].as_str().map(|s| self.resolve_path(s)).unwrap_or_else(|| self.workspace_root.clone());
+                let pm = PolicyManager::new(&r);
+                let policy = pm.load_or_init(None).unwrap_or_default();
+                let inv_path = r.join(&policy.invariants_file);
+                if let Some(parent) = inv_path.parent() { std::fs::create_dir_all(parent).ok(); }
+                let mut inv_val: Value = std::fs::read_to_string(&inv_path)
+                    .ok()
+                    .and_then(|s| serde_json::from_str(&s).ok())
+                    .unwrap_or_else(|| json!({
+                        "schema_version": "1.0",
+                        "project_id": r.file_name().and_then(|n| n.to_str()).unwrap_or("project"),
+                        "contracts": []
+                    }));
+                let existing_len = inv_val["contracts"].as_array().map(|a| a.len()).unwrap_or(0);
+                let cid = args["id"].as_str().filter(|s| !s.is_empty()).map(|s| s.to_string()).unwrap_or_else(|| format!("C{}", existing_len + 1));
+                let title = args["title"].as_str().unwrap_or(&cid);
+                let statement = args["statement"].as_str().unwrap_or(title);
+                let target_file = args["target_file"].as_str().unwrap_or("src/lib.rs");
+                let test_query = args["test_query"].as_str().unwrap_or(title);
+                let runner = args["runner"].as_str().filter(|x| *x == "cargo_test" || *x == "static").unwrap_or("cargo_test");
+                let criticality = args["criticality"].as_str().unwrap_or("high");
+                let contract = json!({
+                    "id": cid,
+                    "title": title,
+                    "statement": statement,
+                    "criticality": criticality,
+                    "target_file": target_file,
+                    "probes": [{
+                        "probe_id": format!("{}-P1", cid),
+                        "runner": runner,
+                        "query": test_query,
+                        "command": Value::Null,
+                        "expect": "pass"
+                    }]
+                });
+                if let Some(arr) = inv_val.get_mut("contracts").and_then(|c| c.as_array_mut()) {
+                    if let Some(pos) = arr.iter().position(|c| c["id"].as_str() == Some(cid.as_str())) {
+                        arr[pos] = contract;
+                    } else {
+                        arr.push(contract);
+                    }
+                }
+                let total = inv_val["contracts"].as_array().map(|a| a.len()).unwrap_or(0);
+                std::fs::write(&inv_path, serde_json::to_string_pretty(&inv_val).unwrap_or_default()).map_err(|e| e.to_string())?;
+                Ok(json!({"status": "ok", "contract_id": cid, "total_contracts": total}))
+            }
+            "ide_shadow_check" => {
+                let r = args["root_path"].as_str().map(|s| self.resolve_path(s)).unwrap_or_else(|| self.workspace_root.clone());
+                let pm = PolicyManager::new(&r);
+                let policy = pm.load_or_init(None).unwrap_or_default();
+                let runner = ShadowRunner::new(&r, &policy.shadow_env.path, policy.shadow_env.timeout_ms);
+                runner.run_shadow_check(args["filter"].as_str(), args["check_only"].as_bool().unwrap_or(false))
+            }
+            "ide_shadow_validate_and_merge" => {
+                let r = args["root_path"].as_str().map(|s| self.resolve_path(s)).unwrap_or_else(|| self.workspace_root.clone());
+                let contract_id = args["contract_id"].as_str().unwrap_or("");
+                let pm = PolicyManager::new(&r);
+                let policy = pm.load_or_init(None).unwrap_or_default();
+                verify_invariants_lock(&r, &policy.invariants_file, &policy.lock_file)
+                    .map_err(|e| format!("Arrêt : Violation de l'intégrité du scellement d'invariants : {}", e))?;
+                let inv_content = std::fs::read_to_string(r.join(&policy.invariants_file)).map_err(|e| e.to_string())?;
+                let inv_file: InvariantsFile = serde_json::from_str(&inv_content).map_err(|e| e.to_string())?;
+                let contract = inv_file.contracts.into_iter().find(|c| c.id == contract_id)
+                    .ok_or_else(|| format!("Contrat d'invariants '{}' introuvable", contract_id))?;
+                let raw_target = args["target_file"].as_str().unwrap_or(&contract.target_file);
+                let rel_target = ShadowRunner::normalize_rel_path(&r, raw_target)?;
+                let runner = ShadowRunner::new(&r, &policy.shadow_env.path, policy.shadow_env.timeout_ms);
+                let result = runner.execute_contract_patches(&contract, &[], &rel_target);
                 Ok(json!({
                     "success": result.success,
                     "contract_id": result.contract_id,

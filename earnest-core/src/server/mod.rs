@@ -980,6 +980,50 @@ fn handle_request(mut req: tiny_http::Request) {
             return;
         }
 
+        if path == "/api/pipeline/run" {
+            let proj_id = body["project_id"].as_str().unwrap_or("default_workspace");
+            let max_steps = body["max_steps"].as_u64().unwrap_or(20) as usize;
+            let max_concurrency = body["max_concurrency"].as_u64().unwrap_or(1) as usize;
+            let specs: Vec<crate::engine::pipeline::PipelineTaskSpec> = match serde_json::from_value(body["tasks"].clone()) {
+                Ok(s) => s,
+                Err(e) => {
+                    let resp = Response::from_string(serde_json::json!({"status": "error", "error": format!("Format tasks invalide: {}", e)}).to_string())
+                        .with_status_code(400)
+                        .with_header(json_header)
+                        .with_header(cors_header);
+                    req.respond(resp).ok();
+                    return;
+                }
+            };
+            let conn = get_connection(None).unwrap();
+            let router = LLMRouter::from_db(&conn);
+            let mut engine = ReActEngine::new(&conn, &router, proj_id);
+            engine.max_steps = max_steps;
+            match crate::engine::pipeline::execute_dag_pipeline(&specs, max_concurrency, |spec, upstream_ctx| {
+                let full_prompt = if upstream_ctx.is_empty() {
+                    spec.prompt.clone()
+                } else {
+                    format!("{}\n\n[Contexte amont]{}", spec.prompt, upstream_ctx)
+                };
+                engine.run(&full_prompt).map(|r| r.answer)
+            }) {
+                Ok(report) => {
+                    let resp = Response::from_string(serde_json::json!({"status": "ok", "report": report}).to_string())
+                        .with_header(json_header)
+                        .with_header(cors_header);
+                    req.respond(resp).ok();
+                }
+                Err(e) => {
+                    let resp = Response::from_string(serde_json::json!({"status": "error", "error": e}).to_string())
+                        .with_status_code(400)
+                        .with_header(json_header)
+                        .with_header(cors_header);
+                    req.respond(resp).ok();
+                }
+            }
+            return;
+        }
+
         // Endpoint générique OK pour les actions HITL / Abort
         if path == "/api/run/abort" {
             crate::llm::client::request_cancel();

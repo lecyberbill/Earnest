@@ -1,0 +1,547 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Portage Earnest Mode 3 / Mode 2 + BCPE — Claude Code vs VS Code Copilot vs Cursor</title>
+<style>
+  :root{
+    --bg:#0d1117; --panel:#161b22; --panel2:#1c2430; --line:#30363d;
+    --fg:#e6edf3; --muted:#9aa7b4; --accent:#58a6ff; --accent2:#3fb950;
+    --warn:#d29922; --bad:#f85149; --purple:#bc8cff;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--fg);
+       font-family:"Segoe UI",Roboto,Helvetica,Arial,sans-serif;line-height:1.6}
+  header{padding:2.2rem 1.5rem 1.6rem;border-bottom:1px solid var(--line);
+         background:linear-gradient(180deg,#111823,#0d1117)}
+  h1{margin:0 0 .4rem;font-size:1.75rem;letter-spacing:-.02em}
+  h1 span{color:var(--accent)}
+  .sub{color:var(--muted);font-size:.95rem;max-width:70ch}
+  main{max-width:1180px;margin:0 auto;padding:1.6rem 1.5rem 4rem}
+  h2{margin-top:2.4rem;font-size:1.3rem;border-left:4px solid var(--accent);
+     padding-left:.6rem}
+  h3{margin-top:1.6rem;font-size:1.05rem;color:var(--accent2)}
+  p,li{font-size:.94rem}
+  code{background:#0b1017;border:1px solid var(--line);border-radius:4px;
+       padding:.08em .35em;font-family:Consolas,"Cascadia Mono",monospace;
+       font-size:.86em;color:#a5d6ff}
+  pre{background:#0b1017;border:1px solid var(--line);border-radius:8px;
+      padding:.9rem 1rem;overflow-x:auto;font-size:.82rem}
+  pre code{background:none;border:none;padding:0;color:#c9d1d9}
+  table{width:100%;border-collapse:collapse;margin:1rem 0;font-size:.86rem}
+  th,td{border:1px solid var(--line);padding:.5rem .6rem;vertical-align:top;text-align:left}
+  th{background:var(--panel2);color:var(--accent);font-weight:600}
+  tbody tr:nth-child(even){background:#12181f}
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:10px;
+        padding:1rem 1.2rem;margin:1rem 0}
+  .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:1rem}
+  .tag{display:inline-block;font-size:.72rem;padding:.1rem .5rem;border-radius:999px;
+       border:1px solid var(--line);margin-right:.3rem;color:var(--muted)}
+  .ok{color:var(--accent2);font-weight:600}
+  .no{color:var(--bad);font-weight:600}
+  .part{color:var(--warn);font-weight:600}
+  .note{border-left:3px solid var(--warn);background:#1a1608;padding:.7rem 1rem;
+        border-radius:0 8px 8px 0;font-size:.88rem}
+  .flow{display:flex;flex-wrap:wrap;gap:.5rem;align-items:center;margin:1rem 0}
+  .step{background:var(--panel2);border:1px solid var(--line);border-radius:8px;
+        padding:.5rem .8rem;font-size:.82rem}
+  .arrow{color:var(--accent);font-weight:700}
+  footer{border-top:1px solid var(--line);padding:1.2rem 1.5rem;color:var(--muted);
+         font-size:.8rem;text-align:center}
+</style>
+</head>
+<body>
+<header>
+  <h1>Porter <span>Earnest Mode 3 / Mode 2 + BCPE</span> sur Claude Code, VS Code Copilot et Cursor</h1>
+  <p class="sub">État des lieux des mécanismes d'extension (MCP servers, hooks PreToolUse, rules/skills)
+  et matrice de portage du workflow Spec-First d'Earnest (invariants scellés SHA-256, shadow worktree,
+  base de connaissances d'expérience) vers les trois harnais agentiques majeurs.</p>
+  <div style="margin-top:.8rem">
+    <span class="tag">MCP</span><span class="tag">Hooks</span><span class="tag">Skills</span>
+    <span class="tag">Rules</span><span class="tag">Invariants</span><span class="tag">BCPE</span>
+  </div>
+</header>
+<main>
+
+<h2>1. Rappel du workflow à porter</h2>
+<div class="card">
+  <p><strong>Mode 3 — Spec-First / Architecture.</strong> L'agent (ou l'humain) conçoit la spec et
+  déclare des <em>invariants</em> (contrats C1..Cn) accompagnés de <em>probes polymorphes</em>
+  (inspection AST statique + tests dynamiques CLI). Les invariants sont sérialisés dans
+  <code>.ide/invariants.json</code>, hachés en SHA-256 et scellés dans <code>.ide/invariants.lock</code>
+  en lecture seule (<code>0o444</code>). Aucune mutation sans sign-off humain.</p>
+  <p><strong>Mode 2 — Implémentation contrainte / Shadow Worktree.</strong> Chaque patch candidat est
+  appliqué dans un worktree git isolé (<code>.ide/shadow_worktree</code>), compilé et testé.
+  La fusion atomique vers l'arbre de travail réel n'a lieu que si <strong>100 % des probes passent</strong> ;
+  sinon le patch est rejeté avec trace, l'arbre réel reste intact.</p>
+  <p><strong>BCPE — Base de Connaissances d'Expérience.</strong> Serveur MCP stdio (<code>kb serve</code>,
+  SQLite + FTS5) exposant <code>kb_search</code>, <code>kb_get</code>, <code>kb_check</code>,
+  <code>kb_report_incident</code>, <code>kb_propose</code>, <code>kb_record_outcome</code>,
+  <code>kb_confirm</code>, <code>kb_attach_repro</code>. Interrogée en Mode 3 pour éviter de reproduire
+  des erreurs d'architecture connues ; alimentée en Mode 2 par les incidents observés. Le texte d'une
+  entrée est une <em>donnée</em>, jamais une instruction.</p>
+</div>
+
+<div class="flow">
+  <div class="step">Mode 3 : spec + invariants</div><span class="arrow">?</span>
+  <div class="step">Scellement SHA-256 (0444)</div><span class="arrow">?</span>
+  <div class="step">Mode 2 : patch en shadow worktree</div><span class="arrow">?</span>
+  <div class="step">Probes AST + tests</div><span class="arrow">?</span>
+  <div class="step">Merge atomique si 100 % PASS</div><span class="arrow">?</span>
+  <div class="step">BCPE : incident / confirmation</div>
+</div>
+
+<h2>2. Claude Code — mécanismes d'extension</h2>
+<h3>2.1 MCP servers</h3>
+<p>Configuration via <code>claude mcp add</code> ou fichiers JSON : <code>.mcp.json</code> (scope projet,
+versionnable), <code>~/.claude.json</code> (scope user), scopes locaux, et serveurs fournis par plugin.
+Transports : <code>http</code> (alias <code>streamable-http</code>, recommandé pour le distant),
+<code>sse</code>, <code>ws</code>, <code>stdio</code>. Une entrée avec <code>url</code> mais sans
+<code>type</code> est une erreur de configuration (interprétée comme stdio). Expansion de variables
+d'environnement supportée dans <code>.mcp.json</code>. Les outils apparaissent sous la forme
+<code>mcp__&lt;serveur&gt;__&lt;outil&gt;</code>.</p>
+<pre><code>{
+  "mcpServers": {
+    "bcpe": {
+      "type": "stdio",
+      "command": "/path/to/Ernest/earnest-bcpe/target/release/kb.exe",
+      "args": ["serve", "--db", "/path/to/Ernest/earnest-bcpe\\kb.db"]
+    }
+  }
+}</code></pre>
+
+<h3>2.2 Hooks — dont <code>PreToolUse</code></h3>
+<p>Les hooks sont des commandes shell, endpoints HTTP, appels d'outils MCP, prompts LLM ou sous-agents
+exécutés automatiquement à des points du cycle de vie. Ils se déclarent dans les settings
+(<code>~/.claude/settings.json</code>, <code>.claude/settings.json</code>) ou via un plugin.
+Événements clés : <code>SessionStart</code>, <code>UserPromptSubmit</code>, <code>PreToolUse</code>,
+<code>PermissionRequest</code>, <code>PostToolUse</code>, <code>PostToolUseFailure</code>,
+<code>SubagentStart/Stop</code>, <code>PreCompact</code>, <code>Stop</code>, <code>SessionEnd</code>,
+<code>InstructionsLoaded</code>, <code>FileChanged</code>, <code>PreModelSwitch</code>…</p>
+<p><strong><code>PreToolUse</code></strong> reçoit sur stdin un JSON décrivant l'appel
+(<code>tool_name</code>, <code>tool_input</code>) et peut renvoyer une décision de permission
+(<code>allow</code> / <code>deny</code> / <code>ask</code>) avec un motif. Un <em>matcher</em> filtre
+par nom d'outil (regex, ex. <code>Bash|PowerShell</code>, <code>mcp__bcpe__.*</code>) et une condition
+<code>if</code> affine par sous-commande (<code>Bash(rm *)</code>). Code de sortie 2 = blocage avec
+message remonté au modèle.</p>
+<pre><code>{
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Write|Edit|MultiEdit",
+        "hooks": [
+          { "type": "command",
+            "command": "powershell.exe",
+            "args": ["-NoProfile","-ExecutionPolicy","Bypass","-File",
+                     "${CLAUDE_PROJECT_DIR}/.claude/hooks/guard-invariants.ps1"] }
+        ]
+      }
+    ]
+  }
+}</code></pre>
+<p>Le script lit le JSON sur stdin, vérifie si la cible est sous <code>.ide/invariants.lock</code> ou
+<code>.ide/invariants.json</code> et renvoie :</p>
+<pre><code>{"hookSpecificOutput":{"hookEventName":"PreToolUse",
+ "permissionDecision":"deny",
+ "permissionDecisionReason":"Invariants scelles (SHA-256, 0444) : mutation interdite en Mode 2"}}</code></pre>
+<p>Variantes utiles : hooks <em>prompt-based</em> (un LLM juge la condition), hooks <em>agent-based</em>
+(un sous-agent instruit), hooks HTTP, hooks asynchrones en arrière-plan, et hooks déclarés dans les
+skills/agents (avec limites).</p>
+
+<h3>2.3 Skills et rules</h3>
+<p><strong>Skills</strong> : dossier <code>.claude/skills/&lt;nom&gt;/SKILL.md</code> avec frontmatter
+(<code>name</code>, <code>description</code>, <code>allowed-tools</code>, <code>disable-model-invocation</code>…).
+Le corps ne charge qu'à l'usage (coût de contexte quasi nul au repos). Invocation par
+<code>/nom</code> ou automatique. Supporte fichiers annexes, injection de contexte dynamique
+(<code>!`commande`</code>), exécution en sous-agent, arguments. Les anciennes
+<code>.claude/commands/</code> sont fusionnées dans les skills. Claude Code suit le standard ouvert
+<em>Agent Skills</em> avec des extensions propriétaires.</p>
+<p><strong>Rules</strong> : <code>CLAUDE.md</code> (toujours chargé) et <code>.claude/rules/*.md</code>
+(chargés à la demande, événement <code>InstructionsLoaded</code>).</p>
+<h2 id="s3">3. VS Code Copilot &mdash; m&eacute;canismes d'extension</h2>
+<div class="grid">
+  <div class="card">
+    <h3>MCP servers</h3>
+    <ul>
+      <li>Configuration dans <code>.vscode/mcp.json</code> (workspace) ou dans les settings utilisateur ; cl&eacute; racine <code>servers</code>.</li>
+      <li>Transports : <code>stdio</code>, <code>http</code>, <code>sse</code>.</li>
+      <li>Secrets via <code>inputs</code> + <code>${input:id}</code> : jamais de token en clair dans le fichier versionn&eacute;.</li>
+      <li>D&eacute;couverte via le <em>MCP registry</em> et la commande <code>MCP: Add Server</code>.</li>
+      <li>Outils expos&eacute;s dans le picker d'outils et r&eacute;f&eacute;renc&eacute;s par <code>#tool</code> dans le chat.</li>
+      <li>Approbations par outil et sandboxing de l'agent (<em>Approvals and Permissions</em>).</li>
+    </ul>
+  </div>
+  <div class="card">
+    <h3>Agent hooks (preview)</h3>
+    <ul>
+      <li>Fichiers <code>.github/hooks/*.json</code> (workspace) ou dossier utilisateur ; &eacute;dition via l'<em>Agent Customizations editor</em>.</li>
+      <li>Format : <code>{"version":1,"hooks":{"preToolUse":[{"type":"command","command":"..."}]}}</code>.</li>
+      <li>&Eacute;v&eacute;nements en camelCase : <code>preToolUse</code>, <code>postToolUse</code>, <code>sessionStart</code>, <code>sessionEnd</code>, <code>userPromptSubmit</code>, <code>stop</code>.</li>
+      <li>Payload JSON sur stdin, r&eacute;ponse JSON sur stdout (allow/deny, contexte additionnel).</li>
+      <li>Harnais multiples : <em>Copilot</em> (partag&eacute; avec Copilot CLI et l'app GitHub Copilot), <em>Claude</em>, <em>Codex</em> &mdash; chacun avec son propre sch&eacute;ma.</li>
+      <li>Harnais <em>Local</em> d&eacute;pr&eacute;ci&eacute; (retrait annonc&eacute; f&eacute;vrier 2027).</li>
+      <li>Hooks <em>agent-scoped</em> d&eacute;clar&eacute;s dans les fichiers d'agents personnalis&eacute;s.</li>
+      <li>Restrictions possibles via les managed settings d'entreprise.</li>
+    </ul>
+  </div>
+  <div class="card">
+    <h3>Instructions / Skills / Agents</h3>
+    <ul>
+      <li><code>.github/copilot-instructions.md</code> : instructions projet toujours charg&eacute;es.</li>
+      <li><code>*.instructions.md</code> avec frontmatter <code>applyTo</code> (globs) : application cibl&eacute;e par fichiers.</li>
+      <li><code>AGENTS.md</code> support&eacute;.</li>
+      <li><strong>Agent Skills</strong> : dossiers <code>SKILL.md</code>, standard ouvert ; emplacements <code>.github/skills/</code>, <code>.claude/skills/</code>, <code>~/.copilot/skills/</code>.</li>
+      <li>Prompt files <code>.prompt.md</code> invoqu&eacute;s par <code>/nom</code>.</li>
+      <li>Custom agents <code>.github/agents/*.agent.md</code> (outils, mod&egrave;le, instructions).</li>
+      <li>Agent Plugins (marketplace) pouvant embarquer skills, hooks et serveurs MCP.</li>
+    </ul>
+  </div>
+</div>
+
+<h2 id="s4">4. Cursor &mdash; m&eacute;canismes d'extension</h2>
+<div class="grid">
+  <div class="card">
+    <h3>MCP servers</h3>
+    <ul>
+      <li>Configuration dans <code>.cursor/mcp.json</code> (projet) ou <code>~/.cursor/mcp.json</code> (global) ; cl&eacute; <code>mcpServers</code>.</li>
+      <li>Transports : <code>stdio</code>, <code>SSE</code>, <code>Streamable HTTP</code>.</li>
+      <li>Capacit&eacute;s : tools, prompts, resources, roots, elicitation, <strong>MCP Apps</strong> (UI interactive retourn&eacute;e par un outil).</li>
+      <li>OAuth statique (<code>auth.CLIENT_ID</code> / <code>CLIENT_SECRET</code>) ou enregistrement dynamique ; redirects fixes <code>http://localhost:8787/callback</code> et <code>https://www.cursor.com/agents/mcp/oauth/callback</code>.</li>
+      <li>Interpolation <code>${env:VAR}</code> pour les secrets.</li>
+      <li>Marketplace Cursor + <code>cursor.directory</code> ; distribution team/enterprise.</li>
+      <li>En cloud, les outils MCP apparaissent sous <code>MCP:&lt;tool_name&gt;</code>.</li>
+    </ul>
+  </div>
+  <div class="card">
+    <h3>Hooks</h3>
+    <ul>
+      <li>Fichiers <code>.cursor/hooks.json</code> (projet) ou <code>~/.cursor/hooks.json</code> (utilisateur) ; rechargement automatique.</li>
+      <li>Processus spawn&eacute;s, JSON bidirectionnel sur stdio.</li>
+      <li>Hooks agent : <code>sessionStart</code>, <code>sessionEnd</code>, <code>preToolUse</code>, <code>postToolUse</code>, <code>postToolUseFailure</code>, <code>subagentStart</code>, <code>subagentStop</code>, <code>beforeShellExecution</code>, <code>afterShellExecution</code>, <code>beforeMCPExecution</code>, <code>afterMCPExecution</code>, <code>beforeReadFile</code>, <code>afterFileEdit</code>, <code>beforeSubmitPrompt</code>, <code>preCompact</code>, <code>stop</code>, <code>afterAgentResponse</code>, <code>afterAgentThought</code>.</li>
+      <li>Hooks Tab : <code>beforeTabFileRead</code>, <code>afterTabFileEdit</code>. Hook applicatif : <code>workspaceOpen</code>.</li>
+      <li>Types : <code>command</code> (d&eacute;faut) et <code>prompt</code> (&eacute;valu&eacute; par un LLM).</li>
+      <li>Windows : ex&eacute;cution via PowerShell, JSON lu depuis <code>$input</code>.</li>
+      <li><strong>Compatibilit&eacute; hooks Claude Code</strong> (Third Party Hooks) : r&eacute;utilisation directe possible.</li>
+      <li>Cloud agents : hooks projet/team/enterprise uniquement (pas de hooks utilisateur).</li>
+    </ul>
+  </div>
+  <div class="card">
+    <h3>Rules / Skills / Subagents</h3>
+    <ul>
+      <li><strong>Project Rules</strong> : <code>.cursor/rules/*.mdc</code> avec frontmatter <code>description</code>, <code>globs</code>, <code>alwaysApply</code>.</li>
+      <li>4 modes : Always Apply / Apply Intelligently / Apply to Specific Files / Apply Manually (<code>@rule</code>).</li>
+      <li><strong>User Rules</strong> (globales), <strong>Team Rules</strong> (dashboard, Team/Enterprise), <code>AGENTS.md</code>.</li>
+      <li><strong>Agent Skills</strong> : <code>.cursor/skills/</code>, <code>.agents/skills/</code>, <code>~/.cursor/skills/</code>, <code>~/.agents/skills/</code> &mdash; et compatibilit&eacute; <code>.claude/skills/</code>, <code>.codex/skills/</code>.</li>
+      <li>Skills imbriqu&eacute;s par sous-dossier, scop&eacute;s automatiquement au r&eacute;pertoire.</li>
+      <li>Subagents (<code>/create-subagent</code>), Custom Modes, Plugins.</li>
+      <li>Skills int&eacute;gr&eacute;s : <code>/create-rule</code>, <code>/create-hook</code>, <code>/create-skill</code>, <code>/migrate-to-skills</code>.</li>
+    </ul>
+  </div>
+</div>
+
+<h2 id="s5">5. Tableau comparatif synth&eacute;tique</h2>
+<div class="tablewrap">
+<table>
+<thead>
+<tr><th>Capacit&eacute;</th><th>Claude Code</th><th>VS Code Copilot</th><th>Cursor</th></tr>
+</thead>
+<tbody>
+<tr>
+  <td><strong>Serveurs MCP &mdash; fichier</strong></td>
+  <td><code>.mcp.json</code> (projet), <code>~/.claude.json</code> (user)</td>
+  <td><code>.vscode/mcp.json</code> (cl&eacute; <code>servers</code>)</td>
+  <td><code>.cursor/mcp.json</code> (cl&eacute; <code>mcpServers</code>)</td>
+</tr>
+<tr>
+  <td><strong>Transports MCP</strong></td>
+  <td>stdio, http/streamable-http, sse, ws</td>
+  <td>stdio, http, sse</td>
+  <td>stdio, SSE, Streamable HTTP</td>
+</tr>
+<tr>
+  <td><strong>Secrets MCP</strong></td>
+  <td><code>${VAR}</code>, <code>${VAR:-def}</code>, <code>headersHelper</code></td>
+  <td><code>inputs</code> + <code>${input:id}</code></td>
+  <td><code>${env:VAR}</code>, <code>auth.CLIENT_ID</code></td>
+</tr>
+<tr>
+  <td><strong>Hook pr&eacute;-outil</strong></td>
+  <td><code>PreToolUse</code> (matcher + <code>if</code>)</td>
+  <td><code>preToolUse</code> (camelCase)</td>
+  <td><code>preToolUse</code> + <code>beforeShellExecution</code> / <code>beforeMCPExecution</code></td>
+</tr>
+<tr>
+  <td><strong>Hook post-outil</strong></td>
+  <td><code>PostToolUse</code>, <code>PostToolUseFailure</code>, <code>PostToolBatch</code></td>
+  <td><code>postToolUse</code></td>
+  <td><code>postToolUse</code>, <code>postToolUseFailure</code>, <code>afterFileEdit</code></td>
+</tr>
+<tr>
+  <td><strong>Hook de session</strong></td>
+  <td><code>SessionStart</code>, <code>SessionEnd</code>, <code>Setup</code></td>
+  <td><code>sessionStart</code>, <code>sessionEnd</code></td>
+  <td><code>sessionStart</code>, <code>sessionEnd</code>, <code>workspaceOpen</code></td>
+</tr>
+<tr>
+  <td><strong>Hook de prompt</strong></td>
+  <td><code>UserPromptSubmit</code>, <code>UserPromptExpansion</code></td>
+  <td><code>userPromptSubmit</code></td>
+  <td><code>beforeSubmitPrompt</code></td>
+</tr>
+<tr>
+  <td><strong>Hook de fin</strong></td>
+  <td><code>Stop</code>, <code>StopFailure</code>, <code>SubagentStop</code></td>
+  <td><code>stop</code></td>
+  <td><code>stop</code>, <code>subagentStop</code>, <code>afterAgentResponse</code></td>
+</tr>
+<tr>
+  <td><strong>Hook de compaction</strong></td>
+  <td><code>PreCompact</code>, <code>PostCompact</code></td>
+  <td>&mdash; (non expos&eacute;)</td>
+  <td><code>preCompact</code></td>
+</tr>
+<tr>
+  <td><strong>Types de handler</strong></td>
+  <td>command, http, mcp_tool, prompt, agent, async</td>
+  <td>command</td>
+  <td>command, prompt</td>
+</tr>
+<tr>
+  <td><strong>D&eacute;cision de blocage</strong></td>
+  <td><code>permissionDecision</code> allow/deny/ask + exit&nbsp;2</td>
+  <td>JSON stdout (allow/deny) + exit code</td>
+  <td>JSON stdout (allow/deny) + exit code</td>
+</tr>
+<tr>
+  <td><strong>R&eacute;pertoire hooks</strong></td>
+  <td><code>.claude/settings.json</code>, <code>settings.local.json</code>, plugins</td>
+  <td><code>.github/hooks/*.json</code>, user folder</td>
+  <td><code>.cursor/hooks.json</code>, <code>~/.cursor/hooks.json</code></td>
+</tr>
+<tr>
+  <td><strong>Instructions projet</strong></td>
+  <td><code>CLAUDE.md</code> + <code>.claude/rules/*.md</code></td>
+  <td><code>.github/copilot-instructions.md</code> + <code>*.instructions.md</code> (<code>applyTo</code>)</td>
+  <td><code>.cursor/rules/*.mdc</code> (<code>globs</code>/<code>alwaysApply</code>) + <code>AGENTS.md</code></td>
+</tr>
+<tr>
+  <td><strong>Skills (standard ouvert)</strong></td>
+  <td><code>.claude/skills/&lt;n&gt;/SKILL.md</code></td>
+  <td><code>.github/skills/</code>, <code>.claude/skills/</code></td>
+  <td><code>.cursor/skills/</code>, <code>.agents/skills/</code>, <code>.claude/skills/</code></td>
+</tr>
+<tr>
+  <td><strong>Chargement progressif</strong></td>
+  <td>Oui (frontmatter seul au repos)</td>
+  <td>Oui</td>
+  <td>Oui</td>
+</tr>
+<tr>
+  <td><strong>Sous-agents</strong></td>
+  <td><code>.claude/agents/*.md</code></td>
+  <td><code>.github/agents/*.agent.md</code></td>
+  <td>Subagents + Custom Modes</td>
+</tr>
+<tr>
+  <td><strong>Plugins / marketplace</strong></td>
+  <td>Oui (<code>/plugin install</code>)</td>
+  <td>Oui (Agent Plugins)</td>
+  <td>Oui (Marketplace + cursor.directory)</td>
+</tr>
+<tr>
+  <td><strong>Compat. hooks Claude Code</strong></td>
+  <td>&mdash; (r&eacute;f&eacute;rence)</td>
+  <td>Harnais &laquo;&nbsp;Claude&nbsp;&raquo; s&eacute;lectionnable</td>
+  <td>Oui (Third Party Hooks)</td>
+</tr>
+<tr>
+  <td><strong>Maturit&eacute; hooks</strong></td>
+  <td>GA, surface tr&egrave;s large</td>
+  <td>Preview</td>
+  <td>GA</td>
+</tr>
+</tbody>
+</table>
+</div>
+
+<h2 id="s6">6. Recettes de portage du workflow Earnest</h2>
+
+<h3>6.1 Mode 3 &mdash; Spec-First (geler les invariants)</h3>
+<p><strong>Objectif Earnest</strong> : produire <code>.ide/invariants.json</code>, le sceller en SHA-256 dans
+<code>.ide/invariants.lock</code> (lecture seule <code>0444</code>), puis interdire toute mutation sans
+sign-off humain.</p>
+<div class="grid">
+  <div class="card">
+    <h3>Claude Code</h3>
+    <ul>
+      <li>Skill <code>.claude/skills/mode3-spec/SKILL.md</code> : proc&eacute;dure de conception + format des probes.</li>
+      <li>Hook <code>PreToolUse</code> sur <code>Write|Edit</code> avec <code>if</code> ciblant <code>invariants.lock</code> &rarr; <code>permissionDecision: "deny"</code>.</li>
+      <li>Hook <code>Stop</code> : v&eacute;rifie que le lock existe et que son SHA-256 correspond.</li>
+      <li>Hook <code>InstructionsLoaded</code> : injecte le rappel &laquo;&nbsp;invariants scell&eacute;s&nbsp;&raquo;.</li>
+    </ul>
+  </div>
+  <div class="card">
+    <h3>VS Code Copilot</h3>
+    <ul>
+      <li>Skill <code>.github/skills/mode3-spec/SKILL.md</code> (m&ecirc;me contenu, portable).</li>
+      <li>Hook <code>preToolUse</code> dans <code>.github/hooks/seal.json</code> : refuse l'&eacute;criture sur <code>invariants.lock</code>.</li>
+      <li>Instructions <code>*.instructions.md</code> avec <code>applyTo: ".ide/**"</code> pour le rappel de contrat.</li>
+      <li>Custom agent <code>architect.agent.md</code> restreint aux outils de lecture + <code>add_invariant</code>.</li>
+    </ul>
+  </div>
+  <div class="card">
+    <h3>Cursor</h3>
+    <ul>
+      <li>Skill <code>.cursor/skills/mode3-spec/SKILL.md</code> (ou <code>.agents/skills/</code>).</li>
+      <li>Hook <code>preToolUse</code> + <code>beforeReadFile</code> dans <code>.cursor/hooks.json</code>.</li>
+      <li>Rule <code>.cursor/rules/invariants.mdc</code> avec <code>globs: .ide/**</code>, <code>alwaysApply: false</code>.</li>
+      <li>Hook <code>stop</code> : contr&ocirc;le d'int&eacute;grit&eacute; du lock avant cl&ocirc;ture du tour.</li>
+    </ul>
+  </div>
+</div>
+
+<h3>6.2 Mode 2 &mdash; Shadow Worktree (impl&eacute;mentation contrainte)</h3>
+<p><strong>Objectif Earnest</strong> : tout patch est appliqu&eacute; dans <code>.ide/shadow_worktree/</code>,
+valid&eacute; par probes statiques (AST) et dynamiques (CLI), puis fusionn&eacute; atomiquement seulement si
+100&nbsp;% PASS. Sinon : rejet, trace, arbre de travail intact.</p>
+<div class="grid">
+  <div class="card">
+    <h3>Claude Code</h3>
+    <ul>
+      <li>Hook <code>PreToolUse</code> sur <code>Write|Edit</code> : r&eacute;&eacute;crit <code>updatedInput</code> pour rediriger le chemin vers <code>.ide/shadow_worktree/</code>.</li>
+      <li>Hook <code>PostToolUse</code> : lance <code>cargo test</code> / <code>pytest</code> + inspection AST ; en cas d'&eacute;chec, <code>additionalContext</code> avec la trace.</li>
+      <li>Hook <code>PostToolBatch</code> : v&eacute;rifie l'ensemble des probes avant le tour suivant.</li>
+      <li>Hook <code>Stop</code> : bloque la fin de tour si des probes n'ont pas tourn&eacute;.</li>
+      <li>Subagent <code>verifier</code> en contexte isol&eacute; pour l'arbitrage.</li>
+    </ul>
+  </div>
+  <div class="card">
+    <h3>VS Code Copilot</h3>
+    <ul>
+      <li>Hook <code>preToolUse</code> : validation/redirection du chemin d'&eacute;criture.</li>
+      <li>Hook <code>postToolUse</code> : ex&eacute;cution des probes et retour du verdict.</li>
+      <li>Hook <code>stop</code> : refus de cl&ocirc;ture si verdict incomplet.</li>
+      <li>Custom agent <code>implementer.agent.md</code> avec outils limit&eacute;s au worktree.</li>
+      <li>Limite : pas de <code>PostToolBatch</code> ni de <code>PreCompact</code> &rarr; arbitrage par lot &agrave; simuler dans le hook <code>stop</code>.</li>
+    </ul>
+  </div>
+  <div class="card">
+    <h3>Cursor</h3>
+    <ul>
+      <li>Hook <code>preToolUse</code> : redirection vers le worktree (Cursor ignore <code>updated_input</code> pour les outils MCP distants, mais l'accepte pour les outils locaux).</li>
+      <li>Hook <code>afterFileEdit</code> : formate puis d&eacute;clenche les probes.</li>
+      <li>Hook <code>beforeShellExecution</code> : n'autorise que les runners d&eacute;clar&eacute;s (<code>cargo test</code>, <code>pytest</code>).</li>
+      <li>Hook <code>stop</code> : v&eacute;rifie le verdict global.</li>
+      <li>Hook <code>subagentStop</code> : arbitrage du sous-agent de v&eacute;rification.</li>
+    </ul>
+  </div>
+</div>
+
+<h3>6.3 BCPE &mdash; Base de Connaissances d'Exp&eacute;rience (serveur MCP)</h3>
+<p><strong>Objectif Earnest</strong> : exposer <code>kb.exe serve</code> comme serveur MCP stdio, avec les
+outils <code>kb_search</code>, <code>kb_get</code>, <code>kb_check</code>, <code>kb_report_incident</code>,
+<code>kb_propose</code>, <code>kb_record_outcome</code>, <code>kb_confirm</code>, <code>kb_attach_repro</code>.
+Le texte d'une entr&eacute;e est une <em>donn&eacute;e</em>, jamais une instruction.</p>
+<div class="grid">
+  <div class="card">
+    <h3>Claude Code &mdash; <code>.mcp.json</code></h3>
+<pre><code>{
+  "mcpServers": {
+    "bcpe": {
+      "type": "stdio",
+      "command": "/path/to/Ernest/earnest-bcpe/target/release/kb.exe",
+      "args": ["serve", "--db", "/path/to/Ernest/earnest-bcpe\kb.db"]
+    }
+  }
+}</code></pre>
+    <p>Outils visibles sous <code>mcp__bcpe__kb_search</code>, etc. Hook <code>PreToolUse</code> avec
+    <code>matcher: "mcp__bcpe__.*"</code> pour journaliser chaque requ&ecirc;te BCPE.</p>
+  </div>
+  <div class="card">
+    <h3>VS Code Copilot &mdash; <code>.vscode/mcp.json</code></h3>
+<pre><code>{
+  "servers": {
+    "bcpe": {
+      "type": "stdio",
+      "command": "/path/to/Ernest/earnest-bcpe/target/release/kb.exe",
+      "args": ["serve", "--db", "/path/to/Ernest/earnest-bcpe\kb.db"]
+    }
+  }
+}</code></pre>
+    <p>Appara&icirc;t dans la vue <em>MCP Servers</em> ; outils s&eacute;lectionnables via <code>#kb_search</code>.</p>
+  </div>
+  <div class="card">
+    <h3>Cursor &mdash; <code>.cursor/mcp.json</code></h3>
+<pre><code>{
+  "mcpServers": {
+    "bcpe": {
+      "command": "/path/to/Ernest/earnest-bcpe/target/release/kb.exe",
+      "args": ["serve", "--db", "/path/to/Ernest/earnest-bcpe\kb.db"]
+    }
+  }
+}</code></pre>
+    <p>Hook <code>beforeMCPExecution</code> pour tracer les appels BCPE et bloquer les &eacute;critures non autoris&eacute;es.</p>
+  </div>
+</div>
+
+<h3>6.4 C&acirc;blage des trois briques ensemble</h3>
+<div class="tablewrap">
+<table>
+<thead><tr><th>&Eacute;tape Earnest</th><th>M&eacute;canisme Claude Code</th><th>M&eacute;canisme VS Code Copilot</th><th>M&eacute;canisme Cursor</th></tr></thead>
+<tbody>
+<tr><td>Rappel d'incidents avant conception</td><td>Skill + <code>kb_search</code> MCP</td><td>Skill + <code>#kb_search</code></td><td>Skill + <code>kb_search</code></td></tr>
+<tr><td>Gel des invariants</td><td><code>PreToolUse</code> deny sur lock</td><td><code>preToolUse</code> deny sur lock</td><td><code>preToolUse</code> deny sur lock</td></tr>
+<tr><td>Redirection shadow worktree</td><td><code>updatedInput</code></td><td><code>preToolUse</code> validation</td><td><code>preToolUse</code> validation</td></tr>
+<tr><td>Ex&eacute;cution des probes</td><td><code>PostToolUse</code> + <code>PostToolBatch</code></td><td><code>postToolUse</code></td><td><code>afterFileEdit</code> + <code>beforeShellExecution</code></td></tr>
+<tr><td>Arbitrage final</td><td><code>Stop</code> + subagent</td><td><code>stop</code> + custom agent</td><td><code>stop</code> + <code>subagentStop</code></td></tr>
+<tr><td>Apprentissage (BCPE)</td><td><code>kb_record_outcome</code> / <code>kb_confirm</code></td><td><code>kb_record_outcome</code> / <code>kb_confirm</code></td><td><code>kb_record_outcome</code> / <code>kb_confirm</code></td></tr>
+</tbody>
+</table>
+</div>
+
+<h2 id="s7">7. Recommandations et limites</h2>
+<div class="grid">
+  <div class="card">
+    <h3>Portabilit&eacute; maximale</h3>
+    <ul>
+      <li>Placer les skills dans <code>.claude/skills/</code> : les trois outils les lisent (Cursor et Copilot supportent explicitement ce r&eacute;pertoire).</li>
+      <li>Utiliser le standard ouvert <em>Agent Skills</em> pour le contenu, et r&eacute;server les extensions propri&eacute;taires au strict n&eacute;cessaire.</li>
+      <li>Garder les scripts de hooks en <strong>PowerShell</strong> (Windows) ou en Python portable, avec lecture JSON sur stdin.</li>
+      <li>Centraliser la logique m&eacute;tier (scellement, probes, arbitrage) dans le binaire <code>kb</code> / <code>earnest-core</code> et laisser les hooks n'&ecirc;tre que de fins adaptateurs.</li>
+    </ul>
+  </div>
+  <div class="card">
+    <h3>Limites &agrave; anticiper</h3>
+    <ul>
+      <li><strong>VS Code Copilot</strong> : hooks en <em>preview</em>, surface d'&eacute;v&eacute;nements plus &eacute;troite (pas de <code>PostToolBatch</code>, <code>PreCompact</code>, <code>SubagentStop</code>).</li>
+      <li><strong>Cursor</strong> : <code>updated_input</code> ignor&eacute; pour les outils MCP distants ; hooks utilisateur absents en cloud agents.</li>
+      <li><strong>Claude Code</strong> : surface la plus riche mais la plus sp&eacute;cifique ; les hooks ne sont pas portables tels quels vers les deux autres sans adaptation du sch&eacute;ma.</li>
+      <li><strong>Nommage</strong> : <code>PreToolUse</code> (PascalCase) vs <code>preToolUse</code> (camelCase) &mdash; source d'erreurs fr&eacute;quente lors du portage.</li>
+      <li><strong>S&eacute;curit&eacute;</strong> : un hook s'ex&eacute;cute sans validation du mod&egrave;le ; revoir chaque script avant installation, surtout depuis une marketplace.</li>
+    </ul>
+  </div>
+</div>
+
+<h2 id="s8">8. Conclusion</h2>
+<p>Les trois outils convergent vers un m&ecirc;me mod&egrave;le en trois couches&nbsp;:
+<strong>MCP</strong> pour les capacit&eacute;s (BCPE), <strong>hooks</strong> pour le contr&ocirc;le
+(scel des invariants, shadow worktree, arbitrage), et <strong>skills/rules</strong> pour la connaissance
+(proc&eacute;dure Mode&nbsp;3, conventions Mode&nbsp;2). Le workflow Earnest est donc portable dans son
+<em>architecture</em>, mais pas dans ses <em>fichiers</em>&nbsp;: chaque cible exige un adaptateur de
+sch&eacute;ma de hooks, tandis que les skills et le serveur MCP BCPE restent, eux, directement r&eacute;utilisables.</p>
+<p>La strat&eacute;gie la plus robuste consiste &agrave; faire de <code>earnest-bcpe</code> et
+<code>earnest-core</code> les v&eacute;ritables d&eacute;tenteurs de la logique de gouvernance, expos&eacute;s
+via MCP, et &agrave; r&eacute;duire les hooks de chaque IDE &agrave; de simples points d'entr&eacute;e
+d&eacute;clenchant ces binaires. On obtient alors un comportement identique sur Claude Code, VS Code Copilot
+et Cursor, ind&eacute;pendamment des &eacute;volutions de leurs API d'extension respectives.</p>
+
+<footer>
+  <p>Document g&eacute;n&eacute;r&eacute; pour le projet Hernest &mdash; Earnest Ecosystem.
+  Sources&nbsp;: documentation officielle Claude Code (hooks reference, MCP, skills),
+  VS Code (agent hooks, MCP, agent skills, custom instructions),
+  Cursor (hooks, MCP, rules, agent skills).</p>
+</footer>
+</main>
+</body>
+</html>

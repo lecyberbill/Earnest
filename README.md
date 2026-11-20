@@ -172,7 +172,7 @@ Add EARNEST to your MCP client configuration (`claude_desktop_config.json` or `m
 
 ```text
 Ernest/
-├── crates/                     # Pure-Rust zero-dep crates (atomic-patch, symbol-index, log-sanitizer, context-trimmer, tool-output-cache, retry-budget, json-repair, kv-wal-engine)
+├── crates/                     # Pure-Rust zero-dep crates (atomic-patch, symbol-index, loop-detector, log-sanitizer, context-trimmer, tool-output-cache, retry-budget, json-repair, kv-wal-engine)
 ├── earnest/                    # Python Core: Agent runtime, tools, DB & telemetry
 ├── earnest-core/               # Rust Native Engine: High performance ReAct loop, SSE streaming & server
 ├── earnest-ide/                # Governance IDE
@@ -190,7 +190,7 @@ Ernest/
 - **Dynamic Models & Context Window**: Auto-discovers loaded models from local/cloud providers (`/api/providers/models`), displays active context length, and honors `max_steps=0` (unlimited) with anti-loop protection.
 - **Multi-Agent Pipeline & Live Logs**: Orchestrates Architect → Dev → QA pipelines, streams live structured logs in the **Logs** tab, and supports sandboxed HTML artifact preview.
 - **Interactive Chat & TTS**: Markdown rendering, animated assistant status, and **Read / Stop** voice synthesis toggle.
-- **IDE Governance & Safety**: Polyglot `project-integrity-gate` (`cargo test` + `cargo clippy -D warnings` for Rust) before Shadow Worktree merge, per-run Git **Time-Travel** checkpoints (`/api/ide/checkpoint/restore`), live **Logs IDE** tab, `symbol_search` + `workspace_map` (`symbol-index`), `atomic-patch` (LCS diff + indentation-tolerant `apply_patch`), automatic secret redaction (`log-sanitizer`), and configurable Ollama `num_ctx` (`EARNEST_OLLAMA_NUM_CTX`).
+- **IDE Governance & Safety**: Polyglot `project-integrity-gate` (`cargo test` + `cargo clippy -D warnings` for Rust) before Shadow Worktree merge, sandbox iteration tools (`shadow_check`, `shadow_copy`, `shadow_validate_and_merge`, shadow-aware `read_file`), flat `add_invariant` schema for local models, `loop-detector` (exact-repeat, stagnation & alternation-cycle detection), per-run Git **Time-Travel** checkpoints (`/api/ide/checkpoint/restore`), live **Logs IDE** tab, `symbol_search` + `workspace_map` (`symbol-index`), `atomic-patch` (LCS diff + indentation-tolerant `apply_patch`), automatic secret redaction (`log-sanitizer`), and configurable Ollama `num_ctx` (`EARNEST_OLLAMA_NUM_CTX`).
 - **BCPE MCP Protocol (`earnest-bcpe`)**: 11 agent tools including `kb_list_products`, `kb_create_product`, `kb_retract`, non-blocking `unknown_product` handling on `kb_search`/`kb_check`, plus `kb ingest` (auto-lexicon), `kb stats`, and `kb export`.
 
 ---

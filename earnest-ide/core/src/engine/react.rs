@@ -711,6 +711,70 @@ impl<'a> ReActEngine<'a> {
                     Err(e) => (serde_json::json!({"status": "error", "error": e.to_string()}).to_string(), None),
                 }
             }
+            "shadow_validate_and_merge" => {
+                let target_contract_id = args["target_contract_id"].as_str().or_else(|| args["contract_id"].as_str()).unwrap_or("");
+                if let Err(e) = verify_invariants_lock(&self.workspace_root, &policy.invariants_file, &policy.lock_file) {
+                    return (serde_json::json!({
+                        "status": "INTEGRITY_VIOLATION",
+                        "error": format!("Arrêt immédiat : Violation de l'intégrité cryptographique du scellement d'invariants : {}", e)
+                    }).to_string(), None);
+                }
+                let inv_path = self.workspace_root.join(&policy.invariants_file);
+                let inv_content = match std::fs::read_to_string(&inv_path) {
+                    Ok(c) => c,
+                    Err(e) => return (serde_json::json!({"status": "error", "error": format!("Lecture invariants.json: {}", e)}).to_string(), None),
+                };
+                let inv_file: InvariantsFile = match serde_json::from_str(&inv_content) {
+                    Ok(f) => f,
+                    Err(e) => return (serde_json::json!({"status": "error", "error": format!("Parse invariants.json: {}", e)}).to_string(), None),
+                };
+                let target_contract = match inv_file.contracts.iter().find(|c| c.id == target_contract_id) {
+                    Some(c) => c,
+                    None => return (serde_json::json!({
+                        "status": "error",
+                        "error": format!("Contrat d'invariants '{}' introuvable dans .ide/invariants.json", target_contract_id)
+                    }).to_string(), None),
+                };
+                let raw_target_file = args["target_file"].as_str().unwrap_or(&target_contract.target_file);
+                let target_file = match ShadowRunner::normalize_rel_path(&self.workspace_root, raw_target_file) {
+                    Ok(rel) => rel,
+                    Err(e) => return (serde_json::json!({"status": "error", "error": e}).to_string(), None),
+                };
+                let runner = ShadowRunner::new(&self.workspace_root, &policy.shadow_env.path, policy.shadow_env.timeout_ms);
+                let exec_result = runner.execute_contract_patches(target_contract, &[], &target_file);
+                if exec_result.success {
+                    for p in &target_contract.probes {
+                        failure_counts.remove(&p.probe_id);
+                    }
+                    self.run_ide_hooks("post_write_code");
+                    (serde_json::json!({
+                        "status": "SUCCESS",
+                        "contract_id": target_contract_id,
+                        "merged_to_workspace": true,
+                        "message": "Fichiers shadow validés à 100% et matérialisés dans le projet réel sans coût token.",
+                        "probes": exec_result.probes
+                    }).to_string(), None)
+                } else {
+                    let mut failed_probe_id = String::new();
+                    for p in &exec_result.probes {
+                        if !p.passed {
+                            failed_probe_id = p.probe_id.clone();
+                            let count = failure_counts.entry(p.probe_id.clone()).or_insert(0);
+                            *count += 1;
+                            break;
+                        }
+                    }
+                    let cur_count = if !failed_probe_id.is_empty() { *failure_counts.get(&failed_probe_id).unwrap_or(&1) } else { 1 };
+                    (serde_json::json!({
+                        "status": if cur_count >= policy.guardrails.max_consecutive_failures { "FAILURE_THRESHOLD_EXCEEDED" } else { "PROBE_FAILED" },
+                        "consecutive_failures": cur_count,
+                        "failed_probe_id": failed_probe_id,
+                        "failure_reason": exec_result.failure_reason,
+                        "probes": exec_result.probes,
+                        "message": "Validation shadow échouée. Utilisez `shadow_check` pour diagnostiquer sans pénalité avant de relancer `shadow_validate_and_merge`."
+                    }).to_string(), None)
+                }
+            }
             "read_file" => {
                 let path = args["path"].as_str().unwrap_or("");
                 let resolved = if Path::new(path).is_absolute() {
@@ -1071,7 +1135,7 @@ impl<'a> ReActEngine<'a> {
             // Mode 2 (Contraint / Invariants & Shadow Sandbox)
             GovernanceMode::Constrained => {
                 let allowed_std = ["read_file", "list_files", "grep_search", "workspace_map", "web_search", "web_fetch", "store_memory", "recall_memory", "recall_recent_runs", "kb_search", "kb_propose"];
-                let allowed_gov = ["write_code", "shadow_check", "shadow_copy", "query_invariants", "request_contract_mutation", "report_checkpoint_status", "symbol_search"];
+                let allowed_gov = ["write_code", "shadow_check", "shadow_copy", "shadow_validate_and_merge", "query_invariants", "request_contract_mutation", "report_checkpoint_status", "symbol_search"];
 
                 let mut tools: Vec<Value> = std_tools.into_iter()
                     .filter(|t| allowed_std.contains(&t["function"]["name"].as_str().unwrap_or("")))

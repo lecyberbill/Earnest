@@ -417,6 +417,21 @@ pub fn get_governance_tools_schemas() -> Vec<Value> {
                     "required": ["from_path", "to_path"]
                 }
             }
+        }),
+        serde_json::json!({
+            "type": "function",
+            "function": {
+                "name": "shadow_validate_and_merge",
+                "description": "Valide les fichiers déjà stagés dans `.ide/shadow_worktree` contre le contrat scellé et `project-integrity-gate`, puis les matérialise directement dans le projet réel sans réécrire aucun code (coût token nul).",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "target_contract_id": { "type": "string", "description": "Identifiant du contrat d'invariants à valider (ex: C1)" },
+                        "target_file": { "type": "string", "description": "Fichier cible optionnel (défaut: target_file du contrat)" }
+                    },
+                    "required": ["target_contract_id"]
+                }
+            }
         })
     ]
 }

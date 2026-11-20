@@ -14,36 +14,36 @@ export class ArtifactsView extends HTMLElement {
                     <div>
                         <h2 style="display: flex; align-items: center; gap: 0.5rem;">
                             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="16" y1="13" x2="8" y2="13"></line><line x1="16" y1="17" x2="8" y2="17"></line><polyline points="10 9 9 9 8 9"></polyline></svg>
-                            Galerie & Visualiseur d'Artefacts
+                            <span data-i18n="art.title">Galerie & Visualiseur d'Artefacts</span>
                         </h2>
-                        <p class="card-desc" style="margin-bottom: 0;">Fichiers générés, rapports Markdown, code source et schémas matérialisés sur le disque.</p>
+                        <p class="card-desc" data-i18n="art.desc" style="margin-bottom: 0;">Fichiers générés, rapports Markdown, code source et schémas matérialisés sur le disque.</p>
                     </div>
                     <button class="btn-primary" id="btn-refresh-artifacts" style="padding: 0.35rem 0.85rem; font-size: 0.8rem; display: inline-flex; align-items: center; gap: 0.35rem;">
                         <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l5.67-5.67"/></svg>
-                        Rafraîchir
+                        <span data-i18n="art.refresh">Rafraîchir</span>
                     </button>
                 </div>
 
                 <div style="display: grid; grid-template-columns: 280px 1fr; gap: 1.25rem; flex: 1; overflow: hidden;">
                     <!-- Liste latérale des fichiers générés -->
                     <div style="background: rgba(0,0,0,0.25); border: 1px solid var(--border-subtle); border-radius: var(--radius-sm); overflow-y: auto; padding: 0.5rem; display: flex; flex-direction: column; gap: 0.4rem;" id="artifacts-list">
-                        <div style="color: var(--text-muted); font-size: 0.8rem; text-align: center; padding: 1rem;">Chargement des artefacts...</div>
+                        <div data-i18n="art.loading" style="color: var(--text-muted); font-size: 0.8rem; text-align: center; padding: 1rem;">Chargement des artefacts...</div>
                     </div>
 
                     <!-- Zone de prévisualisation centrale -->
                     <div style="background: rgba(0,0,0,0.4); border: 1px solid var(--border-subtle); border-radius: var(--radius-sm); padding: 1.25rem; display: flex; flex-direction: column; overflow: hidden;">
                         <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid rgba(255,255,255,0.06); padding-bottom: 0.6rem; margin-bottom: 0.85rem;">
-                            <div style="font-family: var(--font-mono); font-size: 0.85rem; color: var(--accent-cyan); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 450px;" id="preview-filename">Sélectionnez un fichier</div>
+                            <div data-i18n="art.select_file" style="font-family: var(--font-mono); font-size: 0.85rem; color: var(--accent-cyan); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 450px;" id="preview-filename">Sélectionnez un fichier</div>
                             <div style="display: flex; gap: 0.5rem; align-items: center;">
-                                <button class="btn-bubble-action" id="btn-toggle-edit" style="display: none; cursor: pointer;">Éditer</button>
-                                <button class="btn-bubble-action" id="btn-save-artifact" style="display: none; background: rgba(16, 185, 129, 0.2); border-color: var(--accent-emerald); color: var(--accent-emerald); cursor: pointer;">Enregistrer</button>
-                                <button class="btn-bubble-action" id="btn-copy-artifact">Copier</button>
-                                <button class="btn-bubble-action" id="btn-delete-artifact" style="display: none; background: rgba(244, 63, 94, 0.15); border-color: var(--accent-rose); color: var(--accent-rose); cursor: pointer;">Supprimer</button>
+                                <button class="btn-bubble-action" id="btn-toggle-edit" data-i18n="art.edit" style="display: none; cursor: pointer;">Éditer</button>
+                                <button class="btn-bubble-action" id="btn-save-artifact" data-i18n="art.save" style="display: none; background: rgba(16, 185, 129, 0.2); border-color: var(--accent-emerald); color: var(--accent-emerald); cursor: pointer;">Enregistrer</button>
+                                <button class="btn-bubble-action" id="btn-copy-artifact" data-i18n="art.copy">Copier</button>
+                                <button class="btn-bubble-action" id="btn-delete-artifact" data-i18n="art.delete" style="display: none; background: rgba(244, 63, 94, 0.15); border-color: var(--accent-rose); color: var(--accent-rose); cursor: pointer;">Supprimer</button>
                             </div>
                         </div>
 
                         <div id="preview-content" style="flex: 1; overflow-y: auto; font-size: 0.88rem; color: var(--text-primary); display: flex; flex-direction: column;">
-                            <div style="color: var(--text-muted); text-align: center; margin-top: 4rem;">
+                            <div data-i18n="art.empty_preview" style="color: var(--text-muted); text-align: center; margin-top: 4rem;">
                                 Aucun artefact sélectionné. Cliquez sur un élément dans la liste à gauche.
                             </div>
                         </div>
@@ -51,6 +51,7 @@ export class ArtifactsView extends HTMLElement {
                 </div>
             </div>
         `;
+        if (window.applyI18n) window.applyI18n(this);
 
         this.querySelector('#btn-refresh-artifacts').addEventListener('click', () => this.loadArtifacts());
         this.querySelector('#btn-copy-artifact').addEventListener('click', () => this.copyContent());

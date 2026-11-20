@@ -14,13 +14,13 @@ export class RunConsole extends HTMLElement {
                         <span style="display: inline-flex; align-items: center; justify-content: center; width: 24px; height: 24px; background: rgba(255,255,255,0.08); border-radius: 4px; color: #ffffff;">
                             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"></polygon></svg>
                         </span>
-                        Console Opérationnelle & Streaming ReAct
+                        <span data-i18n="run.title">Console Opérationnelle & Streaming ReAct</span>
                     </h2>
-                    <p class="card-desc">Exécution d'instructions agentiques avec traçabilité complète et monitoring des modèles en direct.</p>
+                    <p class="card-desc" data-i18n="run.desc">Exécution d'instructions agentiques avec traçabilité complète et monitoring des modèles en direct.</p>
                     
                     <!-- Ligne 1 : Zone de saisie large et confortable -->
                     <div style="margin-bottom: 0.85rem; position: relative;">
-                        <textarea id="prompt-input" rows="3" placeholder="Saisissez une instruction ou collez votre consigne ici (ex: Analyse ce rapport de synthèse, identifie les points clés et génère un livrable)..." style="width: 100%; min-height: 80px; padding: 0.85rem 1rem; background: rgba(15, 23, 42, 0.7); border: 1px solid var(--border-accent); border-radius: var(--radius-sm); color: var(--text-primary); font-family: var(--font-sans); font-size: 0.92rem; line-height: 1.5; outline: none; resize: vertical; box-sizing: border-box; transition: border-color var(--transition-fast);"></textarea>
+                        <textarea id="prompt-input" rows="3" data-i18n-placeholder="run.prompt_placeholder" placeholder="Saisissez une instruction ou collez votre consigne ici (ex: Analyse ce rapport de synthèse, identifie les points clés et génère un livrable)..." style="width: 100%; min-height: 80px; padding: 0.85rem 1rem; background: rgba(15, 23, 42, 0.7); border: 1px solid var(--border-accent); border-radius: var(--radius-sm); color: var(--text-primary); font-family: var(--font-sans); font-size: 0.92rem; line-height: 1.5; outline: none; resize: vertical; box-sizing: border-box; transition: border-color var(--transition-fast);"></textarea>
                     </div>
 
                     <!-- Ligne 2 : Barre d'actions & Contrôle de Routage -->
@@ -28,15 +28,15 @@ export class RunConsole extends HTMLElement {
                         
                         <!-- Groupe Gauche : Choix du Mode & Moteur -->
                         <div style="display: flex; align-items: center; gap: 0.6rem;">
-                            <span style="font-size: 0.78rem; font-weight: 600; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.05em;">Routage :</span>
+                            <span data-i18n="run.routing_label" style="font-size: 0.78rem; font-weight: 600; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.05em;">Routage :</span>
                             <select id="backend-selector" style="background: rgba(15, 23, 42, 0.9); border: 1px solid var(--border-subtle); color: var(--accent-cyan); border-radius: var(--radius-sm); height: 36px; padding: 0 0.85rem; font-family: var(--font-mono); font-size: 0.82rem; cursor: pointer; outline: none;">
-                                <option value="auto">Routage Auto (Intelligent)</option>
-                                <option value="multiagent">Mode Multi-Agents (Architecte + Worker + Critique)</option>
-                                <option value="ollama_forced">Moteur Local Principal (Ollama)</option>
-                                <option value="lmstudio">Moteur Local Secondaire (LM Studio)</option>
-                                <option value="cloud">API Cloud (Haute Capacité)</option>
+                                <option value="auto" data-i18n="run.route_auto">Routage Auto (Intelligent)</option>
+                                <option value="multiagent" data-i18n="run.route_multiagent">Mode Multi-Agents (Architecte + Worker + Critique)</option>
+                                <option value="ollama_forced" data-i18n="run.route_ollama">Moteur Local Principal (Ollama)</option>
+                                <option value="lmstudio" data-i18n="run.route_lmstudio">Moteur Local Secondaire (LM Studio)</option>
+                                <option value="cloud" data-i18n="run.route_cloud">API Cloud (Haute Capacité)</option>
                             </select>
-                            <select id="effort-selector" title="Niveau de réflexion (Thinking / Reasoning)" style="background: rgba(15, 23, 42, 0.9); border: 1px solid var(--border-subtle); color: #a5b4fc; border-radius: var(--radius-sm); height: 36px; padding: 0 0.75rem; font-family: var(--font-mono); font-size: 0.82rem; cursor: pointer; outline: none;">
+                            <select id="effort-selector" data-i18n-title="run.effort_title" title="Niveau de réflexion (Thinking / Reasoning)" style="background: rgba(15, 23, 42, 0.9); border: 1px solid var(--border-subtle); color: #a5b4fc; border-radius: var(--radius-sm); height: 36px; padding: 0 0.75rem; font-family: var(--font-mono); font-size: 0.82rem; cursor: pointer; outline: none;">
                                 <option value="off" selected>Effort : Off</option>
                                 <option value="low">Effort : Low</option>
                                 <option value="medium">Effort : Medium</option>
@@ -46,28 +46,28 @@ export class RunConsole extends HTMLElement {
 
                         <!-- Groupe Droit : Pièce jointe, Micro et Boutons d'Exécution -->
                         <div style="display: flex; align-items: center; gap: 0.6rem;">
-                            <label class="btn-attach" title="Joindre un fichier (Image, PDF, Word, Code)" style="height: 36px; display: inline-flex; align-items: center; justify-content: center; padding: 0 0.85rem; color: #ffffff;">
+                            <label class="btn-attach" data-i18n-title="run.attach_title" title="Joindre un fichier (Image, PDF, Word, Code)" style="height: 36px; display: inline-flex; align-items: center; justify-content: center; padding: 0 0.85rem; color: #ffffff;">
                                 <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"></path></svg>
                                 <input type="file" id="file-input" style="display: none;" />
                             </label>
                             
-                            <button id="btn-run-mic" class="btn-attach" style="cursor: pointer; height: 36px; display: inline-flex; align-items: center; justify-content: center; padding: 0 0.85rem; color: #ffffff;" title="Dictée Vocale du Prompt">
+                            <button id="btn-run-mic" class="btn-attach" style="cursor: pointer; height: 36px; display: inline-flex; align-items: center; justify-content: center; padding: 0 0.85rem; color: #ffffff;" data-i18n-title="run.mic_title" title="Dictée Vocale du Prompt">
                                 <span id="run-mic-icon" style="display: inline-flex; align-items: center;">
                                     <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"></path><path d="M19 10v2a7 7 0 0 1-14 0v-2"></path><line x1="12" y1="19" x2="12" y2="23"></line><line x1="8" y1="23" x2="16" y2="23"></line></svg>
                                 </span>
                             </button>
 
-                            <button class="btn-secondary" id="btn-cancel" style="display: none; height: 36px; padding: 0 1rem; background: rgba(244, 63, 94, 0.15); border-color: var(--accent-rose); color: var(--accent-rose); cursor: pointer;" title="Interrompre le run en cours">
+                            <button class="btn-secondary" id="btn-cancel" style="display: none; height: 36px; padding: 0 1rem; background: rgba(244, 63, 94, 0.15); border-color: var(--accent-rose); color: var(--accent-rose); cursor: pointer;" data-i18n-title="run.stop_title" title="Interrompre le run en cours">
                                 <span style="display: inline-flex; align-items: center; gap: 0.35rem;">
                                     <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect></svg>
-                                    Arrêter
+                                    <span data-i18n="run.stop">Arrêter</span>
                                 </span>
                             </button>
 
                             <button class="btn-primary" id="btn-run" style="height: 36px; padding: 0 1.25rem;">
                                 <span style="display: inline-flex; align-items: center; gap: 0.4rem;">
                                     <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="5 3 19 12 5 21 5 3"></polygon></svg>
-                                    Exécuter
+                                    <span data-i18n="run.execute">Exécuter</span>
                                 </span>
                             </button>
                         </div>
@@ -75,11 +75,11 @@ export class RunConsole extends HTMLElement {
 
                     <div id="attachment-preview" style="display: none; align-items: center; gap: 0.5rem; background: rgba(99, 102, 241, 0.1); border: 1px dashed var(--primary); padding: 0.4rem 0.85rem; border-radius: var(--radius-sm); margin-bottom: 1rem; font-size: 0.82rem;">
                         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"></path></svg>
-                        <span>Fichier joint :</span>
+                        <span data-i18n="run.attached_label">Fichier joint :</span>
                         <strong id="attachment-name" style="color: var(--accent-cyan);"></strong>
                         <button id="btn-remove-att" style="background: none; border: none; color: var(--accent-rose); cursor: pointer; margin-left: auto; display: flex; align-items: center; gap: 0.25rem;">
                             <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
-                            Retirer
+                            <span data-i18n="run.remove_att">Retirer</span>
                         </button>
                     </div>
 
@@ -87,9 +87,9 @@ export class RunConsole extends HTMLElement {
                     <div id="approval-banner" class="hitl-banner" style="display: none;">
                         <div style="display: flex; align-items: center; gap: 0.5rem; color: var(--error); font-weight: 700; margin-bottom: 0.4rem; font-family: var(--font-mono); font-size: 0.85rem;">
                             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"></path><line x1="12" y1="9" x2="12" y2="13"></line><line x1="12" y1="17" x2="12.01" y2="17"></line></svg>
-                            VALIDATION REQUISE (HUMAN-IN-THE-LOOP)
+                            <span data-i18n="run.hitl_title">VALIDATION REQUISE (HUMAN-IN-THE-LOOP)</span>
                         </div>
-                        <div style="color: var(--text-primary); margin-bottom: 0.5rem;">
+                        <div data-i18n="run.hitl_desc" style="color: var(--text-primary); margin-bottom: 0.5rem;">
                             L'agent souhaite exécuter une commande sensible ayant un impact potentiel :
                         </div>
                         <pre id="approval-command-text" style="background: rgba(0,0,0,0.5); padding: 0.5rem; border-radius: 4px; color: #fde68a; overflow-x: auto; font-size: 0.78rem; margin-bottom: 0.65rem; white-space: pre-wrap;"></pre>

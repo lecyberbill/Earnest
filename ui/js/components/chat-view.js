@@ -23,15 +23,15 @@ export class ChatView extends HTMLElement {
                         </div>
                         <div>
                             <h2 style="display: flex; align-items: center; gap: 0.5rem; margin: 0;">
-                                Salon de Discussion Directe
-                                <span id="psy-status-badge" style="font-size: 0.7rem; font-family: var(--font-mono); color: var(--accent-cyan); background: rgba(34, 211, 238, 0.1); border: 1px solid rgba(34, 211, 238, 0.3); padding: 0.15rem 0.45rem; border-radius: 999px;">À l'écoute</span>
+                                <span data-i18n="chat.title">Salon de Discussion Directe</span>
+                                <span id="psy-status-badge" data-i18n="chat.status_listening" style="font-size: 0.7rem; font-family: var(--font-mono); color: var(--accent-cyan); background: rgba(34, 211, 238, 0.1); border: 1px solid rgba(34, 211, 238, 0.3); padding: 0.15rem 0.45rem; border-radius: 999px;">À l'écoute</span>
                             </h2>
-                            <p class="card-desc" style="margin: 0.2rem 0 0 0;">Discussion continue persistée • Choisis ton modèle et discute avec Dr. Earnest.</p>
+                            <p class="card-desc" data-i18n="chat.desc" style="margin: 0.2rem 0 0 0;">Discussion continue persistée • Choisis ton modèle et discute avec Dr. Earnest.</p>
                         </div>
                     </div>
                     <div style="display: flex; gap: 0.5rem; align-items: center; flex-wrap: wrap;">
                         <select id="chat-backend-select" title="Modèle / Moteur de discussion" style="background: rgba(15, 23, 42, 0.85); border: 1px solid var(--border-subtle); color: var(--accent-cyan); border-radius: var(--radius-sm); padding: 0.35rem 0.6rem; font-size: 0.78rem; font-family: var(--font-mono); max-width: 220px;">
-                            <option value="auto">Modèle : Auto (Priorité)</option>
+                            <option value="auto" data-i18n="chat.model_auto">Modèle : Auto (Priorité)</option>
                         </select>
                         <select id="chat-effort-select" title="Niveau de réflexion" style="background: rgba(15, 23, 42, 0.85); border: 1px solid var(--border-subtle); color: #a5b4fc; border-radius: var(--radius-sm); padding: 0.35rem 0.55rem; font-size: 0.78rem; font-family: var(--font-mono);">
                             <option value="off" selected>Effort : Off</option>
@@ -40,9 +40,9 @@ export class ChatView extends HTMLElement {
                             <option value="high">Effort : High</option>
                         </select>
                         <select id="chat-session-select" style="background: rgba(15, 23, 42, 0.8); border: 1px solid var(--border-subtle); color: var(--text-primary); border-radius: var(--radius-sm); padding: 0.35rem 0.6rem; font-size: 0.78rem; font-family: var(--font-mono); max-width: 180px;">
-                            <option value="">Nouvelle Session</option>
+                            <option value="" data-i18n="chat.new_session">Nouvelle Session</option>
                         </select>
-                        <button id="btn-clear-chat" style="background: rgba(255,255,255,0.05); border: 1px solid var(--border-subtle); color: var(--text-muted); padding: 0.4rem 0.85rem; border-radius: var(--radius-sm); cursor: pointer; font-size: 0.8rem;">
+                        <button id="btn-clear-chat" data-i18n="chat.new_thread" style="background: rgba(255,255,255,0.05); border: 1px solid var(--border-subtle); color: var(--text-muted); padding: 0.4rem 0.85rem; border-radius: var(--radius-sm); cursor: pointer; font-size: 0.8rem;">
                             Nouveau Fil
                         </button>
                     </div>
@@ -50,14 +50,14 @@ export class ChatView extends HTMLElement {
 
                 <!-- Zone d'affichage des messages -->
                 <div id="chat-stream" style="flex: 1; overflow-y: auto; display: flex; flex-direction: column; gap: 0.85rem; padding-right: 0.5rem;">
-                    <div class="chat-bubble assistant">
+                    <div class="chat-bubble assistant" data-i18n="chat.welcome">
                         Bonjour ! Je suis Earnest. Tu peux me poser des questions, me demander de réfléchir à un sujet ou discuter de ton projet librement ici.
                     </div>
                 </div>
 
                 <!-- Input d'envoi avec Micro et Action -->
                 <div style="display: flex; gap: 0.65rem; margin-top: 1rem; padding-top: 0.85rem; border-top: 1px solid var(--border-subtle); align-items: center;">
-                    <input type="text" id="chat-input" placeholder="Écrivez ou dictez votre message (Entrée pour envoyer)..." style="flex: 1;" />
+                    <input type="text" id="chat-input" data-i18n-placeholder="chat.input_placeholder" placeholder="Écrivez ou dictez votre message (Entrée pour envoyer)..." style="flex: 1;" />
                     
                     <button id="btn-chat-mic" class="btn-attach" style="cursor: pointer;" title="Dictée Vocale (Web Speech API)">
                         <span id="mic-icon">

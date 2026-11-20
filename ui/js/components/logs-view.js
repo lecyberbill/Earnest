@@ -18,27 +18,28 @@ export class LogsView extends HTMLElement {
                     <div>
                         <h2 style="display: flex; align-items: center; gap: 0.5rem; margin: 0;">
                             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="var(--accent-cyan)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="4 17 10 11 4 5"></polyline><line x1="12" y1="19" x2="20" y2="19"></line></svg>
-                            Logs Moteur en Direct
+                            <span data-i18n="logs.title">Logs Moteur en Direct</span>
                         </h2>
-                        <p class="card-desc" style="margin: 0.2rem 0 0 0;">Flux temps réel de ReActEngine (pensées, appels d'outils, cache, anti-stall).</p>
+                        <p class="card-desc" data-i18n="logs.desc" style="margin: 0.2rem 0 0 0;">Flux temps réel de ReActEngine (pensées, appels d'outils, cache, anti-stall).</p>
                     </div>
                     <div style="display: flex; align-items: center; gap: 0.6rem; flex-wrap: wrap;">
-                        <input type="text" id="logs-filter" placeholder="Filtrer (ex: TOOL, WARN, web_search)..." style="height: 32px; padding: 0 0.65rem; font-size: 0.78rem; font-family: var(--font-mono); min-width: 220px;" />
+                        <input type="text" id="logs-filter" data-i18n-placeholder="logs.filter_placeholder" placeholder="Filtrer (ex: TOOL, WARN, web_search)..." style="height: 32px; padding: 0 0.65rem; font-size: 0.78rem; font-family: var(--font-mono); min-width: 220px;" />
                         <label style="display: inline-flex; align-items: center; gap: 0.35rem; font-size: 0.78rem; color: var(--text-muted); cursor: pointer;">
                             <input type="checkbox" id="logs-autoscroll" checked />
-                            Auto-scroll
+                            <span data-i18n="logs.autoscroll">Auto-scroll</span>
                         </label>
-                        <button id="btn-clear-logs" style="background: rgba(244, 63, 94, 0.12); border: 1px solid rgba(244, 63, 94, 0.35); color: #fda4af; padding: 0.35rem 0.75rem; border-radius: var(--radius-sm); cursor: pointer; font-size: 0.78rem;">
+                        <button id="btn-clear-logs" data-i18n="logs.clear" style="background: rgba(244, 63, 94, 0.12); border: 1px solid rgba(244, 63, 94, 0.35); color: #fda4af; padding: 0.35rem 0.75rem; border-radius: var(--radius-sm); cursor: pointer; font-size: 0.78rem;">
                             Vider
                         </button>
                     </div>
                 </div>
 
                 <div id="logs-stream" style="flex: 1; overflow-y: auto; background: rgba(2, 6, 23, 0.75); border: 1px solid var(--border-subtle); border-radius: var(--radius-sm); padding: 0.75rem 1rem; font-family: var(--font-mono); font-size: 0.78rem; line-height: 1.55;">
-                    <div style="color: var(--text-muted);">En attente des logs d'exécution...</div>
+                    <div data-i18n="logs.waiting" style="color: var(--text-muted);">En attente des logs d'exécution...</div>
                 </div>
             </div>
         `;
+        if (window.applyI18n) window.applyI18n(this);
 
         this.querySelector('#logs-filter').addEventListener('input', (e) => {
             this.filter = e.target.value.toLowerCase();

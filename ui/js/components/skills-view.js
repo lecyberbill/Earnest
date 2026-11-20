@@ -11,22 +11,22 @@ export class SkillsView extends HTMLElement {
             <div class="card">
                 <h2 style="display: flex; align-items: center; gap: 0.5rem;">
                     <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"></polygon></svg>
-                    Registre des Compétences & Outils (Skills)
+                    <span data-i18n="skills.title">Registre des Compétences & Outils (Skills)</span>
                 </h2>
-                <p class="card-desc">Toutes les fonctions disponibles pour l'agent ReAct : primitives système intégrées, compétences auto-générées et serveurs MCP tiers.</p>
+                <p class="card-desc" data-i18n="skills.desc">Toutes les fonctions disponibles pour l'agent ReAct : primitives système intégrées, compétences auto-générées et serveurs MCP tiers.</p>
 
                 <table>
                     <thead>
                         <tr>
-                            <th style="width: 200px;">Nom de l'Outil</th>
-                            <th style="width: 110px;">Type</th>
-                            <th>Description</th>
-                            <th style="width: 140px;">Point d'entrée</th>
-                            <th style="width: 100px;">Action</th>
+                            <th style="width: 200px;" data-i18n="skills.col_name">Nom de l'Outil</th>
+                            <th style="width: 110px;" data-i18n="skills.col_type">Type</th>
+                            <th data-i18n="skills.col_desc">Description</th>
+                            <th style="width: 140px;" data-i18n="skills.col_entry">Point d'entrée</th>
+                            <th style="width: 100px;" data-i18n="skills.col_action">Action</th>
                         </tr>
                     </thead>
                     <tbody id="skills-table-body">
-                        <tr><td colspan="5" style="color: var(--text-muted); text-align: center; padding: 2rem;">Chargement des compétences...</td></tr>
+                        <tr><td colspan="5" data-i18n="skills.loading" style="color: var(--text-muted); text-align: center; padding: 2rem;">Chargement des compétences...</td></tr>
                     </tbody>
                 </table>
             </div>
@@ -36,30 +36,31 @@ export class SkillsView extends HTMLElement {
                 <div class="card" style="margin-bottom: 0;">
                     <h2 style="display: flex; align-items: center; gap: 0.5rem;">
                         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg>
-                        Paramètres & Schéma JSON
+                        <span data-i18n="skills.schema_title">Paramètres & Schéma JSON</span>
                     </h2>
-                    <pre id="tool-schema-view" style="background: rgba(0,0,0,0.4); padding: 1rem; border-radius: var(--radius-sm); border: 1px solid var(--border-subtle); font-family: var(--font-mono); font-size: 0.8rem; color: var(--accent-cyan); overflow-x: auto; height: 260px;">Cliquez sur un outil ci-dessus pour inspecter sa signature.</pre>
+                    <pre id="tool-schema-view" data-i18n="skills.schema_placeholder" style="background: rgba(0,0,0,0.4); padding: 1rem; border-radius: var(--radius-sm); border: 1px solid var(--border-subtle); font-family: var(--font-mono); font-size: 0.8rem; color: var(--accent-cyan); overflow-x: auto; height: 260px;">Cliquez sur un outil ci-dessus pour inspecter sa signature.</pre>
                 </div>
 
                 <div class="card" style="margin-bottom: 0;">
                     <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.5rem;">
                         <h2 style="margin-bottom: 0; display: flex; align-items: center; gap: 0.5rem;">
                             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 2v7.31L4.2 18.4A2 2 0 0 0 5.89 21h12.22a2 2 0 0 0 1.69-2.6L14 9.31V2z"></path><line x1="8.5" y1="2" x2="15.5" y2="2"></line><line x1="6.5" y1="14" x2="17.5" y2="14"></line></svg>
-                            Banc d'Essai Unitaire
+                            <span data-i18n="skills.bench_title">Banc d'Essai Unitaire</span>
                         </h2>
                         <button class="btn-primary" id="btn-run-tool-test" style="padding: 0.35rem 0.85rem; font-size: 0.8rem; display: inline-flex; align-items: center; gap: 0.35rem;" disabled>
                             <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor"><polygon points="5 3 19 12 5 21 5 3"></polygon></svg>
-                            Tester l'Outil
+                            <span data-i18n="skills.test_btn">Tester l'Outil</span>
                         </button>
                     </div>
-                    <p class="card-desc" style="margin-bottom: 0.5rem;">Saisissez les arguments au format JSON pour tester directement l'exécution de l'outil sélectionné :</p>
+                    <p class="card-desc" data-i18n="skills.bench_desc" style="margin-bottom: 0.5rem;">Saisissez les arguments au format JSON pour tester directement l'exécution de l'outil sélectionné :</p>
                     <textarea id="tool-args-input" placeholder='{"query": "test", ...}' style="width: 100%; height: 95px; background: rgba(0,0,0,0.4); border: 1px solid var(--border-subtle); border-radius: var(--radius-sm); color: #fde68a; font-family: var(--font-mono); font-size: 0.8rem; padding: 0.6rem; margin-bottom: 0.5rem; resize: none;"></textarea>
                     
-                    <div style="font-size: 0.75rem; color: var(--text-muted); margin-bottom: 0.25rem;">Résultat de l'exécution :</div>
-                    <pre id="tool-test-result" style="background: rgba(0,0,0,0.6); padding: 0.65rem; border-radius: var(--radius-sm); border: 1px solid var(--border-subtle); font-family: var(--font-mono); font-size: 0.78rem; color: var(--accent-emerald); overflow-y: auto; height: 95px; margin: 0;">En attente de test...</pre>
+                    <div data-i18n="skills.result_label" style="font-size: 0.75rem; color: var(--text-muted); margin-bottom: 0.25rem;">Résultat de l'exécution :</div>
+                    <pre id="tool-test-result" data-i18n="skills.result_waiting" style="background: rgba(0,0,0,0.6); padding: 0.65rem; border-radius: var(--radius-sm); border: 1px solid var(--border-subtle); font-family: var(--font-mono); font-size: 0.78rem; color: var(--accent-emerald); overflow-y: auto; height: 95px; margin: 0;">En attente de test...</pre>
                 </div>
             </div>
         `;
+        if (window.applyI18n) window.applyI18n(this);
 
         this.querySelector('#btn-run-tool-test').addEventListener('click', () => this.runToolTest());
         this.loadTools();

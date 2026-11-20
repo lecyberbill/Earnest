@@ -4,34 +4,35 @@ export class TaskPlanner extends HTMLElement {
     connectedCallback() {
         this.innerHTML = `
             <div class="card">
-                <h2><span>⏱</span> Planificateur de Tâches Périodiques</h2>
-                <p class="card-desc">Ordonnancement autonome des missions récurrentes délégué au planificateur système natif de l'hôte.</p>
+                <h2><span>⏱</span> <span data-i18n="tasks.title">Planificateur de Tâches Périodiques</span></h2>
+                <p class="card-desc" data-i18n="tasks.desc">Ordonnancement autonome des missions récurrentes délégué au planificateur système natif de l'hôte.</p>
 
                 <div style="display: grid; grid-template-columns: 1.2fr 160px 2fr auto; gap: 0.75rem; margin-bottom: 1.5rem;">
-                    <input type="text" id="task-name" placeholder="Nom (ex: sync_veille_techno)" />
+                    <input type="text" id="task-name" data-i18n-placeholder="tasks.name_placeholder" placeholder="Nom (ex: sync_veille_techno)" />
                     <input type="text" id="task-cron" placeholder="0 2 * * *" value="0 2 * * *" style="font-family: var(--font-mono);" />
-                    <input type="text" id="task-prompt" placeholder="Instruction agentique à déclencher..." />
+                    <input type="text" id="task-prompt" data-i18n-placeholder="tasks.prompt_placeholder" placeholder="Instruction agentique à déclencher..." />
                     <button class="btn-primary" id="btn-add-task">
-                        <span>+</span> Programmer
+                        <span>+</span> <span data-i18n="tasks.add_btn">Programmer</span>
                     </button>
                 </div>
 
                 <table>
                     <thead>
                         <tr>
-                            <th style="width: 220px;">Nom de la Tâche</th>
-                            <th style="width: 140px;">Fréquence</th>
-                            <th>Instruction Déclenchée</th>
-                            <th style="width: 170px;">Dernière Exécution</th>
-                            <th style="width: 110px;">Statut</th>
+                            <th style="width: 220px;" data-i18n="tasks.col_name">Nom de la Tâche</th>
+                            <th style="width: 140px;" data-i18n="tasks.col_freq">Fréquence</th>
+                            <th data-i18n="tasks.col_prompt">Instruction Déclenchée</th>
+                            <th style="width: 170px;" data-i18n="tasks.col_last">Dernière Exécution</th>
+                            <th style="width: 110px;" data-i18n="tasks.col_status">Statut</th>
                         </tr>
                     </thead>
                     <tbody id="task-table-body">
-                        <tr><td colspan="5" style="color: var(--text-muted); text-align: center;">Chargement des tâches...</td></tr>
+                        <tr><td colspan="5" data-i18n="tasks.loading" style="color: var(--text-muted); text-align: center;">Chargement des tâches...</td></tr>
                     </tbody>
                 </table>
             </div>
         `;
+        if (window.applyI18n) window.applyI18n(this);
 
         this.querySelector('#btn-add-task').addEventListener('click', () => this.addTask());
         this.loadTasks();

@@ -10,18 +10,18 @@ export class SettingsView extends HTMLElement {
                         <div>
                             <h2 style="display: flex; align-items: center; gap: 0.5rem;">
                                 <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path></svg>
-                                Hub Multi-Modèles & Fournisseurs d'Inférence
+                                <span data-i18n="settings.hub_title">Hub Multi-Modèles & Fournisseurs d'Inférence</span>
                             </h2>
-                            <p class="card-desc" style="margin-bottom: 0;">Déclarez autant de moteurs locaux (Ollama, LM Studio, vLLM) ou cloud (DeepSeek, OpenAI, Groq, Mistral) que souhaité sous forme de tuiles connectables.</p>
+                            <p class="card-desc" data-i18n="settings.hub_desc" style="margin-bottom: 0;">Déclarez autant de moteurs locaux (Ollama, LM Studio, vLLM) ou cloud (DeepSeek, OpenAI, Groq, Mistral) que souhaité sous forme de tuiles connectables.</p>
                         </div>
                         <div style="display: flex; gap: 0.5rem; align-items: center;">
                             <button class="btn-secondary" id="btn-refresh-models" style="padding: 0.4rem 0.8rem; font-size: 0.82rem; display: inline-flex; align-items: center; gap: 0.35rem;" title="Rafraîchir les sondages et l'état des modèles">
                                 <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l5.67-5.67"/></svg>
-                                Actualiser l'état
+                                <span data-i18n="settings.refresh_btn">Actualiser l'état</span>
                             </button>
                             <button class="btn-primary" id="btn-open-add-model" style="padding: 0.4rem 0.9rem; font-size: 0.82rem; display: inline-flex; align-items: center; gap: 0.35rem;">
                                 <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
-                                Ajouter un Modèle
+                                <span data-i18n="settings.add_model_btn">Ajouter un Modèle</span>
                             </button>
                         </div>
                     </div>
@@ -29,41 +29,41 @@ export class SettingsView extends HTMLElement {
                     <!-- Formulaire d'ajout rapide (repliable) -->
                     <div id="add-model-panel" style="display: none; background: rgba(15, 23, 42, 0.7); border: 1px solid var(--border-accent); border-radius: var(--radius-sm); padding: 1rem; margin-bottom: 1.25rem;">
                         <input type="hidden" id="edit-mod-id" value="" />
-                        <div id="form-model-title" style="font-weight: 700; color: var(--accent-cyan); margin-bottom: 0.75rem; font-size: 0.85rem;">Déclarer un nouveau point d'inférence :</div>
+                        <div id="form-model-title" data-i18n="settings.form_model_title" style="font-weight: 700; color: var(--accent-cyan); margin-bottom: 0.75rem; font-size: 0.85rem;">Déclarer un nouveau point d'inférence :</div>
                         <div style="display: grid; grid-template-columns: 1fr 1fr 1.2fr 1fr; gap: 0.75rem; margin-bottom: 0.75rem;">
                             <div>
-                                <label style="font-size: 0.72rem; color: var(--text-muted); display: block; margin-bottom: 0.2rem;">Nom d'affichage</label>
+                                <label data-i18n="settings.lbl_display_name" style="font-size: 0.72rem; color: var(--text-muted); display: block; margin-bottom: 0.2rem;">Nom d'affichage</label>
                                 <input type="text" id="new-mod-name" placeholder="ex: vLLM Server, Groq Llama, etc." />
                             </div>
                             <div>
-                                <label style="font-size: 0.72rem; color: var(--text-muted); display: block; margin-bottom: 0.2rem;">Type d'API</label>
+                                <label data-i18n="settings.lbl_api_type" style="font-size: 0.72rem; color: var(--text-muted); display: block; margin-bottom: 0.2rem;">Type d'API</label>
                                 <select id="new-mod-type" style="background: rgba(0,0,0,0.5); border: 1px solid var(--border-subtle); color: var(--text-primary); border-radius: var(--radius-sm); width: 100%; height: 36px; padding: 0 0.5rem; font-size: 0.82rem;">
                                     <option value="openai">OpenAI-Compatible (LM Studio / Groq / DeepSeek)</option>
                                     <option value="ollama">Ollama Native (/api/chat)</option>
                                 </select>
                             </div>
                             <div>
-                                <label style="font-size: 0.72rem; color: var(--text-muted); display: block; margin-bottom: 0.2rem;">URL Endpoint</label>
+                                <label data-i18n="settings.lbl_endpoint" style="font-size: 0.72rem; color: var(--text-muted); display: block; margin-bottom: 0.2rem;">URL Endpoint</label>
                                 <input type="text" id="new-mod-url" placeholder="http://127.0.0.1:1234 ou https://api.groq.com/openai" />
                             </div>
                             <div>
-                                <label style="font-size: 0.72rem; color: var(--text-muted); display: block; margin-bottom: 0.2rem;">Identifiant Modèle</label>
+                                <label data-i18n="settings.lbl_model_id" style="font-size: 0.72rem; color: var(--text-muted); display: block; margin-bottom: 0.2rem;">Identifiant Modèle</label>
                                 <input type="text" id="new-mod-model" placeholder="ex: llama-3.3-70b, local-model" />
                             </div>
                         </div>
                         <div style="display: flex; gap: 0.75rem; align-items: flex-end;">
                             <div style="flex: 1;">
-                                <label style="font-size: 0.72rem; color: var(--text-muted); display: block; margin-bottom: 0.2rem;">Clé API (optionnel, chiffrée DPAPI)</label>
+                                <label data-i18n="settings.lbl_api_key" style="font-size: 0.72rem; color: var(--text-muted); display: block; margin-bottom: 0.2rem;">Clé API (optionnel, chiffrée DPAPI)</label>
                                 <input type="password" id="new-mod-key" placeholder="sk-... (laisser vide pour ne pas modifier)" />
                             </div>
-                            <button class="btn-primary" id="btn-save-new-model" style="padding: 0.4rem 1rem;">Enregistrer</button>
-                            <button class="btn-secondary" id="btn-cancel-new-model" style="padding: 0.4rem 0.8rem;">Annuler</button>
+                            <button class="btn-primary" id="btn-save-new-model" data-i18n="settings.save_btn" style="padding: 0.4rem 1rem;">Enregistrer</button>
+                            <button class="btn-secondary" id="btn-cancel-new-model" data-i18n="settings.cancel_btn" style="padding: 0.4rem 0.8rem;">Annuler</button>
                         </div>
                     </div>
 
                     <!-- Grille des Tuiles de Modèles -->
                     <div id="models-grid" style="display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 1rem;">
-                        <div style="color: var(--text-muted); font-size: 0.8rem; padding: 1rem;">Chargement des modèles...</div>
+                        <div data-i18n="settings.loading_models" style="color: var(--text-muted); font-size: 0.8rem; padding: 1rem;">Chargement des modèles...</div>
                     </div>
                 </div>
 
@@ -71,28 +71,28 @@ export class SettingsView extends HTMLElement {
                 <div class="card">
                     <h2 style="display: flex; align-items: center; gap: 0.5rem;">
                         <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path></svg>
-                        Répertoire & Chemins Système Personnalisés
+                        <span data-i18n="settings.res_title">Répertoire & Chemins Système Personnalisés</span>
                     </h2>
-                    <p class="card-desc">Indiquez ici n'importe quel dossier clé, chemin d'outils, repo git ou documentation que l'agent doit connaître sur la machine hôte.</p>
+                    <p class="card-desc" data-i18n="settings.res_desc">Indiquez ici n'importe quel dossier clé, chemin d'outils, repo git ou documentation que l'agent doit connaître sur la machine hôte.</p>
 
                     <div style="display: grid; grid-template-columns: 1fr 1.5fr auto; gap: 0.75rem; margin-bottom: 1.25rem;">
-                        <input type="text" id="res-key" placeholder="Nom de la ressource (ex: repo_git, docs_path, dataset_dir)..." />
-                        <input type="text" id="res-value" placeholder="Chemin absolu ou URI (ex: ., C:\\tools)..." />
+                        <input type="text" id="res-key" data-i18n-placeholder="settings.res_key_ph" placeholder="Nom de la ressource (ex: repo_git, docs_path, dataset_dir)..." />
+                        <input type="text" id="res-value" data-i18n-placeholder="settings.res_val_ph" placeholder="Chemin absolu ou URI (ex: ., C:\\tools)..." />
                         <button class="btn-primary" id="btn-add-resource">
-                            <span>+</span> Associer
+                            <span>+</span> <span data-i18n="settings.res_add_btn">Associer</span>
                         </button>
                     </div>
 
                     <table>
                         <thead>
                             <tr>
-                                <th style="width: 250px;">Clé de Ressource</th>
-                                <th>Chemin ou Valeur</th>
-                                <th style="width: 100px;">Action</th>
+                                <th style="width: 250px;" data-i18n="settings.res_col_key">Clé de Ressource</th>
+                                <th data-i18n="settings.res_col_val">Chemin ou Valeur</th>
+                                <th style="width: 100px;" data-i18n="settings.res_col_action">Action</th>
                             </tr>
                         </thead>
                         <tbody id="resources-table-body">
-                            <tr><td colspan="3" style="color: var(--text-muted); text-align: center;">Chargement des ressources...</td></tr>
+                            <tr><td colspan="3" data-i18n="settings.res_loading" style="color: var(--text-muted); text-align: center;">Chargement des ressources...</td></tr>
                         </tbody>
                     </table>
                 </div>
@@ -101,34 +101,35 @@ export class SettingsView extends HTMLElement {
                 <div class="card">
                     <h2 style="display: flex; align-items: center; gap: 0.5rem;">
                         <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="2" x2="12" y2="6"></line><line x1="12" y1="18" x2="12" y2="22"></line><line x1="4.93" y1="4.93" x2="7.76" y2="7.76"></line><line x1="16.24" y1="16.24" x2="19.07" y2="19.07"></line><line x1="2" y1="12" x2="6" y2="12"></line><line x1="18" y1="12" x2="22" y2="12"></line><line x1="4.93" y1="19.07" x2="7.76" y2="16.24"></line><line x1="16.24" y1="7.76" x2="19.07" y2="4.93"></line></svg>
-                        Serveurs MCP Déclarés (JSON-RPC 2.0 / Stdio)
+                        <span data-i18n="settings.mcp_title">Serveurs MCP Déclarés (JSON-RPC 2.0 / Stdio)</span>
                     </h2>
-                    <p class="card-desc">Ajoutez des serveurs MCP locaux ou distants (ex: npx -y @modelcontextprotocol/server-filesystem, python -m mon_serveur_mcp).</p>
+                    <p class="card-desc" data-i18n="settings.mcp_desc">Ajoutez des serveurs MCP locaux ou distants (ex: npx -y @modelcontextprotocol/server-filesystem, python -m mon_serveur_mcp).</p>
 
                     <div style="display: grid; grid-template-columns: 1fr 1.5fr 1fr auto; gap: 0.75rem; margin-bottom: 1.25rem;">
-                        <input type="text" id="mcp-name" placeholder="Nom (ex: filesystem, git, db)..." />
-                        <input type="text" id="mcp-cmd" placeholder="Commande (ex: npx, python, node)..." />
-                        <input type="text" id="mcp-args" placeholder="Arguments (séparés par espace)..." />
+                        <input type="text" id="mcp-name" data-i18n-placeholder="settings.mcp_name_ph" placeholder="Nom (ex: filesystem, git, db)..." />
+                        <input type="text" id="mcp-cmd" data-i18n-placeholder="settings.mcp_cmd_ph" placeholder="Commande (ex: npx, python, node)..." />
+                        <input type="text" id="mcp-args" data-i18n-placeholder="settings.mcp_args_ph" placeholder="Arguments (séparés par espace)..." />
                         <button class="btn-primary" id="btn-add-mcp">
-                            <span>+</span> Ajouter MCP
+                            <span>+</span> <span data-i18n="settings.mcp_add_btn">Ajouter MCP</span>
                         </button>
                     </div>
 
                     <table>
                         <thead>
                             <tr>
-                                <th style="width: 150px;">Serveur</th>
-                                <th>Commande & Arguments</th>
-                                <th style="width: 160px;">Action & Test</th>
+                                <th style="width: 150px;" data-i18n="settings.mcp_col_server">Serveur</th>
+                                <th data-i18n="settings.mcp_col_cmd">Commande & Arguments</th>
+                                <th style="width: 160px;" data-i18n="settings.mcp_col_action">Action & Test</th>
                             </tr>
                         </thead>
                         <tbody id="mcp-table-body">
-                            <tr><td colspan="3" style="color: var(--text-muted); text-align: center;">Chargement des serveurs MCP...</td></tr>
+                            <tr><td colspan="3" data-i18n="settings.mcp_loading" style="color: var(--text-muted); text-align: center;">Chargement des serveurs MCP...</td></tr>
                         </tbody>
                     </table>
                 </div>
             </div>
         `;
+        if (window.applyI18n) window.applyI18n(this);
 
         this.querySelector('#btn-refresh-models').addEventListener('click', async () => {
             const btn = this.querySelector('#btn-refresh-models');

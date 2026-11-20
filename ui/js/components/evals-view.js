@@ -15,32 +15,32 @@ export class EvalsView extends HTMLElement {
                         <div>
                             <h2 style="display: flex; align-items: center; gap: 0.5rem;">
                                 <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><circle cx="12" cy="12" r="6"></circle><circle cx="12" cy="12" r="2"></circle></svg>
-                                Harnais d'Évaluation Automatisé (Agentic Evals)
+                                <span data-i18n="evals.title">Harnais d'Évaluation Automatisé (Agentic Evals)</span>
                             </h2>
-                            <p class="card-desc" style="margin-bottom: 0;">Banc d'essai automatisé : taux de réussite, fidélité aux outils, vitesse d'inférence et dérives comportementales.</p>
+                            <p class="card-desc" data-i18n="evals.desc" style="margin-bottom: 0;">Banc d'essai automatisé : taux de réussite, fidélité aux outils, vitesse d'inférence et dérives comportementales.</p>
                         </div>
                         <button class="btn-primary" id="btn-run-benchmark" style="padding: 0.45rem 1.15rem; font-size: 0.85rem; display: inline-flex; align-items: center; gap: 0.4rem;">
                             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="5 3 19 12 5 21 5 3"></polygon></svg>
-                            Lancer l'Évaluation Complète
+                            <span data-i18n="evals.run_btn">Lancer l'Évaluation Complète</span>
                         </button>
                     </div>
 
                     <!-- Cartouches KPIs de synthèse -->
                     <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 0.85rem;" id="eval-kpi-summary">
                         <div style="background: rgba(255, 255, 255, 0.02); border: 1px solid var(--border-subtle); border-radius: var(--radius-sm); padding: 0.85rem;">
-                            <div style="font-size: 0.72rem; color: var(--text-muted); text-transform: uppercase;">Taux de Succès</div>
+                            <div data-i18n="evals.kpi_success" style="font-size: 0.72rem; color: var(--text-muted); text-transform: uppercase;">Taux de Succès</div>
                             <div style="font-size: 1.4rem; font-weight: 700; color: var(--accent-emerald); font-family: var(--font-mono);" id="kpi-success-rate">-- %</div>
                         </div>
                         <div style="background: rgba(255, 255, 255, 0.02); border: 1px solid var(--border-subtle); border-radius: var(--radius-sm); padding: 0.85rem;">
-                            <div style="font-size: 0.72rem; color: var(--text-muted); text-transform: uppercase;">Score Moyen</div>
+                            <div data-i18n="evals.kpi_score" style="font-size: 0.72rem; color: var(--text-muted); text-transform: uppercase;">Score Moyen</div>
                             <div style="font-size: 1.4rem; font-weight: 700; color: var(--accent-cyan); font-family: var(--font-mono);" id="kpi-avg-score">-- / 1.0</div>
                         </div>
                         <div style="background: rgba(255, 255, 255, 0.02); border: 1px solid var(--border-subtle); border-radius: var(--radius-sm); padding: 0.85rem;">
-                            <div style="font-size: 0.72rem; color: var(--text-muted); text-transform: uppercase;">Durée Totale</div>
+                            <div data-i18n="evals.kpi_time" style="font-size: 0.72rem; color: var(--text-muted); text-transform: uppercase;">Durée Totale</div>
                             <div style="font-size: 1.4rem; font-weight: 700; color: var(--accent-amber); font-family: var(--font-mono);" id="kpi-total-time">-- s</div>
                         </div>
                         <div style="background: rgba(255, 255, 255, 0.02); border: 1px solid var(--border-subtle); border-radius: var(--radius-sm); padding: 0.85rem;">
-                            <div style="font-size: 0.72rem; color: var(--text-muted); text-transform: uppercase;">Tokens Consommés</div>
+                            <div data-i18n="evals.kpi_tokens" style="font-size: 0.72rem; color: var(--text-muted); text-transform: uppercase;">Tokens Consommés</div>
                             <div style="font-size: 1.4rem; font-weight: 700; color: var(--primary); font-family: var(--font-mono);" id="kpi-total-tokens">--</div>
                         </div>
                     </div>
@@ -50,11 +50,11 @@ export class EvalsView extends HTMLElement {
                 <div class="card" style="margin-bottom: 0;">
                     <h2 style="display: flex; align-items: center; gap: 0.5rem;">
                         <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"></path><rect x="8" y="2" width="8" height="4" rx="1" ry="1"></rect></svg>
-                        Scénarios de Test Standardisés
+                        <span data-i18n="evals.scenarios_title">Scénarios de Test Standardisés</span>
                     </h2>
-                    <p class="card-desc">Couverture des capacités fondamentales : Raisonnement, Primitives Mémoires, Terminal OS et Artefacts.</p>
+                    <p class="card-desc" data-i18n="evals.scenarios_desc">Couverture des capacités fondamentales : Raisonnement, Primitives Mémoires, Terminal OS et Artefacts.</p>
                     
-                    <div id="benchmark-status-indicator" style="display: none; padding: 0.75rem; background: rgba(99, 102, 241, 0.1); border: 1px solid var(--primary); border-radius: var(--radius-sm); margin-bottom: 1rem; font-family: var(--font-mono); font-size: 0.82rem; color: var(--accent-cyan);">
+                    <div id="benchmark-status-indicator" data-i18n="evals.running" style="display: none; padding: 0.75rem; background: rgba(99, 102, 241, 0.1); border: 1px solid var(--primary); border-radius: var(--radius-sm); margin-bottom: 1rem; font-family: var(--font-mono); font-size: 0.82rem; color: var(--accent-cyan);">
                         Évaluation en cours sur le modèle actif... Veuillez patienter.
                     </div>
 

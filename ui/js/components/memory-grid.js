@@ -6,43 +6,43 @@ export class MemoryGrid extends HTMLElement {
             <div class="card" style="position: relative;">
                 <h2 style="display: flex; align-items: center; gap: 0.5rem;">
                     <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"></path><polyline points="3.27 6.96 12 12.01 20.73 6.96"></polyline><line x1="12" y1="22.08" x2="12" y2="12"></line></svg>
-                    Inspecteur & Éditeur de Mémoires
+                    <span data-i18n="mem.title">Inspecteur & Éditeur de Mémoires</span>
                 </h2>
-                <p class="card-desc">Système de persistance et de rappel contextuel isolé par projet et par session.</p>
+                <p class="card-desc" data-i18n="mem.desc">Système de persistance et de rappel contextuel isolé par projet et par session.</p>
 
                 <div style="display: grid; grid-template-columns: 1.2fr 2fr 140px auto; gap: 0.75rem; margin-bottom: 1.5rem;">
-                    <input type="text" id="mem-key" placeholder="Clé (ex: arch_target)" />
-                    <input type="text" id="mem-content" placeholder="Contenu textuel ou Markdown..." />
+                    <input type="text" id="mem-key" data-i18n-placeholder="mem.key_placeholder" placeholder="Clé (ex: arch_target)" />
+                    <input type="text" id="mem-content" data-i18n-placeholder="mem.content_placeholder" placeholder="Contenu textuel ou Markdown..." />
                     <select id="mem-scope">
-                        <option value="project">Project (Permanent)</option>
-                        <option value="session">Session (Éphémère)</option>
+                        <option value="project" data-i18n="mem.scope_project">Project (Permanent)</option>
+                        <option value="session" data-i18n="mem.scope_session">Session (Éphémère)</option>
                     </select>
                     <button class="btn-primary" id="btn-add-mem">
-                        <span>+</span> Ajouter
+                        <span>+</span> <span data-i18n="mem.add_btn">Ajouter</span>
                     </button>
                 </div>
 
                 <!-- Recherche sémantique / plein texte FTS5 & Vectorielle -->
                 <div style="display: flex; gap: 0.75rem; margin-bottom: 1.25rem;">
-                    <input type="text" id="mem-search-input" placeholder="Recherche sémantique RAG & plein-texte FTS5 dans les mémoires..." style="flex: 1;" />
+                    <input type="text" id="mem-search-input" data-i18n-placeholder="mem.search_placeholder" placeholder="Recherche sémantique RAG & plein-texte FTS5 dans les mémoires..." style="flex: 1;" />
                     <button class="btn-primary" id="btn-search-mem" style="padding: 0.4rem 0.85rem; font-size: 0.8rem; display: inline-flex; align-items: center; gap: 0.35rem;">
                         <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg>
-                        Rechercher
+                        <span data-i18n="mem.search_btn">Rechercher</span>
                     </button>
                 </div>
 
                 <table>
                     <thead>
                         <tr>
-                            <th style="width: 120px;">Scope</th>
-                            <th style="width: 220px;">Clé</th>
-                            <th>Aperçu du Contenu</th>
-                            <th style="width: 110px; text-align: center;">Détails</th>
-                            <th style="width: 160px;">Dernière MàJ</th>
+                            <th style="width: 120px;" data-i18n="mem.col_scope">Scope</th>
+                            <th style="width: 220px;" data-i18n="mem.col_key">Clé</th>
+                            <th data-i18n="mem.col_preview">Aperçu du Contenu</th>
+                            <th style="width: 110px; text-align: center;" data-i18n="mem.col_details">Détails</th>
+                            <th style="width: 160px;" data-i18n="mem.col_updated">Dernière MàJ</th>
                         </tr>
                     </thead>
                     <tbody id="mem-table-body">
-                        <tr><td colspan="5" style="color: var(--text-muted); text-align: center;">Chargement des mémoires...</td></tr>
+                        <tr><td colspan="5" data-i18n="mem.loading" style="color: var(--text-muted); text-align: center;">Chargement des mémoires...</td></tr>
                     </tbody>
                 </table>
 

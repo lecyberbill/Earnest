@@ -1,0 +1,11 @@
+[package]
+name = "tool-guard"
+version = "1.0.0"
+edition = "2021"
+
+[dependencies]
+
+[dev-dependencies]
+
+[metadata]
+test_no_external_deps = "verified"

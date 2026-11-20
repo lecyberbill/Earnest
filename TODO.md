@@ -6,3 +6,8 @@
   - `earnest-ide/ui/js/app.js` (`btnGovApprove.textContent`, etc.)
   - `earnest-ide/ui/js/components/kb-view.js`
   - `earnest-ide/ui/js/i18n.js` (vérifier la couverture complète EN/FR)
+
+## Tour de contrôle d'agent (`earnest-core` + `ui/`)
+- [ ] Éprouver et enrichir la tour de contrôle (pipelines multi-agents Architect → Dev → QA, orchestration, métriques & benchmarks dédiés dans `docs/`)
+- [ ] Intégrer les prochaines briques : `tool-guard`, compaction par budget de tokens (`context-trimmer`), et ordonnanceur DAG (`agent-scheduler`)
+

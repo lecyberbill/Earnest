@@ -253,3 +253,69 @@ steps:
     assert_eq!(report.logs[1].step_id, "log_err");
     assert_eq!(report.logs[1].status, "success");
 }
+
+#[test]
+fn dry_run_vfs_overlay_supports_chained_write_read_transfer_stat_delete() {
+    let tmp = std::env::temp_dir().join(format!("wf_core_dry_vfs_{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&tmp);
+    std::fs::create_dir_all(&tmp).unwrap();
+
+    let yaml = format!(
+        r#"
+version: "0.1"
+name: "dry_vfs_chain"
+connections:
+  local_fs:
+    driver: local
+    root: "{}"
+steps:
+  - id: w
+    action: vfs.write
+    params:
+      conn: local_fs
+      path: "virtual.txt"
+      content: "hello dry vfs"
+  - id: r
+    action: vfs.read
+    params:
+      conn: local_fs
+      path: "virtual.txt"
+    output: rd
+  - id: cp
+    action: vfs.transfer
+    params:
+      src: {{ conn: local_fs, path: "virtual.txt" }}
+      dst: {{ conn: local_fs, path: "virtual_copy.txt" }}
+  - id: st
+    action: vfs.stat
+    params:
+      conn: local_fs
+      path: "virtual_copy.txt"
+      compute_sha256: true
+  - id: del
+    action: vfs.delete
+    params:
+      conn: local_fs
+      path: "virtual.txt"
+"#,
+        tmp.to_string_lossy().replace('\\', "/")
+    );
+
+    let spec = parse_workflow_yaml(&yaml).unwrap();
+    let report = execute_workflow(
+        &spec,
+        ExecutionOptions {
+            dry_run: true,
+            ..Default::default()
+        },
+    )
+    .unwrap();
+    assert!(report.success, "dry_run chain failed: {:?}", report.error);
+    assert_eq!(report.logs[1].output.as_ref().unwrap()["content"], "hello dry vfs");
+    assert_eq!(report.logs[3].output.as_ref().unwrap()["size"], 13);
+    assert!(report.logs[3].output.as_ref().unwrap()["sha256"].is_string());
+    assert!(!tmp.join("virtual.txt").exists());
+    assert!(!tmp.join("virtual_copy.txt").exists());
+
+    let _ = std::fs::remove_dir_all(&tmp);
+}

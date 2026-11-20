@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
@@ -55,6 +55,8 @@ struct RuntimeCtx<'a> {
     outputs: HashMap<String, Value>,
     secrets: HashMap<String, String>,
     dry_run: bool,
+    dry_vfs_files: HashMap<PathBuf, Vec<u8>>,
+    dry_vfs_deleted: HashSet<PathBuf>,
     max_each_items: usize,
     logs: Vec<StepLog>,
 }
@@ -276,6 +278,8 @@ pub fn execute_workflow(spec: &WorkflowSpec, opts: ExecutionOptions) -> Result<R
         outputs: HashMap::new(),
         secrets: opts.secrets,
         dry_run: opts.dry_run,
+        dry_vfs_files: HashMap::new(),
+        dry_vfs_deleted: HashSet::new(),
         max_each_items: opts.max_each_items.max(1),
         logs: Vec::new(),
     };
@@ -454,7 +458,18 @@ fn exec_action(ctx: &mut RuntimeCtx<'_>, step: &StepSpec) -> Result<Option<Value
         }
         ActionSpec::VfsRead { params } => {
             let path = ctx.safe_local_path(&params.conn, &params.path)?;
-            let bytes = fs::read(&path).map_err(|e| format!("vfs.read '{}': {}", path.display(), e))?;
+            let bytes = if ctx.dry_run {
+                if ctx.dry_vfs_deleted.contains(&path) {
+                    return Err(format!("vfs.read '{}': fichier supprimé en dry_run", path.display()));
+                }
+                if let Some(mem) = ctx.dry_vfs_files.get(&path) {
+                    mem.clone()
+                } else {
+                    fs::read(&path).map_err(|e| format!("vfs.read '{}': {}", path.display(), e))?
+                }
+            } else {
+                fs::read(&path).map_err(|e| format!("vfs.read '{}': {}", path.display(), e))?
+            };
             match params.encoding {
                 ReadEncoding::Utf8 => {
                     let text = String::from_utf8(bytes).map_err(|e| format!("UTF-8 invalide: {}", e))?;
@@ -466,7 +481,10 @@ fn exec_action(ctx: &mut RuntimeCtx<'_>, step: &StepSpec) -> Result<Option<Value
         ActionSpec::VfsWrite { params } => {
             let path = ctx.safe_local_path(&params.conn, &params.path)?;
             let content = ctx.render_str(&params.content);
-            if !ctx.dry_run {
+            if ctx.dry_run {
+                ctx.dry_vfs_deleted.remove(&path);
+                ctx.dry_vfs_files.insert(path, content.as_bytes().to_vec());
+            } else {
                 if params.create_dirs {
                     if let Some(parent) = path.parent() {
                         fs::create_dir_all(parent).map_err(|e| e.to_string())?;
@@ -479,10 +497,24 @@ fn exec_action(ctx: &mut RuntimeCtx<'_>, step: &StepSpec) -> Result<Option<Value
         ActionSpec::VfsTransfer { params } => {
             let src = ctx.safe_local_path(&params.src.conn, &params.src.path)?;
             let dst = ctx.safe_local_path(&params.dst.conn, &params.dst.path)?;
-            if !params.overwrite && dst.exists() {
+            let dst_exists = if ctx.dry_run {
+                !ctx.dry_vfs_deleted.contains(&dst) && (ctx.dry_vfs_files.contains_key(&dst) || dst.exists())
+            } else {
+                dst.exists()
+            };
+            if !params.overwrite && dst_exists {
                 return Err(format!("Destination existante (overwrite=false): {}", dst.display()));
             }
             if ctx.dry_run {
+                let bytes = if ctx.dry_vfs_deleted.contains(&src) {
+                    return Err(format!("vfs.transfer: source supprimée en dry_run '{}'", src.display()));
+                } else if let Some(mem) = ctx.dry_vfs_files.get(&src) {
+                    mem.clone()
+                } else {
+                    fs::read(&src).map_err(|e| format!("vfs.transfer '{}': {}", src.display(), e))?
+                };
+                ctx.dry_vfs_deleted.remove(&dst);
+                ctx.dry_vfs_files.insert(dst.clone(), bytes);
                 return Ok(Some(json!({ "dry_run": true, "src": src.display().to_string(), "dst": dst.display().to_string() })));
             }
             if let Some(parent) = dst.parent() {
@@ -493,13 +525,33 @@ fn exec_action(ctx: &mut RuntimeCtx<'_>, step: &StepSpec) -> Result<Option<Value
         }
         ActionSpec::VfsDelete { params } => {
             let path = ctx.safe_local_path(&params.conn, &params.path)?;
-            if !ctx.dry_run && path.exists() {
+            if ctx.dry_run {
+                ctx.dry_vfs_files.remove(&path);
+                ctx.dry_vfs_deleted.insert(path);
+                return Ok(Some(json!({ "deleted": true, "dry_run": true })));
+            }
+            if path.exists() {
                 fs::remove_file(&path).map_err(|e| format!("vfs.delete '{}': {}", path.display(), e))?;
             }
-            Ok(Some(json!({ "deleted": !ctx.dry_run })))
+            Ok(Some(json!({ "deleted": true })))
         }
         ActionSpec::VfsStat { params } => {
             let path = ctx.safe_local_path(&params.conn, &params.path)?;
+            if ctx.dry_run {
+                if ctx.dry_vfs_deleted.contains(&path) {
+                    return Err(format!("vfs.stat '{}': fichier supprimé en dry_run", path.display()));
+                }
+                if let Some(data) = ctx.dry_vfs_files.get(&path) {
+                    let hash = if params.compute_sha256 {
+                        let mut h = Sha256::new();
+                        h.update(data);
+                        Some(h.finalize().iter().map(|b| format!("{:02x}", b)).collect::<String>())
+                    } else {
+                        None
+                    };
+                    return Ok(Some(json!({ "size": data.len(), "is_file": true, "sha256": hash })));
+                }
+            }
             let meta = fs::metadata(&path).map_err(|e| format!("vfs.stat '{}': {}", path.display(), e))?;
             let hash = if params.compute_sha256 && meta.is_file() {
                 let data = fs::read(&path).map_err(|e| e.to_string())?;

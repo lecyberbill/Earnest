@@ -935,12 +935,19 @@ fn handle_request(mut req: tiny_http::Request) {
                         "cloud" => "deepseek",
                         other => other,
                     };
-                    router.backends.sort_by_key(|b| {
-                        let m = b.id.to_lowercase().contains(needle)
-                            || b.provider_type.to_lowercase() == needle
-                            || b.name.to_lowercase().contains(needle);
-                        if m { 0 } else { 1 }
-                    });
+                    let filtered: Vec<_> = router
+                        .backends
+                        .iter()
+                        .filter(|b| {
+                            b.id.to_lowercase().contains(needle)
+                                || b.provider_type.to_lowercase() == needle
+                                || b.name.to_lowercase().contains(needle)
+                        })
+                        .cloned()
+                        .collect();
+                    if !filtered.is_empty() {
+                        router.backends = filtered;
+                    }
                 }
                 let mut engine = ReActEngine::new(&conn, &router, &project_id);
                 engine.think_effort = think_effort;

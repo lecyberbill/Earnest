@@ -127,10 +127,25 @@ impl<'a> ReActEngine<'a> {
             }
             "symbol_search" => {
                 let query = args["query"].as_str().unwrap_or("");
-                let root_str = args["path"].as_str().unwrap_or(".");
+                let root_str = args["path"].as_str()
+                    .or_else(|| args["root_path"].as_str())
+                    .or_else(|| args["file_path"].as_str())
+                    .or_else(|| args["target_file"].as_str())
+                    .unwrap_or(".");
+                let root = std::path::Path::new(root_str);
+                if tool_guard::path::has_traversal(root) {
+                    let err = tool_guard::error::GuardError::PathTraversal {
+                        requested: root_str.to_string(),
+                        allowed_root: ".".to_string(),
+                    };
+                    return serde_json::json!({"status": "error", "error": err.to_string()}).to_string();
+                }
+                if tool_guard::path::is_system_sensitive(root) {
+                    let err = tool_guard::error::GuardError::SystemPath { requested: root_str.to_string() };
+                    return serde_json::json!({"status": "error", "error": err.to_string()}).to_string();
+                }
                 let limit = args["limit"].as_u64().unwrap_or(8).clamp(1, 25) as usize;
                 let include_snippet = args["include_snippet"].as_bool().unwrap_or(true);
-                let root = std::path::Path::new(root_str);
                 match symbol_index::SymbolIndex::build(root) {
                     Ok(idx) => {
                         let hits: Vec<Value> = idx
@@ -166,10 +181,25 @@ impl<'a> ReActEngine<'a> {
                 }
             }
             "workspace_map" => {
-                let root_str = args["path"].as_str().unwrap_or(".");
+                let root_str = args["path"].as_str()
+                    .or_else(|| args["root_path"].as_str())
+                    .or_else(|| args["file_path"].as_str())
+                    .or_else(|| args["target_file"].as_str())
+                    .unwrap_or(".");
+                let root = std::path::Path::new(root_str);
+                if tool_guard::path::has_traversal(root) {
+                    let err = tool_guard::error::GuardError::PathTraversal {
+                        requested: root_str.to_string(),
+                        allowed_root: ".".to_string(),
+                    };
+                    return serde_json::json!({"status": "error", "error": err.to_string()}).to_string();
+                }
+                if tool_guard::path::is_system_sensitive(root) {
+                    let err = tool_guard::error::GuardError::SystemPath { requested: root_str.to_string() };
+                    return serde_json::json!({"status": "error", "error": err.to_string()}).to_string();
+                }
                 let max_files = args["max_files"].as_u64().unwrap_or(25).clamp(1, 100) as usize;
                 let max_symbols = args["max_symbols_per_file"].as_u64().unwrap_or(8).clamp(1, 30) as usize;
-                let root = std::path::Path::new(root_str);
                 match symbol_index::workspace_map(root, max_files, max_symbols) {
                     Ok(map) => serde_json::json!({
                         "status": "ok",

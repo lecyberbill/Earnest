@@ -22,3 +22,4 @@ json-repair = { path = "../crates/json-repair" }
 symbol-index = { path = "../crates/symbol-index" }
 log-sanitizer = { path = "../crates/log-sanitizer" }
 loop-detector = { path = "../crates/loop-detector" }
+tool-guard = { path = "../crates/tool-guard" }

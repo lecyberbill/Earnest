@@ -403,6 +403,7 @@ dependencies = [
  "similar",
  "symbol-index",
  "tiny_http",
+ "tool-guard",
  "tool-output-cache",
  "urlencoding",
  "uuid",
@@ -1700,6 +1701,10 @@ dependencies = [
  "pin-project-lite",
  "tokio",
 ]
+
+[[package]]
+name = "tool-guard"
+version = "1.0.0"
 
 [[package]]
 name = "tool-output-cache"

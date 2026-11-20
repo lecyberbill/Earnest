@@ -776,8 +776,28 @@ impl<'a> ReActEngine<'a> {
                 }
             }
             "read_file" => {
-                let path = args["path"].as_str().unwrap_or("");
-                let resolved = if Path::new(path).is_absolute() {
+                let path = args["path"].as_str()
+                    .or_else(|| args["file_path"].as_str())
+                    .or_else(|| args["target_file"].as_str())
+                    .unwrap_or("")
+                    .trim();
+                if path.is_empty() {
+                    let err = tool_guard::error::GuardError::EmptyPath;
+                    return (serde_json::json!({"status": "error", "error": err.to_string()}).to_string(), None);
+                }
+                let raw_p = Path::new(path);
+                if tool_guard::path::has_traversal(raw_p) {
+                    let err = tool_guard::error::GuardError::PathTraversal {
+                        requested: path.to_string(),
+                        allowed_root: self.workspace_root.display().to_string(),
+                    };
+                    return (serde_json::json!({"status": "error", "error": err.to_string()}).to_string(), None);
+                }
+                if tool_guard::path::is_system_sensitive(raw_p) {
+                    let err = tool_guard::error::GuardError::SystemPath { requested: path.to_string() };
+                    return (serde_json::json!({"status": "error", "error": err.to_string()}).to_string(), None);
+                }
+                let resolved = if raw_p.is_absolute() {
                     PathBuf::from(path)
                 } else {
                     let shadow_candidate = self.workspace_root.join(&policy.shadow_env.path).join(path);
@@ -787,6 +807,23 @@ impl<'a> ReActEngine<'a> {
                         self.workspace_root.join(path)
                     }
                 };
+                if let Ok(meta) = std::fs::metadata(&resolved) {
+                    if let Err(err) = tool_guard::file::enforce_size_bound(meta.len()) {
+                        return (serde_json::json!({"status": "error", "error": err.to_string()}).to_string(), None);
+                    }
+                    if meta.is_file() {
+                        if let Ok(mut f) = std::fs::File::open(&resolved) {
+                            use std::io::Read;
+                            let mut buf = [0u8; 4096];
+                            if let Ok(n) = f.read(&mut buf) {
+                                if tool_guard::file::is_binary(&buf[..n]) {
+                                    let err = tool_guard::error::GuardError::BinaryFile { path: path.to_string() };
+                                    return (serde_json::json!({"status": "error", "error": err.to_string()}).to_string(), None);
+                                }
+                            }
+                        }
+                    }
+                }
                 let start_line = args["start_line"].as_u64().map(|v| v as usize);
                 let end_line = args["end_line"].as_u64().map(|v| v as usize);
                 match read_file(resolved.to_str().unwrap_or(path), start_line, end_line) {

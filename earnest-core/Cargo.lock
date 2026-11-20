@@ -3,6 +3,10 @@
 version = 4
 
 [[package]]
+name = "agent-scheduler"
+version = "0.1.0"
+
+[[package]]
 name = "ahash"
 version = "0.8.12"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -306,6 +310,7 @@ dependencies = [
 name = "earnest-core"
 version = "0.1.0"
 dependencies = [
+ "agent-scheduler",
  "chrono",
  "clap",
  "context-trimmer",
@@ -321,6 +326,7 @@ dependencies = [
  "serde_json",
  "symbol-index",
  "tiny_http",
+ "token-compactor",
  "tool-guard",
  "tool-output-cache",
  "urlencoding",
@@ -1510,6 +1516,10 @@ dependencies = [
  "displaydoc",
  "zerovec",
 ]
+
+[[package]]
+name = "token-compactor"
+version = "0.1.0"
 
 [[package]]
 name = "tokio"

@@ -403,6 +403,7 @@ dependencies = [
  "similar",
  "symbol-index",
  "tiny_http",
+ "token-compactor",
  "tool-guard",
  "tool-output-cache",
  "urlencoding",
@@ -1653,6 +1654,10 @@ dependencies = [
  "displaydoc",
  "zerovec",
 ]
+
+[[package]]
+name = "token-compactor"
+version = "0.1.0"
 
 [[package]]
 name = "tokio"

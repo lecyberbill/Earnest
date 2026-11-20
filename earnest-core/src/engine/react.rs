@@ -290,6 +290,7 @@ Quand ta mission est entièrement accomplie et vérifiée sur disque, fournis di
             }
             step_idx += 1;
             compact_messages(&mut messages, step_budget_chars);
+            compact_messages_by_tokens(&mut messages, step_budget_chars);
             if !llm_budget.is_retry_allowed() {
                 return Err("Circuit breaker LLM ouvert : trop d'échecs consécutifs dans la fenêtre glissante.".to_string());
             }
@@ -547,6 +548,49 @@ fn compact_messages(messages: &mut Vec<ChatMessage>, soft_limit: usize) {
     });
     compacted.extend_from_slice(&messages[drop_end..]);
     *messages = compacted;
+}
+
+/// Filet de sécurité par budget de tokens (`token-compactor`) si `messages` dépasse encore `max_chars`.
+fn compact_messages_by_tokens(messages: &mut Vec<ChatMessage>, max_chars: usize) {
+    if messages.iter().any(|m| m.images.is_some()) {
+        return;
+    }
+    let token_budget = (max_chars / token_compactor::TokenEstimator::CHARS_PER_TOKEN)
+        .max(token_compactor::Compactor::MIN_BUDGET);
+    let tc_msgs: Vec<token_compactor::Message> = messages
+        .iter()
+        .map(|m| {
+            let role = match m.role.as_str() {
+                "system" => token_compactor::Role::System,
+                "assistant" => token_compactor::Role::Assistant,
+                "tool" => token_compactor::Role::Tool,
+                _ => token_compactor::Role::User,
+            };
+            token_compactor::Message::new(role, m.content.clone())
+        })
+        .collect();
+    if token_compactor::TokenEstimator::estimate_messages(&tc_msgs) <= token_budget {
+        return;
+    }
+    if let Ok(res) = token_compactor::Compactor::new(12).compact(tc_msgs, token_budget) {
+        *messages = res
+            .messages
+            .into_iter()
+            .map(|m| {
+                let role = match m.role {
+                    token_compactor::Role::System => "system",
+                    token_compactor::Role::Assistant => "assistant",
+                    token_compactor::Role::Tool => "tool",
+                    token_compactor::Role::User => "user",
+                };
+                ChatMessage {
+                    role: role.to_string(),
+                    content: m.content,
+                    images: None,
+                }
+            })
+            .collect();
+    }
 }
 
 /// Détecte si une réponse texte sans `tool_calls` ressemble à une annonce

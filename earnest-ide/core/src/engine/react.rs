@@ -1953,4 +1953,43 @@ fn compact_messages_if_needed(messages: &mut Vec<ChatMessage>, max_chars: usize)
             );
         }
     }
+
+    // Filet de sécurité strict par budget de tokens (`token-compactor`)
+    if !messages.iter().any(|m| m.images.is_some()) {
+        let token_budget = (max_chars / token_compactor::TokenEstimator::CHARS_PER_TOKEN)
+            .max(token_compactor::Compactor::MIN_BUDGET);
+        let tc_msgs: Vec<token_compactor::Message> = messages
+            .iter()
+            .map(|m| {
+                let role = match m.role.as_str() {
+                    "system" => token_compactor::Role::System,
+                    "assistant" => token_compactor::Role::Assistant,
+                    "tool" => token_compactor::Role::Tool,
+                    _ => token_compactor::Role::User,
+                };
+                token_compactor::Message::new(role, m.content.clone())
+            })
+            .collect();
+        if token_compactor::TokenEstimator::estimate_messages(&tc_msgs) > token_budget {
+            if let Ok(res) = token_compactor::Compactor::new(10).compact(tc_msgs, token_budget) {
+                *messages = res
+                    .messages
+                    .into_iter()
+                    .map(|m| {
+                        let role = match m.role {
+                            token_compactor::Role::System => "system",
+                            token_compactor::Role::Assistant => "assistant",
+                            token_compactor::Role::Tool => "tool",
+                            token_compactor::Role::User => "user",
+                        };
+                        ChatMessage {
+                            role: role.to_string(),
+                            content: m.content,
+                            images: None,
+                        }
+                    })
+                    .collect();
+            }
+        }
+    }
 }

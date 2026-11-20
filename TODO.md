@@ -11,3 +11,8 @@
 - [ ] Éprouver et enrichir la tour de contrôle (pipelines multi-agents Architect → Dev → QA, orchestration, métriques & benchmarks dédiés dans `docs/`)
 - [ ] Intégrer les prochaines briques : `tool-guard`, compaction par budget de tokens (`context-trimmer`), et ordonnanceur DAG (`agent-scheduler`)
 
+## Améliorations moteur ReAct (`earnest-ide/core`)
+- [x] Ajouter `append: true` sur `write_code` et `write_file` pour permettre d'écrire les gros fichiers par morceaux (squelette puis ajouts)
+- [x] Ajouter une relance anti-stall en Mode 1 (`Normal`) quand une réponse est tronquée en plein code sans appel d'outil
+
+

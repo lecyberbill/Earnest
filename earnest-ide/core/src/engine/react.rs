@@ -192,6 +192,21 @@ impl<'a> ReActEngine<'a> {
                                 trimmed, file_rel
                             ));
                         }
+                        if item["append"].as_bool().unwrap_or(false) {
+                            let shadow_candidate = self.workspace_root.join(&policy.shadow_env.path).join(file_rel);
+                            let abs_path = if shadow_candidate.is_file() {
+                                shadow_candidate
+                            } else {
+                                self.workspace_root.join(file_rel)
+                            };
+                            let existing = std::fs::read_to_string(&abs_path).unwrap_or_default();
+                            let sep = if !existing.is_empty() && !existing.ends_with('\n') && !raw_patch.starts_with('\n') {
+                                "\n"
+                            } else {
+                                ""
+                            };
+                            return Ok(format!("{}{}{}", existing, sep, raw_patch));
+                        }
                         return Ok(raw_patch.to_string());
                     }
                     if let (Some(target), Some(replacement)) = (item["target"].as_str(), item["replacement"].as_str()) {
@@ -865,7 +880,18 @@ impl<'a> ReActEngine<'a> {
                     self.workspace_root.join(path)
                 };
                 let content = args["content"].as_str().unwrap_or("");
-                match write_file(resolved.to_str().unwrap_or(path), content) {
+                let final_content = if args["append"].as_bool().unwrap_or(false) {
+                    let existing = std::fs::read_to_string(&resolved).unwrap_or_default();
+                    let sep = if !existing.is_empty() && !existing.ends_with('\n') && !content.starts_with('\n') {
+                        "\n"
+                    } else {
+                        ""
+                    };
+                    format!("{}{}{}", existing, sep, content)
+                } else {
+                    content.to_string()
+                };
+                match write_file(resolved.to_str().unwrap_or(path), &final_content) {
                     Ok(res) => (res.to_string(), None),
                     Err(e) => (serde_json::json!({"status": "error", "error": e}).to_string(), None),
                 }
@@ -1409,8 +1435,23 @@ impl<'a> ReActEngine<'a> {
                 messages.push(ChatMessage { role: "assistant".to_string(), content: chat_res.content.clone(), images: None });
             }
 
-            // S'il n'y a aucun appel d'outil, conclusion (sauf si Mode 2 ou Mode 3 et que le modèle s'est arrêté en cours de route)
+            // S'il n'y a aucun appel d'outil, conclusion (sauf si Mode 2/3, ou Mode 1 tronqué en plein code)
             if chat_res.tool_calls.is_empty() {
+                if policy.mode == GovernanceMode::Normal && empty_tool_nudges < 2 {
+                    let has_unclosed_fence = chat_res.content.matches("```").count() % 2 == 1;
+                    let truncated_in_thought = chat_res.content.trim().is_empty()
+                        && chat_res.reasoning_content.as_deref().map(|r| !r.trim().is_empty()).unwrap_or(false);
+                    if has_unclosed_fence || truncated_in_thought {
+                        empty_tool_nudges += 1;
+                        println!("  🔄 [ANTI-STALL] Réponse tronquée en Mode 1 ({}/2 consécutifs), relance automatique...", empty_tool_nudges);
+                        messages.push(ChatMessage {
+                            role: "user".to_string(),
+                            content: "Ta réponse précédente a été tronquée avant d'appeler un outil. N'écris pas le code en texte libre : appelle immédiatement `write_file` (avec `append: true` si tu écris un gros fichier en plusieurs morceaux) ou `edit_file`.".to_string(),
+                            images: None,
+                        });
+                        continue;
+                    }
+                }
                 if policy.mode == GovernanceMode::Architecture && empty_tool_nudges < 3 {
                     empty_tool_nudges += 1;
                     println!("  🔄 [ANTI-STALL] Texte seul en Mode 3 ({}/3 consécutifs), relance automatique...", empty_tool_nudges);

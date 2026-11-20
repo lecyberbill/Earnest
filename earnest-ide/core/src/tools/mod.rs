@@ -50,7 +50,8 @@ pub fn get_ide_tools_schemas() -> Vec<Value> {
                     "type": "object",
                     "properties": {
                         "path": { "type": "string", "description": "Chemin du fichier à créer ou écraser" },
-                        "content": { "type": "string", "description": "Contenu intégral du fichier" }
+                        "content": { "type": "string", "description": "Contenu intégral du fichier (ou bloc à ajouter si append=true)" },
+                        "append": { "type": "boolean", "description": "Si true, ajoute `content` à la fin du fichier existant (utile pour écrire un gros fichier en plusieurs morceaux)" }
                     },
                     "required": ["path", "content"]
                 }
@@ -246,6 +247,7 @@ pub fn get_governance_tools_schemas() -> Vec<Value> {
                         "patch": { "type": "string", "description": "Diff unifié ou contenu complet à écrire (mode mono-fichier)" },
                         "target": { "type": "string", "description": "Bloc exact à remplacer dans target_file (édition ciblée, alternatif à patch)" },
                         "replacement": { "type": "string", "description": "Nouveau bloc de remplacement (utilisé avec target)" },
+                        "append": { "type": "boolean", "description": "Si true, ajoute `patch` à la fin du fichier existant au lieu de l'écraser" },
                         "stage_only": { "type": "boolean", "description": "Si true, écrit dans le shadow worktree sans lancer les sondes (permet d'écrire fichier par fichier avant la validation finale)" },
                         "files": {
                             "type": "array",

@@ -203,7 +203,7 @@ fn handle_request(mut req: tiny_http::Request) {
                     "is_auto_generated": 0
                 }));
             }
-            // Outils personnalisés depuis DB
+            // Outils personnalisés & serveurs MCP depuis DB
             if let Ok(conn) = get_connection(None) {
                 if let Ok(mut stmt) = conn.prepare("SELECT id, name, description, schema_json, execution_type, entrypoint, is_enabled, is_auto_generated FROM tools WHERE is_enabled = 1") {
                     if let Ok(rows) = stmt.query_map([], |row| {
@@ -222,6 +222,18 @@ fn handle_request(mut req: tiny_http::Request) {
                             tools.push(r);
                         }
                     }
+                }
+                for mcp_tool in crate::mcp::client::discover_all_mcp_tools(&conn) {
+                    tools.push(serde_json::json!({
+                        "id": mcp_tool.full_name,
+                        "name": mcp_tool.full_name,
+                        "description": mcp_tool.description,
+                        "execution_type": "mcp",
+                        "schema_json": mcp_tool.input_schema.to_string(),
+                        "entrypoint": format!("mcp:{}", mcp_tool.server_name),
+                        "is_enabled": 1,
+                        "is_auto_generated": 0
+                    }));
                 }
             }
             let resp = Response::from_string(serde_json::json!(tools).to_string())
@@ -729,6 +741,50 @@ fn handle_request(mut req: tiny_http::Request) {
                 .with_header(json_header)
                 .with_header(cors_header);
             req.respond(resp).ok();
+            return;
+        }
+
+        if path == "/api/mcp/test" {
+            let cfg = crate::mcp::client::McpServerConfig {
+                name: body["name"].as_str().unwrap_or("test").to_string(),
+                command: body["command"].as_str().unwrap_or("").to_string(),
+                args: body["args"]
+                    .as_array()
+                    .map(|a| a.iter().filter_map(|v| v.as_str().map(String::from)).collect())
+                    .unwrap_or_default(),
+            };
+            let resp = match crate::mcp::client::McpStdioClient::spawn(&cfg)
+                .and_then(|mut c| c.list_tools())
+            {
+                Ok(tools) => {
+                    let list: Vec<Value> = tools
+                        .into_iter()
+                        .map(|t| serde_json::json!({"name": t.raw_name, "description": t.description}))
+                        .collect();
+                    Response::from_string(serde_json::json!({"status": "ok", "tools": list}).to_string())
+                }
+                Err(e) => Response::from_string(serde_json::json!({"status": "error", "error": e}).to_string())
+                    .with_status_code(500),
+            };
+            req.respond(resp.with_header(json_header).with_header(cors_header)).ok();
+            return;
+        }
+
+        if path == "/api/tools/test" {
+            let tool_name = body["name"].as_str().unwrap_or("");
+            let args = &body["args"];
+            let conn = get_connection(None).unwrap();
+            let resp = if tool_name.starts_with("mcp__") {
+                match crate::mcp::client::call_prefixed_mcp_tool(&conn, tool_name, args) {
+                    Ok(res) => Response::from_string(serde_json::json!({"status": "ok", "result": res}).to_string()),
+                    Err(e) => Response::from_string(serde_json::json!({"status": "error", "error": e}).to_string())
+                        .with_status_code(500),
+                }
+            } else {
+                Response::from_string(serde_json::json!({"status": "error", "error": format!("Test unitaire HTTP supporté pour les outils mcp__* (reçu '{}')", tool_name)}).to_string())
+                    .with_status_code(400)
+            };
+            req.respond(resp.with_header(json_header).with_header(cors_header)).ok();
             return;
         }
 

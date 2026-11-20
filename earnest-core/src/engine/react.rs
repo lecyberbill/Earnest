@@ -223,6 +223,12 @@ impl<'a> ReActEngine<'a> {
                     Err(e) => serde_json::json!({"status": "error", "error": e.to_string()}).to_string(),
                 }
             }
+            n if n.starts_with("mcp__") => {
+                match crate::mcp::client::call_prefixed_mcp_tool(self.conn, n, args) {
+                    Ok(res) => res.to_string(),
+                    Err(e) => serde_json::json!({"status": "error", "error": e}).to_string(),
+                }
+            }
             _ => serde_json::json!({"status": "error", "error": format!("Outil inconnu : {}", name)}).to_string(),
         }
     }
@@ -258,7 +264,10 @@ Quand ta mission est entièrement accomplie et vérifiée sur disque, fournis di
             ChatMessage { role: "user".to_string(), content: prompt.to_string(), images: None },
         ];
 
-        let tools = get_primitive_tools_schemas();
+        let mut tools = get_primitive_tools_schemas();
+        for mcp_tool in crate::mcp::client::discover_all_mcp_tools(self.conn) {
+            tools.push(crate::mcp::client::to_openai_tool_schema(&mcp_tool));
+        }
         let mut step_order = 1;
         let mut total_tokens = 0;
         let mut final_answer = String::new();
@@ -609,13 +618,26 @@ fn looks_like_unfinished_thought(content: &str) -> bool {
     }
     [
         "je vais ",
+        "je relance ",
+        "je scelle ",
+        "je continue ",
+        "je passe ",
+        "je teste ",
+        "je crée ",
+        "je sauvegarde ",
+        "je valide ",
+        "je tente ",
+        "je procède ",
+        "je commence ",
+        "je lance ",
+        "je vérifie",
+        "j'exécute ",
+        "utilisons ",
+        "exécutons ",
         "let me ",
         "i will ",
         "i'll ",
-        "je lance ",
-        "je vérifie",
-        "utilisons ",
-        "exécutons ",
+        "next, i ",
         "séparateur powershell",
     ]
     .iter()
@@ -632,9 +654,14 @@ pub fn detect_runtime_environment() -> String {
         let arch = std::env::consts::ARCH;
 
         let os_version = if cfg!(target_os = "windows") {
-            std::process::Command::new("cmd")
-                .args(["/C", "ver"])
-                .output()
+            let mut c = std::process::Command::new("cmd");
+            c.args(["/C", "ver"]);
+            #[cfg(windows)]
+            {
+                use std::os::windows::process::CommandExt;
+                c.creation_flags(0x0800_0000);
+            }
+            c.output()
                 .ok()
                 .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string())
                 .filter(|s| !s.is_empty())
@@ -661,7 +688,14 @@ pub fn detect_runtime_environment() -> String {
             ("cargo", "--version", "Cargo"),
             ("git", "--version", "Git"),
         ] {
-            if let Ok(out) = std::process::Command::new(bin).arg(arg).output() {
+            let mut c = std::process::Command::new(bin);
+            c.arg(arg);
+            #[cfg(windows)]
+            {
+                use std::os::windows::process::CommandExt;
+                c.creation_flags(0x0800_0000);
+            }
+            if let Ok(out) = c.output() {
                 if out.status.success() {
                     let ver = String::from_utf8_lossy(&out.stdout).trim().to_string();
                     let first_line = ver.lines().next().unwrap_or(label).trim();
@@ -705,6 +739,12 @@ mod tests {
             "L'environnement d'exécution est PowerShell lui-même. Je vais utiliser le séparateur PowerShell `;`."
         ));
         assert!(looks_like_unfinished_thought("Let me run the script:"));
+        assert!(looks_like_unfinished_thought(
+            "Le serveur est cohérent : il rejette un kind non admis. Je relance avec un kind valide."
+        ));
+        assert!(looks_like_unfinished_thought(
+            "Simulation réussie (3 transferts simulés). Je scelle maintenant le workflow."
+        ));
         assert!(!looks_like_unfinished_thought(
             "Mission terminée : 33 fiches HTML générées dans D:\\Projet\\Hernest\\projects_test\\models_g_html\\index.html."
         ));

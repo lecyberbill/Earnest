@@ -23,8 +23,11 @@ pub fn execute_terminal(command: &str, timeout_secs: u64) -> Result<Value, Strin
 
     #[cfg(target_os = "windows")]
     let mut cmd = {
+        use std::os::windows::process::CommandExt;
+        const CREATE_NO_WINDOW: u32 = 0x0800_0000;
         let mut c = Command::new("powershell");
         c.args(["-NoProfile", "-NonInteractive", "-Command", command]);
+        c.creation_flags(CREATE_NO_WINDOW);
         c
     };
 

@@ -4,6 +4,8 @@
 //! permettant à tout client MCP (Antigravity, Claude, Cursor, etc.) de piloter
 //! les agents autonomes `ReActEngine`, la mémoire SQLite et le sondage LLM.
 
+pub mod client;
+
 use std::io::{self, BufRead, Write};
 use rusqlite::{params, Connection};
 use serde_json::{json, Value};

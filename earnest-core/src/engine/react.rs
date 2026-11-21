@@ -85,6 +85,40 @@ impl<'a> ReActEngine<'a> {
         }
     }
 
+    fn ensure_checkpoint_table(&self) {
+        let _ = self.conn.execute_batch(
+            "CREATE TABLE IF NOT EXISTS run_checkpoints (
+                run_id TEXT PRIMARY KEY,
+                project_id TEXT NOT NULL,
+                prompt TEXT NOT NULL,
+                messages_json TEXT NOT NULL,
+                step_order INTEGER NOT NULL,
+                total_tokens INTEGER NOT NULL,
+                updated_at TEXT NOT NULL
+            );",
+        );
+    }
+
+    fn save_checkpoint(&self, run_id: &str, prompt: &str, messages: &[ChatMessage], step_order: usize, total_tokens: usize) {
+        self.ensure_checkpoint_table();
+        if let Ok(json) = serde_json::to_string(messages) {
+            let _ = self.conn.execute(
+                "INSERT INTO run_checkpoints (run_id, project_id, prompt, messages_json, step_order, total_tokens, updated_at)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, CURRENT_TIMESTAMP)
+                 ON CONFLICT(run_id) DO UPDATE SET
+                   messages_json = excluded.messages_json,
+                   step_order = excluded.step_order,
+                   total_tokens = excluded.total_tokens,
+                   updated_at = CURRENT_TIMESTAMP",
+                params![run_id, self.project_id, prompt, json, step_order as i64, total_tokens as i64],
+            );
+        }
+    }
+
+    fn clear_checkpoint(&self, run_id: &str) {
+        let _ = self.conn.execute("DELETE FROM run_checkpoints WHERE run_id = ?1", params![run_id]);
+    }
+
     fn record_trace(
         &self,
         run_id: &str,
@@ -265,7 +299,8 @@ Quand ta mission est entièrement accomplie et vérifiée sur disque, fournis di
         ];
 
         let mut tools = get_primitive_tools_schemas();
-        for mcp_tool in crate::mcp::client::discover_all_mcp_tools(self.conn) {
+        let all_mcp = crate::mcp::client::discover_all_mcp_tools(self.conn);
+        for mcp_tool in filter_mcp_tools_for_prompt(prompt, &all_mcp) {
             tools.push(crate::mcp::client::to_openai_tool_schema(&mcp_tool));
         }
         let mut step_order = 1;
@@ -291,8 +326,12 @@ Quand ta mission est entièrement accomplie et vérifiée sur disque, fournis di
         loop {
             if crate::llm::client::is_cancelled() {
                 push_live_log("WARN", "🛑 Run interrompu par l'utilisateur.");
-                final_answer = "⚠️ Run interrompu par l'utilisateur.".to_string();
+                self.save_checkpoint(&run_id, prompt, &messages, step_order, total_tokens);
+                final_answer = "⚠️ Run interrompu par l'utilisateur (checkpoint sauvegardé).".to_string();
                 break;
+            }
+            if step_idx > 0 && step_idx % 5 == 0 {
+                self.save_checkpoint(&run_id, prompt, &messages, step_order, total_tokens);
             }
             if self.max_steps > 0 && step_idx >= self.max_steps {
                 break;
@@ -440,6 +479,9 @@ Quand ta mission est entièrement accomplie et vérifiée sur disque, fournis di
         }
 
         let duration_ms = start.elapsed().as_millis();
+        if !crate::llm::client::is_cancelled() {
+            self.clear_checkpoint(&run_id);
+        }
 
         self.conn.execute(
             "UPDATE runs SET status = 'success', completed_at = CURRENT_TIMESTAMP, duration_ms = ?1, total_tokens = ?2 WHERE id = ?3",
@@ -452,6 +494,104 @@ Quand ta mission est entièrement accomplie et vérifiée sur disque, fournis di
             answer: final_answer,
             steps_count: step_order,
             total_tokens,
+            duration_ms,
+        })
+    }
+
+    /// Reprend un run interrompu depuis son dernier checkpoint SQLite (`run_checkpoints`).
+    pub fn resume_with_callback<F>(&self, run_id: &str, mut on_trace: F) -> Result<ReActResult, String>
+    where
+        F: FnMut(&str, usize, &str, Option<&str>, &str, &str),
+    {
+        self.ensure_checkpoint_table();
+        let (prompt, messages_json, mut step_order, mut total_tokens): (String, String, i64, i64) = self
+            .conn
+            .query_row(
+                "SELECT prompt, messages_json, step_order, total_tokens FROM run_checkpoints WHERE run_id = ?1",
+                params![run_id],
+                |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)),
+            )
+            .map_err(|_| format!("Aucun checkpoint trouvé pour '{}'", run_id))?;
+
+        let mut messages: Vec<ChatMessage> = serde_json::from_str(&messages_json)
+            .map_err(|e| format!("Checkpoint corrompu: {}", e))?;
+        messages.push(ChatMessage {
+            role: "user".to_string(),
+            content: "Reprise après interruption : continue exactement à partir de l'état ci-dessus sans refaire ce qui est déjà validé.".to_string(),
+            images: None,
+        });
+
+        let start = Instant::now();
+        let mut tools = get_primitive_tools_schemas();
+        let all_mcp = crate::mcp::client::discover_all_mcp_tools(self.conn);
+        for mcp_tool in filter_mcp_tools_for_prompt(&prompt, &all_mcp) {
+            tools.push(crate::mcp::client::to_openai_tool_schema(&mcp_tool));
+        }
+
+        let mut step_budget_chars = self.router.backends.first()
+            .map(|b| self.router.estimate_context_chars(&b.id))
+            .unwrap_or(60_000);
+        let mut empty_tool_nudges = 0usize;
+        let mut final_answer = String::new();
+        let mut step_idx = 0usize;
+        crate::llm::client::reset_cancel();
+
+        loop {
+            if crate::llm::client::is_cancelled() {
+                self.save_checkpoint(run_id, &prompt, &messages, step_order as usize, total_tokens as usize);
+                final_answer = "⚠️ Run interrompu (checkpoint mis à jour).".to_string();
+                break;
+            }
+            if self.max_steps > 0 && step_idx >= self.max_steps {
+                break;
+            }
+            step_idx += 1;
+            if step_idx % 5 == 0 {
+                self.save_checkpoint(run_id, &prompt, &messages, step_order as usize, total_tokens as usize);
+            }
+            compact_messages(&mut messages, step_budget_chars);
+            compact_messages_by_tokens(&mut messages, step_budget_chars);
+
+            let (chat_res, active_backend) = self.router.chat_completion_with_fallback(&messages, Some(&tools), &self.think_effort)?;
+            step_budget_chars = self.router.estimate_context_chars(&active_backend);
+            total_tokens += chat_res.total_tokens as i64;
+            if !chat_res.content.is_empty() {
+                self.record_trace(run_id, step_order as usize, "thought", None, &chat_res.content);
+                on_trace(run_id, step_order as usize, "thought", None, &chat_res.content, &active_backend);
+                step_order += 1;
+                messages.push(ChatMessage { role: "assistant".to_string(), content: chat_res.content.clone(), images: None });
+            }
+            if chat_res.tool_calls.is_empty() {
+                if empty_tool_nudges < 3 && looks_like_unfinished_thought(&chat_res.content) {
+                    empty_tool_nudges += 1;
+                    messages.push(ChatMessage { role: "user".to_string(), content: "Continue : appelle immédiatement l'outil suivant.".to_string(), images: None });
+                    continue;
+                }
+                final_answer = chat_res.content;
+                self.record_trace(run_id, step_order as usize, "answer", None, &final_answer);
+                on_trace(run_id, step_order as usize, "answer", None, &final_answer, &active_backend);
+                break;
+            }
+            empty_tool_nudges = 0;
+            for call in chat_res.tool_calls {
+                let output = self.dispatch_tool(&call.name, &call.arguments, run_id);
+                self.record_trace(run_id, step_order as usize, "tool_output", Some(&call.name), &output);
+                on_trace(run_id, step_order as usize, "tool_output", Some(&call.name), &output, &active_backend);
+                step_order += 1;
+                messages.push(ChatMessage { role: "tool".to_string(), content: context_trimmer::truncate_tool_output(&output, 4000), images: None });
+            }
+        }
+
+        if !crate::llm::client::is_cancelled() {
+            self.clear_checkpoint(run_id);
+        }
+        let duration_ms = start.elapsed().as_millis();
+        Ok(ReActResult {
+            run_id: run_id.to_string(),
+            status: "success".to_string(),
+            answer: final_answer,
+            steps_count: step_order as usize,
+            total_tokens: total_tokens as usize,
             duration_ms,
         })
     }
@@ -534,8 +674,51 @@ Quand ta mission est entièrement accomplie et vérifiée sur disque, fournis di
     }
 }
 
+/// Filtre les outils MCP selon l'intention du prompt lorsque le catalogue dépasse 8 outils,
+/// afin d'éviter de saturer la fenêtre de contexte des petits modèles locaux.
+fn filter_mcp_tools_for_prompt(
+    prompt: &str,
+    tools: &[crate::mcp::client::McpToolInfo],
+) -> Vec<crate::mcp::client::McpToolInfo> {
+    if tools.len() <= 8 {
+        return tools.to_vec();
+    }
+    let lower = prompt.to_lowercase();
+    let broad = lower.contains("auto-éval")
+        || lower.contains("auto éval")
+        || lower.contains("selftest")
+        || lower.contains("mcp")
+        || lower.contains("capacit");
+    if broad {
+        return tools.to_vec();
+    }
+    let want_wfl = lower.contains("wfl")
+        || lower.contains("workflow")
+        || lower.contains("yaml")
+        || lower.contains("dry_run")
+        || lower.contains("seal");
+    let want_bcpe = lower.contains("bcpe")
+        || lower.contains("kb")
+        || lower.contains("connaissance")
+        || lower.contains("knowledge")
+        || lower.contains("incident")
+        || lower.contains("produit");
+
+    if !want_wfl && !want_bcpe {
+        return Vec::new();
+    }
+    tools
+        .iter()
+        .filter(|t| {
+            (want_wfl && t.server_name == "wfl") || (want_bcpe && t.server_name == "bcpe")
+        })
+        .cloned()
+        .collect()
+}
+
 /// Compacte l'historique `messages` s'il dépasse `soft_limit` caractères, en
-/// conservant le prompt système, la requête initiale et les derniers échanges.
+/// conservant le prompt système, la requête initiale, un résumé roulant structuré
+/// (Rolling Working Memory) des messages évincés, et les derniers échanges.
 fn compact_messages(messages: &mut Vec<ChatMessage>, soft_limit: usize) {
     let total_chars: usize = messages.iter().map(|m| m.content.len()).sum();
     if total_chars <= soft_limit || messages.len() <= 18 {
@@ -547,12 +730,44 @@ fn compact_messages(messages: &mut Vec<ChatMessage>, soft_limit: usize) {
         return;
     }
     let drop_end = messages.len() - keep_tail;
-    let dropped = drop_end - keep_head;
+    let dropped_slice = &messages[keep_head..drop_end];
+
+    let mut summary_lines: Vec<String> = Vec::new();
+    for msg in dropped_slice {
+        if msg.content.starts_with("[ROLLING WORKING MEMORY") {
+            for line in msg.content.lines().skip(1) {
+                if !line.trim().is_empty() {
+                    summary_lines.push(line.to_string());
+                }
+            }
+            continue;
+        }
+        let first_line = msg
+            .content
+            .lines()
+            .find(|l| !l.trim().is_empty())
+            .unwrap_or("")
+            .trim();
+        if first_line.is_empty() {
+            continue;
+        }
+        let snippet: String = first_line.chars().take(150).collect();
+        summary_lines.push(format!("- [{}] {}", msg.role, snippet));
+    }
+    if summary_lines.len() > 24 {
+        let start_idx = summary_lines.len() - 24;
+        summary_lines = summary_lines[start_idx..].to_vec();
+    }
+
     let mut compacted = Vec::with_capacity(keep_head + keep_tail + 1);
     compacted.extend_from_slice(&messages[..keep_head]);
     compacted.push(ChatMessage {
         role: "user".to_string(),
-        content: format!("[Contexte compacté : {} anciens messages résumés pour préserver la fenêtre LLM]", dropped),
+        content: format!(
+            "[ROLLING WORKING MEMORY — {} anciens messages résumés, ne pas refaire les étapes déjà acquises]\n{}",
+            dropped_slice.len(),
+            summary_lines.join("\n")
+        ),
         images: None,
     });
     compacted.extend_from_slice(&messages[drop_end..]);
@@ -762,7 +977,68 @@ mod tests {
         compact_messages(&mut msgs, 60_000);
         // 2 head + 1 marker + 16 tail = 19
         assert_eq!(msgs.len(), 19);
-        assert!(msgs[2].content.contains("Contexte compacté"));
+        assert!(msgs[2].content.contains("ROLLING WORKING MEMORY"));
+    }
+
+    #[test]
+    fn filter_mcp_tools_targets_relevant_server_or_broad_prompts() {
+        use crate::mcp::client::McpToolInfo;
+        let mut tools = Vec::new();
+        for i in 0..5 {
+            tools.push(McpToolInfo {
+                server_name: "wfl".into(),
+                raw_name: format!("wfl_{}", i),
+                full_name: format!("mcp__wfl__wfl_{}", i),
+                description: String::new(),
+                input_schema: serde_json::json!({}),
+            });
+            tools.push(McpToolInfo {
+                server_name: "bcpe".into(),
+                raw_name: format!("kb_{}", i),
+                full_name: format!("mcp__bcpe__kb_{}", i),
+                description: String::new(),
+                input_schema: serde_json::json!({}),
+            });
+        }
+        let wf_only = filter_mcp_tools_for_prompt("Crée un workflow YAML", &tools);
+        assert_eq!(wf_only.len(), 5);
+        assert!(wf_only.iter().all(|t| t.server_name == "wfl"));
+
+        let broad = filter_mcp_tools_for_prompt("Fais une auto-évaluation", &tools);
+        assert_eq!(broad.len(), 10);
+
+        let none = filter_mcp_tools_for_prompt("Calcule 2+2", &tools);
+        assert!(none.is_empty());
+    }
+
+    #[test]
+    fn checkpoint_roundtrip_saves_and_clears_in_sqlite() {
+        let conn = rusqlite::Connection::open_in_memory().unwrap();
+        let router = LLMRouter { backends: vec![] };
+        let engine = ReActEngine::new(&conn, &router, "proj");
+        let msgs = vec![ChatMessage {
+            role: "user".into(),
+            content: "hello".into(),
+            images: None,
+        }];
+        engine.save_checkpoint("run_chk_1", "hello", &msgs, 4, 120);
+        let cnt: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM run_checkpoints WHERE run_id = 'run_chk_1'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(cnt, 1);
+        engine.clear_checkpoint("run_chk_1");
+        let cnt_after: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM run_checkpoints WHERE run_id = 'run_chk_1'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(cnt_after, 0);
     }
 
     #[test]

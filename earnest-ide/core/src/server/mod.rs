@@ -25,17 +25,10 @@ pub fn start_http_server(host: &str, port: u16) {
 
     init_db(None).ok();
 
-    for _ in 0..4 {
-        let server = server.clone();
+    for req in server.incoming_requests() {
         thread::spawn(move || {
-            for req in server.incoming_requests() {
-                handle_request(req);
-            }
+            handle_request(req);
         });
-    }
-
-    loop {
-        thread::park();
     }
 }
 

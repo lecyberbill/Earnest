@@ -186,3 +186,28 @@ pub fn encode_base64(input: &[u8]) -> String {
     }
     out
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::time::{Duration, Instant};
+
+    #[test]
+    fn pty_spawns_shell_and_echoes_output() {
+        let mgr = PtyManager::global();
+        let (snap, rx) = mgr.subscribe("test-pty-unit", 80, 24).expect("subscribe failed");
+        mgr.write("test-pty-unit", b"echo PTY_UNIT_OK\r").expect("write failed");
+        let mut collected = String::from_utf8_lossy(&snap).into_owned();
+        let deadline = Instant::now() + Duration::from_secs(5);
+        while Instant::now() < deadline && !collected.contains("PTY_UNIT_OK") {
+            if let Ok(chunk) = rx.recv_timeout(Duration::from_millis(250)) {
+                collected.push_str(&String::from_utf8_lossy(&chunk));
+            }
+        }
+        assert!(
+            collected.contains("PTY_UNIT_OK"),
+            "Expected PTY_UNIT_OK in output, got: {:?}",
+            collected
+        );
+    }
+}

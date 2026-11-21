@@ -87,8 +87,55 @@ impl WfMcpServer {
             }),
             json!({
                 "name": "wfl_list_workflows",
-                "description": "Liste les workflows enregistrés et leur statut (draft / sealed).",
+                "description": "Liste les workflows enregistrés et leur statut (draft / sealed), dossier, activation et cron.",
                 "inputSchema": { "type": "object", "properties": {} }
+            }),
+            json!({
+                "name": "wfl_set_enabled",
+                "description": "Active ou désactive un workflow enregistré (bloque l'exécution réelle si désactivé).",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "name": { "type": "string", "description": "Nom du workflow" },
+                        "enabled": { "type": "boolean", "description": "true pour activer, false pour désactiver" }
+                    },
+                    "required": ["name", "enabled"]
+                }
+            }),
+            json!({
+                "name": "wfl_set_folder",
+                "description": "Classe un workflow dans un dossier ou groupe (ex: 'General', 'Prod/Finance').",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "name": { "type": "string", "description": "Nom du workflow" },
+                        "folder": { "type": "string", "description": "Nom du dossier/groupe" }
+                    },
+                    "required": ["name", "folder"]
+                }
+            }),
+            json!({
+                "name": "wfl_set_cron",
+                "description": "Associe ou supprime une planification cron sur un workflow.",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "name": { "type": "string", "description": "Nom du workflow" },
+                        "cron_expr": { "type": ["string", "null"], "description": "Expression cron 5 champs (ex: '0 2 * * *') ou null pour désactiver" }
+                    },
+                    "required": ["name"]
+                }
+            }),
+            json!({
+                "name": "wfl_list_runs",
+                "description": "Liste l'historique des runs WFL enregistrés dans SQLite WAL.",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "workflow_name": { "type": "string", "description": "Filtrer par nom de workflow (optionnel)" },
+                        "limit": { "type": "integer", "description": "Nombre max de runs (défaut: 20)" }
+                    }
+                }
             }),
         ]
     }
@@ -166,6 +213,30 @@ impl WfMcpServer {
             "wfl_list_workflows" => {
                 let list = self.store.list_workflows()?;
                 Ok(json!({ "workflows": list }))
+            }
+            "wfl_set_enabled" => {
+                let wf_name = args["name"].as_str().unwrap_or("");
+                let enabled = args["enabled"].as_bool().unwrap_or(true);
+                self.store.set_workflow_enabled(wf_name, enabled)?;
+                Ok(json!({ "name": wf_name, "enabled": enabled }))
+            }
+            "wfl_set_folder" => {
+                let wf_name = args["name"].as_str().unwrap_or("");
+                let folder = args["folder"].as_str().unwrap_or("General");
+                self.store.set_workflow_folder(wf_name, folder)?;
+                Ok(json!({ "name": wf_name, "folder": folder }))
+            }
+            "wfl_set_cron" => {
+                let wf_name = args["name"].as_str().unwrap_or("");
+                let cron = args["cron_expr"].as_str();
+                self.store.set_workflow_cron(wf_name, cron)?;
+                Ok(json!({ "name": wf_name, "cron_expr": cron }))
+            }
+            "wfl_list_runs" => {
+                let wf_name = args["workflow_name"].as_str();
+                let limit = args["limit"].as_u64().unwrap_or(20) as usize;
+                let runs = self.store.list_runs(wf_name, limit)?;
+                Ok(json!({ "runs": runs }))
             }
             other => Err(format!("Outil WFL MCP inconnu: '{}'", other)),
         }

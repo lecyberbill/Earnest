@@ -4,6 +4,7 @@ import './components/memory-grid.js?v=4.0';
 import './components/skills-view.js?v=4.0';
 import './components/artifacts-view.js?v=4.0';
 import './components/task-planner.js?v=4.0';
+import './components/workflows-view.js?v=4.0';
 import './components/evals-view.js?v=4.0';
 import './components/logs-view.js?v=4.0';
 import './components/settings-view.js?v=4.0';
@@ -21,6 +22,7 @@ document.addEventListener('DOMContentLoaded', () => {
         'skills': 'skills-view',
         'artifacts': 'artifacts-view',
         'tasks': 'task-planner',
+        'workflows': 'workflows-view',
         'evals': 'evals-view',
         'logs': 'logs-view',
         'settings': 'settings-view'

@@ -25,3 +25,4 @@ loop-detector = { path = "../crates/loop-detector" }
 tool-guard = { path = "../crates/tool-guard" }
 token-compactor = { path = "../crates/token-compactor" }
 agent-scheduler = { path = "../crates/agent-scheduler" }
+wf-core = { path = "../earnest-wf-engine/crates/wf-core" }

@@ -18,7 +18,7 @@ fn end_to_end_mcp_draft_dry_run_seal_and_real_execution() {
     let list = server
         .handle(&json!({"jsonrpc": "2.0", "id": 2, "method": "tools/list"}))
         .unwrap();
-    assert_eq!(list["result"]["tools"].as_array().unwrap().len(), 7);
+    assert_eq!(list["result"]["tools"].as_array().unwrap().len(), 11);
 
     // 2. wfl_get_grammar
     let gram = server.call_tool("wfl_get_grammar", &json!({})).unwrap();
@@ -78,6 +78,24 @@ steps:
     assert_eq!(inspected["found"], true);
     assert_eq!(inspected["run"]["status"], "success");
     assert_eq!(inspected["run"]["step_logs"].as_array().unwrap().len(), 1);
+
+    // 8. Folders, enable/disable, cron & list_runs
+    server
+        .call_tool("wfl_set_folder", &json!({"name": "copy_doc", "folder": "Prod"}))
+        .unwrap();
+    server
+        .call_tool("wfl_set_cron", &json!({"name": "copy_doc", "cron_expr": "0 2 * * *"}))
+        .unwrap();
+    server
+        .call_tool("wfl_set_enabled", &json!({"name": "copy_doc", "enabled": false}))
+        .unwrap();
+    assert!(server
+        .call_tool("wfl_run", &json!({"name": "copy_doc", "dry_run": false}))
+        .is_err());
+    let runs = server
+        .call_tool("wfl_list_runs", &json!({"workflow_name": "copy_doc", "limit": 10}))
+        .unwrap();
+    assert_eq!(runs["runs"].as_array().unwrap().len(), 2); // dry_run + real
 
     let _ = std::fs::remove_dir_all(&tmp);
 }

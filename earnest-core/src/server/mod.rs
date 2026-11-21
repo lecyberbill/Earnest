@@ -69,6 +69,16 @@ pub fn start_http_server(host: &str, port: u16) {
     }
 }
 
+fn discover_wf_workspace() -> std::path::PathBuf {
+    let cwd = std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("."));
+    for anc in cwd.ancestors().take(6) {
+        if anc.join(".wf").join("wf.db").exists() {
+            return anc.to_path_buf();
+        }
+    }
+    cwd
+}
+
 fn parse_query(url: &str) -> (String, std::collections::HashMap<String, String>) {
     let mut parts = url.splitn(2, '?');
     let path = parts.next().unwrap_or("/").to_string();
@@ -180,6 +190,25 @@ fn handle_request(mut req: tiny_http::Request) {
                 .with_header(json_header)
                 .with_header(cors_header);
             req.respond(resp).ok();
+            return;
+        }
+
+        if path == "/api/workflows" {
+            let ws = discover_wf_workspace();
+            let resp = match wf_core::WfStore::open(&ws.join(".wf").join("wf.db")) {
+                Ok(store) => {
+                    let _ = store.scan_workflows_dir(&ws.join("workflows"));
+                    let workflows = store.list_workflows().unwrap_or_default();
+                    let runs = store.list_runs(None, 20).unwrap_or_default();
+                    Response::from_string(serde_json::json!({
+                        "workspace": ws.to_string_lossy(),
+                        "workflows": workflows,
+                        "runs": runs
+                    }).to_string())
+                }
+                Err(e) => Response::from_string(serde_json::json!({"error": e}).to_string()).with_status_code(500),
+            };
+            req.respond(resp.with_header(json_header).with_header(cors_header)).ok();
             return;
         }
 
@@ -765,6 +794,47 @@ fn handle_request(mut req: tiny_http::Request) {
                 }
                 Err(e) => Response::from_string(serde_json::json!({"status": "error", "error": e}).to_string())
                     .with_status_code(500),
+            };
+            req.respond(resp.with_header(json_header).with_header(cors_header)).ok();
+            return;
+        }
+
+        if path == "/api/workflows/action" {
+            let ws = discover_wf_workspace();
+            let action = body["action"].as_str().unwrap_or("");
+            let name = body["name"].as_str().unwrap_or("");
+            let resp = match wf_core::WfStore::open(&ws.join(".wf").join("wf.db")) {
+                Ok(store) => {
+                    let res: Result<Value, String> = match action {
+                        "dry_run" => store.execute_and_record(name, wf_core::ExecutionOptions { dry_run: true, ..Default::default() })
+                            .map(|(run_id, report)| serde_json::json!({"run_id": run_id, "report": report})),
+                        "run" => store.execute_and_record(name, wf_core::ExecutionOptions { dry_run: false, ..Default::default() })
+                            .map(|(run_id, report)| serde_json::json!({"run_id": run_id, "report": report})),
+                        "seal" => store.seal_workflow(name).map(|r| serde_json::json!(r)),
+                        "set_enabled" => {
+                            let en = body["enabled"].as_bool().unwrap_or(true);
+                            store.set_workflow_enabled(name, en).map(|_| serde_json::json!({"status": "ok", "enabled": en}))
+                        }
+                        "set_folder" => {
+                            let folder = body["folder"].as_str().unwrap_or("General");
+                            store.set_workflow_folder(name, folder).map(|_| serde_json::json!({"status": "ok", "folder": folder}))
+                        }
+                        "set_cron" => {
+                            let cron = body["cron_expr"].as_str();
+                            store.set_workflow_cron(name, cron).map(|_| serde_json::json!({"status": "ok", "cron_expr": cron}))
+                        }
+                        "inspect_run" => {
+                            let rid = body["run_id"].as_str().unwrap_or("");
+                            store.inspect_run(rid).map(|d| serde_json::json!({"run": d}))
+                        }
+                        other => Err(format!("Action workflow inconnue: '{}'", other)),
+                    };
+                    match res {
+                        Ok(v) => Response::from_string(serde_json::json!({"status": "ok", "data": v}).to_string()),
+                        Err(e) => Response::from_string(serde_json::json!({"status": "error", "error": e}).to_string()).with_status_code(400),
+                    }
+                }
+                Err(e) => Response::from_string(serde_json::json!({"status": "error", "error": e}).to_string()).with_status_code(500),
             };
             req.respond(resp.with_header(json_header).with_header(cors_header)).ok();
             return;

@@ -56,6 +56,7 @@ fn col(gap: f32) -> Style {
 }
 
 struct StudioApp {
+    workspace: PathBuf,
     store: WfStore,
     workflows: Vec<WorkflowRecord>,
     selected_idx: usize,
@@ -79,10 +80,11 @@ struct StudioApp {
 }
 
 impl StudioApp {
-    fn new(store: WfStore) -> Self {
+    fn new(workspace: PathBuf, store: WfStore) -> Self {
         let theme = Theme::cyber_glass();
 
         let mut app = Self {
+            workspace,
             store,
             workflows: Vec::new(),
             selected_idx: 0,
@@ -216,7 +218,28 @@ impl StudioApp {
                     "btn_seal" => self.seal_selected(),
                     "btn_real_run" => self.run_selected(false),
                     "btn_refresh" => self.reload_workflows(),
+                    "btn_open_ws" => self.choose_workspace(),
                     _ => {}
+                }
+            }
+        }
+    }
+
+    fn choose_workspace(&mut self) {
+        if let Some(dir) = pick_folder_dialog(&self.workspace) {
+            let db = dir.join(".wf").join("wf.db");
+            match WfStore::open(&db) {
+                Ok(new_store) => {
+                    self.workspace = dir.clone();
+                    self.store = new_store;
+                    self.selected_idx = 0;
+                    self.last_logs.clear();
+                    self.selected_node = None;
+                    self.status_line = format!("Workspace ouvert : {}", dir.display());
+                    self.reload_workflows();
+                }
+                Err(e) => {
+                    self.status_line = format!("Erreur ouverture workspace: {}", e);
                 }
             }
         }
@@ -308,9 +331,26 @@ impl StudioApp {
             .unwrap();
         let hud_panel = tree.panel(&[hud_left, hud_right], None, None, hud_style).unwrap();
 
-        // 2. Left Sidebar: Workflows list
-        let wf_header = tree.label("Workflows (.wf/wf.db)", leaf(220.0, 22.0)).unwrap();
-        let mut wf_items = vec![wf_header];
+        // 2. Left Sidebar: Workflows list + Workspace switcher
+        let ws_name = self
+            .workspace
+            .file_name()
+            .map(|n| n.to_string_lossy().to_string())
+            .unwrap_or_else(|| self.workspace.display().to_string());
+        let wf_header = tree
+            .label(format!("WS: {}", ws_name), leaf(136.0, 24.0))
+            .unwrap();
+        let btn_ws = tree
+            .button_variant(
+                "btn_open_ws",
+                "Dossier...",
+                ButtonVariant::Secondary,
+                true,
+                leaf(84.0, 26.0),
+            )
+            .unwrap();
+        let wf_top = tree.container(&[wf_header, btn_ws], row(6.0)).unwrap();
+        let mut wf_items = vec![wf_top];
         for (idx, wf) in self.workflows.iter().enumerate() {
             let label = format!("{} [{}]", wf.name, wf.status);
             let variant = if idx == self.selected_idx {
@@ -525,8 +565,50 @@ impl ApplicationHandler for StudioApp {
     }
 }
 
+fn pick_folder_dialog(initial: &std::path::Path) -> Option<PathBuf> {
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        use std::process::Command;
+        let init_esc = initial.display().to_string().replace('\'', "''");
+        let ps = format!(
+            "Add-Type -AssemblyName System.Windows.Forms; \
+             $d = New-Object System.Windows.Forms.FolderBrowserDialog; \
+             $d.SelectedPath = '{}'; \
+             if ($d.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) {{ Write-Output $d.SelectedPath }}",
+            init_esc
+        );
+        let out = Command::new("powershell")
+            .args(["-NoProfile", "-Sta", "-Command", &ps])
+            .creation_flags(0x0800_0000)
+            .output()
+            .ok()?;
+        let s = String::from_utf8_lossy(&out.stdout).trim().to_string();
+        if s.is_empty() {
+            None
+        } else {
+            Some(PathBuf::from(s))
+        }
+    }
+    #[cfg(not(windows))]
+    {
+        let _ = initial;
+        None
+    }
+}
+
+fn discover_workspace(cwd: PathBuf) -> PathBuf {
+    for anc in cwd.ancestors().take(6) {
+        if anc.join(".wf").join("wf.db").exists() {
+            return anc.to_path_buf();
+        }
+    }
+    cwd
+}
+
 fn main() {
-    let mut workspace = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
+    let cwd = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
+    let mut workspace: Option<PathBuf> = None;
     let mut db_path: Option<PathBuf> = None;
 
     let mut args = std::env::args().skip(1);
@@ -534,7 +616,7 @@ fn main() {
         match arg.as_str() {
             "--workspace" => {
                 if let Some(v) = args.next() {
-                    workspace = PathBuf::from(v);
+                    workspace = Some(PathBuf::from(v));
                 }
             }
             "--db" => {
@@ -546,10 +628,11 @@ fn main() {
         }
     }
 
+    let workspace = workspace.unwrap_or_else(|| discover_workspace(cwd));
     let db = db_path.unwrap_or_else(|| workspace.join(".wf").join("wf.db"));
     let store = WfStore::open(&db).expect("Impossible d'ouvrir WfStore");
 
     let event_loop = EventLoop::new().expect("EventLoop error");
-    let mut app = StudioApp::new(store);
+    let mut app = StudioApp::new(workspace, store);
     let _ = event_loop.run_app(&mut app);
 }

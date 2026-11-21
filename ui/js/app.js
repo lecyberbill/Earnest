@@ -18,6 +18,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const viewTags = {
         'run': 'run-console',
         'chat': 'chat-view',
+        'history': 'context-inspector',
         'memories': 'memory-grid',
         'skills': 'skills-view',
         'artifacts': 'artifacts-view',

@@ -4,20 +4,24 @@ export class ContextInspector extends HTMLElement {
     connectedCallback() {
         this.innerHTML = `
             <div class="context-inspector-pane">
-                <h3 style="margin-top: 0; display: flex; align-items: center; gap: 0.5rem;">
-                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><polyline points="12 6 12 12 16 14"></polyline></svg>
-                    <span data-i18n="inspector.history_title">Historique des Exécutions</span>
-                </h3>
-                <div class="history-list" id="runs-history-list">
-                    <div data-i18n="inspector.history_loading" style="color: var(--text-muted); font-size: 0.8rem; text-align: center; padding: 1rem;">Chargement de l'historique...</div>
+                <div style="display: flex; flex-direction: column; gap: 0.75rem; overflow: hidden;">
+                    <h3 style="margin-top: 0; display: flex; align-items: center; gap: 0.5rem;">
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><polyline points="12 6 12 12 16 14"></polyline></svg>
+                        <span data-i18n="inspector.history_title">Historique des Exécutions</span>
+                    </h3>
+                    <div class="history-list" id="runs-history-list" style="flex: 1; overflow-y: auto;">
+                        <div data-i18n="inspector.history_loading" style="color: var(--text-muted); font-size: 0.8rem; text-align: center; padding: 1rem;">Chargement de l'historique...</div>
+                    </div>
                 </div>
 
-                <h3 style="display: flex; align-items: center; gap: 0.5rem;">
-                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="9" y1="18" x2="15" y2="18"></line><line x1="10" y1="22" x2="14" y2="22"></line><path d="M15.09 14c.18-.98.65-1.74 1.41-2.5A4.65 4.65 0 0 0 18 8 6 6 0 0 0 6 8c0 1 .23 2.23 1.5 3.5A4.61 4.61 0 0 1 8.91 14"></path></svg>
-                    <span data-i18n="inspector.trace_title">Inspecteur de Trace Sélectée</span>
-                </h3>
-                <div id="selected-run-detail" data-i18n="inspector.trace_placeholder" style="font-family: var(--font-mono); font-size: 0.78rem; color: var(--text-secondary); background: #040711; border: 1px solid var(--border-subtle); border-radius: var(--radius-sm); padding: 0.75rem; min-height: 120px; max-height: 200px; overflow-y: auto;">
-                    Cliquez sur un run ci-dessus pour inspecter son audit complet.
+                <div style="display: flex; flex-direction: column; gap: 0.75rem; overflow: hidden;">
+                    <h3 style="margin-top: 0; display: flex; align-items: center; gap: 0.5rem;">
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="9" y1="18" x2="15" y2="18"></line><line x1="10" y1="22" x2="14" y2="22"></line><path d="M15.09 14c.18-.98.65-1.74 1.41-2.5A4.65 4.65 0 0 0 18 8 6 6 0 0 0 6 8c0 1 .23 2.23 1.5 3.5A4.61 4.61 0 0 1 8.91 14"></path></svg>
+                        <span data-i18n="inspector.trace_title">Inspecteur de Trace Sélectée</span>
+                    </h3>
+                    <div id="selected-run-detail" data-i18n="inspector.trace_placeholder" style="flex: 1; font-family: var(--font-mono); font-size: 0.78rem; color: var(--text-secondary); background: #040711; border: 1px solid var(--border-subtle); border-radius: var(--radius-sm); padding: 0.85rem; overflow-y: auto;">
+                        Cliquez sur un run ci-dessus pour inspecter son audit complet.
+                    </div>
                 </div>
             </div>
         `;

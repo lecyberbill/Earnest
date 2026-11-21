@@ -17,6 +17,7 @@
 
             'nav.run': 'Console de Run',
             'nav.chat': 'Conversation',
+            'nav.history': 'Historique',
             'nav.memories': 'Mémoires Persistantes',
             'nav.skills': 'Compétences & Outils',
             'nav.artifacts': 'Artefacts Générés',
@@ -204,6 +205,7 @@
 
             'nav.run': 'Run Console',
             'nav.chat': 'Conversation',
+            'nav.history': 'Execution History',
             'nav.memories': 'Persistent Memories',
             'nav.skills': 'Skills & Tools',
             'nav.artifacts': 'Generated Artifacts',

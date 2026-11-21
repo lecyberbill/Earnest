@@ -230,21 +230,21 @@ nav button.active::before {
 
 /* Volet Droit : Context Inspector */
 context-inspector {
-    width: 320px;
-    flex-shrink: 0;
+    width: 100%;
     display: block;
     height: 100%;
 }
 
 .context-inspector-pane {
-    background: rgba(11, 15, 25, 0.85);
-    border-left: 1px solid var(--border-subtle);
-    display: flex;
-    flex-direction: column;
-    padding: 1rem 1.15rem;
+    background: rgba(11, 15, 25, 0.72);
+    border: 1px solid var(--border-subtle);
+    border-radius: var(--radius-md);
+    display: grid;
+    grid-template-columns: 360px 1fr;
+    padding: 1.25rem;
     overflow-y: auto;
-    height: 100%;
-    gap: 1rem;
+    height: calc(100vh - 120px);
+    gap: 1.25rem;
 }
 
 .context-inspector-pane h3 {

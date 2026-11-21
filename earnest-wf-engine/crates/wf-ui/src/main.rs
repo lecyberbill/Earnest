@@ -8,7 +8,8 @@ use palette::{FormModalState, ACTION_PALETTE};
 use ui_core::UiEvent;
 use ui_gpu::{BackgroundParams, GpuRenderer, RenderLayer, ResourceTable};
 use ui_layout::{
-    length, AlignItems, AvailableSpace, FlexDirection, JustifyContent, NodeId, Rect, Size, Style,
+    auto, length, AlignItems, AvailableSpace, FlexDirection, JustifyContent, NodeId, Position,
+    Rect, Size, Style,
 };
 use ui_widgets::{
     ButtonVariant, GraphConnectionSpec, GraphNodeSpec, InteractionKey, InteractionState, Theme,
@@ -454,7 +455,7 @@ impl StudioApp {
         root_s.padding = Rect { left: length(12.0), right: length(12.0), top: length(8.0), bottom: length(8.0) };
         let mut children = vec![hud, body, status];
         if self.form.open {
-            children.push(self.build_form_modal(&mut tree));
+            children.push(self.build_form_modal(&mut tree, w, h));
         }
         let root = tree.container(&children, root_s).unwrap();
 
@@ -535,9 +536,18 @@ impl StudioApp {
                 }
             }
             LeftPane::Palette => {
-                left_items.push(tree.label_muted("Cliquez une action (Fortra):", leaf(240.0, 20.0)).unwrap());
+                left_items.push(tree.label_muted("Actions (cliquez pour configurer):", leaf(240.0, 20.0)).unwrap());
                 for (idx, tpl) in ACTION_PALETTE.iter().enumerate() {
-                    left_items.push(tree.button_variant(format!("pal_{}", idx), format!("[{}] {}", tpl.category, tpl.label), ButtonVariant::Secondary, true, leaf(244.0, 28.0)).unwrap());
+                    let (bg, border) = match tpl.category {
+                        "VFS" => ([0.02, 0.28, 0.38, 0.65], [0.02, 0.71, 0.83, 0.85]),
+                        "Flow" => ([0.26, 0.16, 0.50, 0.65], [0.55, 0.36, 0.96, 0.85]),
+                        _ => ([0.42, 0.24, 0.04, 0.65], [0.96, 0.62, 0.04, 0.85]),
+                    };
+                    let btn = tree.button_variant(format!("pal_{}", idx), format!("[{}] {}", tpl.category, tpl.label), ButtonVariant::Ghost, true, leaf(238.0, 26.0)).unwrap();
+                    let mut wrap_s = row(0.0);
+                    wrap_s.size = Size { width: length(244.0), height: length(30.0) };
+                    wrap_s.padding = Rect { left: length(3.0), right: length(3.0), top: length(2.0), bottom: length(2.0) };
+                    left_items.push(tree.panel(&[btn], Some(bg), Some(border), wrap_s).unwrap());
                 }
             }
         }
@@ -586,9 +596,9 @@ impl StudioApp {
         tree.panel(&rows, None, None, s).unwrap()
     }
 
-    fn build_form_modal(&self, tree: &mut WidgetTree) -> NodeId {
+    fn build_form_modal(&self, tree: &mut WidgetTree, w: f32, h: f32) -> NodeId {
         let tpl = &ACTION_PALETTE[self.form.template_idx];
-        let hdr = tree.label(format!("Propriétés : {} (Tab champ, Entrée valider)", tpl.label), leaf(440.0, 24.0)).unwrap();
+        let hdr = tree.label(format!("Propriétés : {} (Tab champ, Entrée valider)", tpl.label), leaf(460.0, 24.0)).unwrap();
         let f_vals = [
             ("Step ID", &self.form.step_id),
             ("Nom", &self.form.step_name),
@@ -601,15 +611,24 @@ impl StudioApp {
         for (idx, (lbl, val)) in f_vals.iter().enumerate() {
             let marker = if self.form.active_field == idx { ">" } else { " " };
             let txt = format!("{} {}: {}", marker, lbl, val);
-            items.push(tree.button_variant(format!("ff_{}", idx), txt, if self.form.active_field == idx { ButtonVariant::Primary } else { ButtonVariant::Secondary }, true, leaf(440.0, 30.0)).unwrap());
+            items.push(tree.button_variant(format!("ff_{}", idx), txt, if self.form.active_field == idx { ButtonVariant::Primary } else { ButtonVariant::Secondary }, true, leaf(460.0, 32.0)).unwrap());
         }
-        let b_ok = tree.button_variant("form_submit", "Ajouter au Workflow", ButtonVariant::Primary, true, leaf(210.0, 34.0)).unwrap();
+        let b_ok = tree.button_variant("form_submit", "Ajouter au Workflow", ButtonVariant::Primary, true, leaf(220.0, 34.0)).unwrap();
         let b_can = tree.button_variant("form_cancel", "Annuler (Esc)", ButtonVariant::Ghost, true, leaf(140.0, 34.0)).unwrap();
         items.push(tree.container(&[b_ok, b_can], row(12.0)).unwrap());
+        let modal_w = 500.0_f32;
+        let modal_h = 340.0_f32;
         let mut ms = col(8.0);
-        ms.size = Size { width: length(472.0), height: length(310.0) };
-        ms.padding = Rect { left: length(16.0), right: length(16.0), top: length(14.0), bottom: length(14.0) };
-        tree.panel(&items, Some([0.04, 0.06, 0.12, 0.98]), Some([0.38, 0.40, 0.94, 0.9]), ms).unwrap()
+        ms.position = Position::Absolute;
+        ms.inset = Rect {
+            left: length(((w - modal_w) * 0.5).max(16.0)),
+            top: length(((h - modal_h) * 0.5).max(16.0)),
+            right: auto(),
+            bottom: auto(),
+        };
+        ms.size = Size { width: length(modal_w), height: length(modal_h) };
+        ms.padding = Rect { left: length(18.0), right: length(18.0), top: length(16.0), bottom: length(16.0) };
+        tree.panel(&items, Some([0.04, 0.06, 0.12, 0.98]), Some([0.02, 0.71, 0.83, 0.95]), ms).unwrap()
     }
 }
 

@@ -359,3 +359,71 @@ steps:
     assert_eq!(out["exit_code"], 0);
     assert!(out["stdout"].as_str().unwrap().contains("hello_exec"));
 }
+
+#[test]
+fn runtime_executes_sys_http_with_connection_and_dry_run() {
+    use std::io::{Read, Write};
+    use std::net::TcpListener;
+
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let addr = listener.local_addr().unwrap();
+
+    let handle = std::thread::spawn(move || {
+        if let Ok((mut stream, _)) = listener.accept() {
+            let mut buf = [0u8; 2048];
+            let _ = stream.read(&mut buf);
+            let body = r#"{"ok":true,"msg":"pong"}"#;
+            let resp = format!(
+                "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+                body.len(),
+                body
+            );
+            let _ = stream.write_all(resp.as_bytes());
+        }
+    });
+
+    let yaml = format!(
+        r#"
+version: "0.1"
+name: "http_test"
+connections:
+  api:
+    driver: http
+    base_url: "http://{}"
+    headers:
+      X-Client: "earnest-wf"
+steps:
+  - id: call_ping
+    action: sys.http
+    params:
+      conn: api
+      method: POST
+      url: "/ping"
+      query:
+        v: "1"
+      body:
+        hello: "world"
+"#,
+        addr
+    );
+
+    let spec = parse_workflow_yaml(&yaml).unwrap();
+    let dry = execute_workflow(
+        &spec,
+        ExecutionOptions {
+            dry_run: true,
+            ..Default::default()
+        },
+    )
+    .unwrap();
+    assert!(dry.success);
+    assert_eq!(dry.logs[0].output.as_ref().unwrap()["dry_run"], true);
+
+    let real = execute_workflow(&spec, ExecutionOptions::default()).unwrap();
+    assert!(real.success, "http error: {:?}", real.error);
+    let out = real.logs[0].output.as_ref().unwrap();
+    assert_eq!(out["status"], 200);
+    assert_eq!(out["body"]["msg"], "pong");
+
+    let _ = handle.join();
+}

@@ -610,6 +610,139 @@ fn exec_action(ctx: &mut RuntimeCtx<'_>, step: &StepSpec) -> Result<Option<Value
                 "stderr": stderr.trim_end()
             })))
         }
+        ActionSpec::SysHttp { params } => {
+            exec_sys_http(ctx, step.timeout_ms, params)
+        }
         _ => Err("Action non implémentée dans le runtime local (Étape 2)".to_string()),
     }
+}
+
+fn render_json_value(ctx: &RuntimeCtx<'_>, val: &Value) -> Value {
+    match val {
+        Value::String(s) => Value::String(ctx.render_str(s)),
+        Value::Array(arr) => Value::Array(arr.iter().map(|v| render_json_value(ctx, v)).collect()),
+        Value::Object(map) => {
+            let mut out = serde_json::Map::with_capacity(map.len());
+            for (k, v) in map {
+                out.insert(k.clone(), render_json_value(ctx, v));
+            }
+            Value::Object(out)
+        }
+        other => other.clone(),
+    }
+}
+
+fn exec_sys_http(
+    ctx: &RuntimeCtx<'_>,
+    timeout_ms: Option<u64>,
+    params: &crate::ast::SysHttpParams,
+) -> Result<Option<Value>, String> {
+    let mut headers: HashMap<String, String> = HashMap::new();
+    let mut base_url: Option<String> = None;
+
+    if let Some(ref conn_name) = params.conn {
+        match ctx.spec.connections.get(conn_name) {
+            Some(ConnectionSpec::Http {
+                base_url: b,
+                headers: h,
+            }) => {
+                base_url = Some(ctx.render_str(b));
+                for (k, v) in h {
+                    headers.insert(k.clone(), ctx.render_str(v));
+                }
+            }
+            Some(_) => {
+                return Err(format!(
+                    "sys.http: connexion '{}' n'est pas de type `http`",
+                    conn_name
+                ))
+            }
+            None => return Err(format!("sys.http: connexion '{}' introuvable", conn_name)),
+        }
+    }
+
+    for (k, v) in &params.headers {
+        headers.insert(k.clone(), ctx.render_str(v));
+    }
+
+    let raw_url = ctx.render_str(&params.url);
+    let full_url = if raw_url.starts_with("http://") || raw_url.starts_with("https://") {
+        raw_url
+    } else if let Some(b) = base_url {
+        format!(
+            "{}/{}",
+            b.trim_end_matches('/'),
+            raw_url.trim_start_matches('/')
+        )
+    } else {
+        return Err(format!("sys.http: URL invalide sans base_url '{}'", raw_url));
+    };
+
+    if !(full_url.starts_with("http://") || full_url.starts_with("https://")) {
+        return Err(format!("sys.http: schéma non supporté '{}'", full_url));
+    }
+
+    let method_str = params.method.trim().to_uppercase();
+    let method = reqwest::Method::from_bytes(method_str.as_bytes())
+        .map_err(|_| format!("sys.http: méthode HTTP invalide '{}'", params.method))?;
+
+    let mut query: Vec<(String, String)> = Vec::with_capacity(params.query.len());
+    for (k, v) in &params.query {
+        query.push((k.clone(), ctx.render_str(v)));
+    }
+
+    if ctx.dry_run {
+        return Ok(Some(json!({
+            "dry_run": true,
+            "method": method_str,
+            "url": full_url,
+            "query": query.into_iter().collect::<HashMap<String, String>>()
+        })));
+    }
+
+    let timeout = Duration::from_millis(timeout_ms.unwrap_or(30_000).max(100));
+    let client = reqwest::blocking::Client::builder()
+        .timeout(timeout)
+        .build()
+        .map_err(|e| format!("sys.http client error: {}", e))?;
+
+    let mut req = client.request(method, &full_url);
+    for (k, v) in &headers {
+        req = req.header(k.as_str(), v.as_str());
+    }
+    if !query.is_empty() {
+        req = req.query(&query);
+    }
+    if let Some(ref b) = params.body {
+        let rendered = render_json_value(ctx, b);
+        req = req.json(&rendered);
+    }
+
+    let resp = req.send().map_err(|e| format!("sys.http '{}': {}", full_url, e))?;
+    let status = resp.status();
+    let text = resp
+        .text()
+        .map_err(|e| format!("sys.http read body: {}", e))?;
+    let sanitized = ctx.sanitize(&text);
+
+    if !status.is_success() {
+        return Err(format!(
+            "sys.http {} {} -> HTTP {}: {}",
+            method_str,
+            full_url,
+            status.as_u16(),
+            sanitized
+        ));
+    }
+
+    let body_val = if params.parse_json {
+        serde_json::from_str::<Value>(&sanitized).unwrap_or_else(|_| Value::String(sanitized.clone()))
+    } else {
+        Value::String(sanitized)
+    };
+
+    Ok(Some(json!({
+        "status": status.as_u16(),
+        "body": body_val
+    })))
 }

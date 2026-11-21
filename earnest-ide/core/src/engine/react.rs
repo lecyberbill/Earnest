@@ -1424,15 +1424,37 @@ impl<'a> ReActEngine<'a> {
             total_tokens += chat_res.total_tokens;
 
             if let Some(ref rc) = chat_res.reasoning_content {
-                if !rc.is_empty() {
+                if !rc.trim().is_empty() {
+                    self.record_trace(&run_id, step_order, "thought", None, rc);
                     on_trace(&run_id, step_order, "thought", None, rc, &active_backend_name);
+                    step_order += 1;
                 }
             }
 
+            let normal_stalled = chat_res.tool_calls.is_empty()
+                && policy.mode == GovernanceMode::Normal
+                && empty_tool_nudges < 2
+                && (chat_res.content.matches("```").count() % 2 == 1
+                    || (chat_res.content.trim().is_empty()
+                        && chat_res.reasoning_content.as_deref().map(|r| !r.trim().is_empty()).unwrap_or(false)));
+            let arch_stalled = chat_res.tool_calls.is_empty()
+                && policy.mode == GovernanceMode::Architecture
+                && empty_tool_nudges < 3;
+            let constrained_stalled = chat_res.tool_calls.is_empty()
+                && policy.mode == GovernanceMode::Constrained
+                && !merged_successfully
+                && empty_tool_nudges < 3;
+            let is_final_answer = chat_res.tool_calls.is_empty()
+                && !normal_stalled
+                && !arch_stalled
+                && !constrained_stalled;
+
             if !chat_res.content.is_empty() {
-                self.record_trace(&run_id, step_order, "thought", None, &chat_res.content);
-                on_trace(&run_id, step_order, "thought", None, &chat_res.content, &active_backend_name);
-                step_order += 1;
+                if !is_final_answer {
+                    self.record_trace(&run_id, step_order, "thought", None, &chat_res.content);
+                    on_trace(&run_id, step_order, "thought", None, &chat_res.content, &active_backend_name);
+                    step_order += 1;
+                }
                 messages.push(ChatMessage { role: "assistant".to_string(), content: chat_res.content.clone(), images: None });
             }
 

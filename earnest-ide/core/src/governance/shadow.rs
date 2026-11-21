@@ -563,19 +563,43 @@ impl ShadowRunner {
     pub fn detect_project_verification_commands(&self) -> Vec<(&'static str, String)> {
         let mut cmds = Vec::new();
 
-        // 1. Rust (Cargo workspace ou crate racine / sous-crates)
+        // 1. Rust (Cargo workspace, crate racine, crates/* ou sous-dossier immédiat)
         if self.shadow_path.join("Cargo.toml").is_file() {
             cmds.push(("rust", "cargo test --all-targets".to_string()));
             cmds.push(("rust-clippy", "cargo clippy --all-targets -- -D warnings".to_string()));
-        } else if let Ok(entries) = fs::read_dir(self.shadow_path.join("crates")) {
-            for entry in entries.flatten() {
-                let manifest = entry.path().join("Cargo.toml");
-                if manifest.is_file() {
-                    if let Ok(rel) = manifest.strip_prefix(&self.shadow_path) {
-                        let rel_str = rel.to_string_lossy().replace('\\', "/");
-                        cmds.push(("rust", format!("cargo test --manifest-path {} --all-targets", rel_str)));
-                        cmds.push(("rust-clippy", format!("cargo clippy --manifest-path {} --all-targets -- -D warnings", rel_str)));
+        } else {
+            let mut rust_manifests = Vec::new();
+            if let Ok(entries) = fs::read_dir(self.shadow_path.join("crates")) {
+                for entry in entries.flatten() {
+                    let manifest = entry.path().join("Cargo.toml");
+                    if manifest.is_file() {
+                        rust_manifests.push(manifest);
                     }
+                }
+            }
+            if rust_manifests.is_empty() {
+                if let Ok(entries) = fs::read_dir(&self.shadow_path) {
+                    for entry in entries.flatten() {
+                        let path = entry.path();
+                        if !path.is_dir() {
+                            continue;
+                        }
+                        let name = path.file_name().and_then(|n| n.to_str()).unwrap_or("");
+                        if matches!(name, ".ide" | ".git" | "target" | "node_modules" | "crates") {
+                            continue;
+                        }
+                        let manifest = path.join("Cargo.toml");
+                        if manifest.is_file() {
+                            rust_manifests.push(manifest);
+                        }
+                    }
+                }
+            }
+            for manifest in rust_manifests {
+                if let Ok(rel) = manifest.strip_prefix(&self.shadow_path) {
+                    let rel_str = rel.to_string_lossy().replace('\\', "/");
+                    cmds.push(("rust", format!("cargo test --manifest-path {} --all-targets", rel_str)));
+                    cmds.push(("rust-clippy", format!("cargo clippy --manifest-path {} --all-targets -- -D warnings", rel_str)));
                 }
             }
         }

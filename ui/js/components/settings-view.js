@@ -131,23 +131,25 @@ export class SettingsView extends HTMLElement {
         `;
         if (window.applyI18n) window.applyI18n(this);
 
+        const t = (k) => (window.t ? window.t(k) : k);
+
         this.querySelector('#btn-refresh-models').addEventListener('click', async () => {
             const btn = this.querySelector('#btn-refresh-models');
             btn.disabled = true;
-            btn.innerHTML = `<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="animation: spin 1s linear infinite;"><path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l5.67-5.67"/></svg> Sondage...`;
+            btn.innerHTML = `<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="animation: spin 1s linear infinite;"><path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l5.67-5.67"/></svg> ${t('settings.probing_btn')}`;
             try {
                 await this.loadModelProviders();
                 window.dispatchEvent(new CustomEvent('earnest:run_completed'));
             } finally {
                 btn.disabled = false;
-                btn.innerHTML = `<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l5.67-5.67"/></svg> Actualiser l'état`;
+                btn.innerHTML = `<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l5.67-5.67"/></svg> <span data-i18n="settings.refresh_btn">${t('settings.refresh_btn')}</span>`;
             }
         });
 
         this.querySelector('#btn-open-add-model').addEventListener('click', () => {
             const panel = this.querySelector('#add-model-panel');
             this.querySelector('#edit-mod-id').value = '';
-            this.querySelector('#form-model-title').textContent = 'Déclarer un nouveau point d\'inférence :';
+            this.querySelector('#form-model-title').textContent = t('settings.form_model_title');
             this.querySelector('#new-mod-name').value = '';
             this.querySelector('#new-mod-url').value = '';
             this.querySelector('#new-mod-model').value = '';
@@ -161,6 +163,7 @@ export class SettingsView extends HTMLElement {
 
         this.querySelector('#btn-add-resource').addEventListener('click', () => this.addResource());
         this.querySelector('#btn-add-mcp').addEventListener('click', () => this.addMCPServer());
+        window.addEventListener('earnest:lang_changed', () => this.loadAll());
         this.loadAll();
     }
 
@@ -179,9 +182,10 @@ export class SettingsView extends HTMLElement {
             const data = await res.json();
             const providers = Array.isArray(data) ? data : (data.providers || []);
 
+            const t = (k) => (window.t ? window.t(k) : k);
             grid.innerHTML = '';
             if (providers.length === 0) {
-                grid.innerHTML = '<div style="color: var(--text-muted); font-size: 0.85rem; padding: 1rem;">Aucun modèle configuré. Cliquez sur "+ Ajouter un Modèle".</div>';
+                grid.innerHTML = `<div style="color: var(--text-muted); font-size: 0.85rem; padding: 1rem;">${t('settings.no_models')}</div>`;
                 return;
             }
 
@@ -200,7 +204,7 @@ export class SettingsView extends HTMLElement {
                 `;
 
                 const statusColor = p.is_enabled ? 'var(--accent-emerald)' : 'var(--text-muted)';
-                const statusText = p.is_enabled ? 'Actif / Connecté' : 'Déconnecté';
+                const statusText = p.is_enabled ? t('settings.status_active') : t('settings.status_offline');
                 const statusDot = `<span style="display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: ${statusColor}; margin-right: 6px;"></span>`;
 
                 card.innerHTML = `
@@ -210,7 +214,7 @@ export class SettingsView extends HTMLElement {
                             <span style="font-size: 0.7rem; font-family: var(--font-mono); padding: 0.15rem 0.4rem; border-radius: 4px; background: rgba(255,255,255,0.06); color: var(--accent-cyan); text-transform: uppercase;">${p.provider_type}</span>
                         </div>
                         <div style="font-size: 0.75rem; color: var(--text-muted); margin-bottom: 0.25rem;">
-                            <span>Modèle : </span><code style="color: var(--accent-amber);">${p.model}</code>
+                            <span>${t('settings.model_label')} </span><code style="color: var(--accent-amber);">${p.model}</code>
                         </div>
                         <div style="font-size: 0.72rem; color: var(--text-muted); font-family: var(--font-mono); word-break: break-all; opacity: 0.85;">
                             ${p.base_url}
@@ -224,12 +228,12 @@ export class SettingsView extends HTMLElement {
                         <div style="display: flex; gap: 0.5rem; align-items: center;">
                             <button class="btn-edit-mod" style="background: rgba(99, 102, 241, 0.15); border: 1px solid rgba(99, 102, 241, 0.4); color: var(--accent-indigo); padding: 0.25rem 0.6rem; border-radius: var(--radius-sm); font-size: 0.75rem; cursor: pointer; display: inline-flex; align-items: center; gap: 0.25rem;">
                                 <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"></path><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"></path></svg>
-                                Éditer
+                                ${t('settings.edit_btn')}
                             </button>
                             <button class="btn-toggle-mod" style="background: ${p.is_enabled ? 'rgba(239, 68, 68, 0.15)' : 'rgba(16, 185, 129, 0.15)'}; border: 1px solid ${p.is_enabled ? 'rgba(239, 68, 68, 0.4)' : 'rgba(16, 185, 129, 0.4)'}; color: ${p.is_enabled ? 'var(--accent-rose)' : 'var(--accent-emerald)'}; padding: 0.25rem 0.6rem; border-radius: var(--radius-sm); font-size: 0.75rem; cursor: pointer;">
-                                ${p.is_enabled ? 'Déconnecter' : 'Connecter'}
+                                ${p.is_enabled ? t('settings.disconnect_btn') : t('settings.connect_btn')}
                             </button>
-                            <button class="btn-del-mod" style="background: none; border: none; color: var(--text-muted); cursor: pointer; font-size: 0.85rem; display: inline-flex; align-items: center;" title="Supprimer ce modèle">
+                            <button class="btn-del-mod" style="background: none; border: none; color: var(--text-muted); cursor: pointer; font-size: 0.85rem; display: inline-flex; align-items: center;" title="${t('settings.delete_model_title')}">
                                 <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg>
                             </button>
                         </div>
@@ -247,9 +251,10 @@ export class SettingsView extends HTMLElement {
     }
 
     editModelProvider(p) {
+        const t = (k) => (window.t ? window.t(k) : k);
         const panel = this.querySelector('#add-model-panel');
         this.querySelector('#edit-mod-id').value = p.id;
-        this.querySelector('#form-model-title').textContent = `Modifier le point d'inférence "${p.name}" :`;
+        this.querySelector('#form-model-title').textContent = `${t('settings.edit_model_title')} "${p.name}" :`;
         this.querySelector('#new-mod-name').value = p.name;
         this.querySelector('#new-mod-type').value = p.provider_type;
         this.querySelector('#new-mod-url').value = p.base_url;
@@ -268,7 +273,7 @@ export class SettingsView extends HTMLElement {
         const api_key = this.querySelector('#new-mod-key').value.trim() || undefined;
 
         if (!name || !base_url || !model) {
-            alert('Veuillez renseigner au moins le nom, l\'URL et le modèle.');
+            alert(window.t ? window.t('settings.missing_model_fields') : 'Veuillez renseigner au moins le nom, l\'URL et le modèle.');
             return;
         }
 
@@ -316,7 +321,8 @@ export class SettingsView extends HTMLElement {
     }
 
     async deleteModelProvider(id, name) {
-        if (!confirm(`Supprimer définitivement le fournisseur de modèle "${name}" ?`)) return;
+        const msg = window.t ? `${window.t('settings.confirm_delete_model')} "${name}" ?` : `Supprimer définitivement le fournisseur de modèle "${name}" ?`;
+        if (!confirm(msg)) return;
         try {
             const res = await fetch('/api/model_providers/delete', {
                 method: 'POST',
@@ -344,8 +350,9 @@ export class SettingsView extends HTMLElement {
             const reserved = ['ollama_base_url', 'default_model', 'lmstudio_url', 'lmstudio_model', 'cloud_url', 'cloud_model', 'llm_api_key', 'llm_provider'];
             const customResources = Object.entries(settings).filter(([k]) => !reserved.includes(k));
 
+            const t = (k) => (window.t ? window.t(k) : k);
             if (customResources.length === 0) {
-                tbody.innerHTML = '<tr><td colspan="3" style="color: var(--text-muted); text-align: center; padding: 1.5rem;">Aucun chemin ou ressource configuré.</td></tr>';
+                tbody.innerHTML = `<tr><td colspan="3" style="color: var(--text-muted); text-align: center; padding: 1.5rem;">${t('settings.no_resources')}</td></tr>`;
             } else {
                 customResources.forEach(([k, v]) => {
                     const tr = document.createElement('tr');
@@ -353,7 +360,7 @@ export class SettingsView extends HTMLElement {
                         <td><code style="color: var(--accent-cyan); font-weight: 600;">${k}</code></td>
                         <td style="color: var(--text-primary); font-family: var(--font-mono);">${v}</td>
                         <td>
-                            <button style="background: none; border: none; color: var(--accent-rose); cursor: pointer; font-size: 0.8rem;" data-del="${k}">Supprimer</button>
+                            <button style="background: none; border: none; color: var(--accent-rose); cursor: pointer; font-size: 0.8rem;" data-del="${k}">${t('settings.delete_btn')}</button>
                         </td>
                     `;
                     tr.querySelector('button').addEventListener('click', () => this.deleteResource(k));
@@ -370,9 +377,10 @@ export class SettingsView extends HTMLElement {
         try {
             const res = await fetch('/api/mcp/servers');
             const servers = await res.json();
+            const t = (k) => (window.t ? window.t(k) : k);
             tbody.innerHTML = '';
             if (!servers || servers.length === 0) {
-                tbody.innerHTML = '<tr><td colspan="3" style="color: var(--text-muted); text-align: center; padding: 1.5rem;">Aucun serveur MCP configuré.</td></tr>';
+                tbody.innerHTML = `<tr><td colspan="3" style="color: var(--text-muted); text-align: center; padding: 1.5rem;">${t('settings.no_mcp')}</td></tr>`;
                 return;
             }
             servers.forEach((s, idx) => {
@@ -381,8 +389,8 @@ export class SettingsView extends HTMLElement {
                     <td><strong style="color: var(--accent-cyan);">${s.name}</strong></td>
                     <td><code>${s.command} ${(s.args || []).join(' ')}</code></td>
                     <td style="display: flex; gap: 0.5rem; align-items: center;">
-                        <button class="btn-primary" style="padding: 0.2rem 0.5rem; font-size: 0.75rem;" data-test="${s.name}">Tester</button>
-                        <button style="background: none; border: none; color: var(--accent-rose); cursor: pointer; font-size: 0.8rem;" data-del="${idx}">Supprimer</button>
+                        <button class="btn-primary" style="padding: 0.2rem 0.5rem; font-size: 0.75rem;" data-test="${s.name}">${t('settings.test_btn')}</button>
+                        <button style="background: none; border: none; color: var(--accent-rose); cursor: pointer; font-size: 0.8rem;" data-del="${idx}">${t('settings.delete_btn')}</button>
                     </td>
                 `;
                 tr.querySelector('[data-test]').addEventListener('click', () => this.testMCPServer(s));
@@ -399,7 +407,7 @@ export class SettingsView extends HTMLElement {
         const cmd = this.querySelector('#mcp-cmd').value.trim();
         const argsStr = this.querySelector('#mcp-args').value.trim();
         if (!name || !cmd) {
-            alert('Le nom et la commande du serveur MCP sont requis.');
+            alert(window.t ? window.t('settings.missing_mcp_fields') : 'Le nom et la commande du serveur MCP sont requis.');
             return;
         }
         const args = argsStr ? argsStr.split(/\s+/) : [];
@@ -430,6 +438,7 @@ export class SettingsView extends HTMLElement {
     }
 
     async testMCPServer(s) {
+        const t = (k) => (window.t ? window.t(k) : k);
         try {
             const res = await fetch('/api/mcp/test', {
                 method: 'POST',
@@ -438,13 +447,17 @@ export class SettingsView extends HTMLElement {
             });
             const data = await res.json();
             if (data.status === 'ok') {
-                const toolNames = data.tools.map(t => t.name).join(', ');
-                alert(`Serveur MCP '${s.name}' opérationnel !\nOutils détectés (${data.tools.length}):\n${toolNames || 'Aucun outil'}`);
+                const toolNames = data.tools.map(x => x.name).join(', ');
+                const msg = t('settings.mcp_test_ok')
+                    .replace('{name}', s.name)
+                    .replace('{count}', String(data.tools.length))
+                    .replace('{tools}', toolNames || t('settings.mcp_no_tools'));
+                alert(msg);
             } else {
-                alert(`Échec MCP: ${data.error}`);
+                alert(`${t('settings.mcp_test_fail')} ${data.error}`);
             }
         } catch (e) {
-            alert(`Erreur de communication: ${e.message}`);
+            alert(`${t('settings.comm_error')} ${e.message}`);
         }
     }
 

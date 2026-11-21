@@ -18,6 +18,20 @@ pub struct WorkflowRecord {
     pub sha256: String,
     pub status: String,
     pub updated_at: String,
+    pub folder: String,
+    pub enabled: bool,
+    pub cron_expr: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RunSummary {
+    pub run_id: String,
+    pub workflow_name: String,
+    pub dry_run: bool,
+    pub status: String,
+    pub started_at: String,
+    pub finished_at: Option<String>,
+    pub error_summary: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -96,6 +110,9 @@ impl WfStore {
              );",
         )
         .map_err(|e| format!("SQLite init schema error: {}", e))?;
+        let _ = conn.execute("ALTER TABLE workflows ADD COLUMN folder TEXT NOT NULL DEFAULT 'General'", []);
+        let _ = conn.execute("ALTER TABLE workflows ADD COLUMN enabled INTEGER NOT NULL DEFAULT 1", []);
+        let _ = conn.execute("ALTER TABLE workflows ADD COLUMN cron_expr TEXT", []);
         Ok(Self { conn })
     }
 
@@ -128,12 +145,27 @@ impl WfStore {
             )
             .map_err(|e| e.to_string())?;
 
+        let existing = self.get_workflow(&spec.name)?;
+        let folder = existing.as_ref().map(|r| r.folder.clone()).unwrap_or_else(|| "General".to_string());
+        let enabled = existing.as_ref().map(|r| r.enabled).unwrap_or(true);
+        let cron_expr = spec
+            .triggers
+            .iter()
+            .find_map(|t| match t {
+                crate::ast::TriggerSpec::Cron { expr, .. } => Some(expr.clone()),
+                _ => None,
+            })
+            .or_else(|| existing.and_then(|r| r.cron_expr));
+
         Ok(WorkflowRecord {
             name: spec.name.clone(),
             file_path: file_str,
             sha256: report.sha256,
             status: "draft".to_string(),
             updated_at: now,
+            folder,
+            enabled,
+            cron_expr,
         })
     }
 
@@ -164,7 +196,7 @@ impl WfStore {
     pub fn get_workflow(&self, name: &str) -> Result<Option<WorkflowRecord>, String> {
         let mut stmt = self
             .conn
-            .prepare("SELECT name, file_path, sha256, status, updated_at FROM workflows WHERE name = ?1")
+            .prepare("SELECT name, file_path, sha256, status, updated_at, folder, enabled, cron_expr FROM workflows WHERE name = ?1")
             .map_err(|e| e.to_string())?;
         let mut rows = stmt.query(params![name]).map_err(|e| e.to_string())?;
         if let Some(row) = rows.next().map_err(|e| e.to_string())? {
@@ -174,6 +206,9 @@ impl WfStore {
                 sha256: row.get(2).map_err(|e| e.to_string())?,
                 status: row.get(3).map_err(|e| e.to_string())?,
                 updated_at: row.get(4).map_err(|e| e.to_string())?,
+                folder: row.get(5).map_err(|e| e.to_string())?,
+                enabled: row.get::<_, i32>(6).map_err(|e| e.to_string())? != 0,
+                cron_expr: row.get(7).map_err(|e| e.to_string())?,
             }))
         } else {
             Ok(None)
@@ -183,7 +218,7 @@ impl WfStore {
     pub fn list_workflows(&self) -> Result<Vec<WorkflowRecord>, String> {
         let mut stmt = self
             .conn
-            .prepare("SELECT name, file_path, sha256, status, updated_at FROM workflows ORDER BY name ASC")
+            .prepare("SELECT name, file_path, sha256, status, updated_at, folder, enabled, cron_expr FROM workflows ORDER BY folder ASC, name ASC")
             .map_err(|e| e.to_string())?;
         let rows = stmt
             .query_map([], |row| {
@@ -193,6 +228,9 @@ impl WfStore {
                     sha256: row.get(2)?,
                     status: row.get(3)?,
                     updated_at: row.get(4)?,
+                    folder: row.get(5)?,
+                    enabled: row.get::<_, i32>(6)? != 0,
+                    cron_expr: row.get(7)?,
                 })
             })
             .map_err(|e| e.to_string())?;
@@ -201,6 +239,140 @@ impl WfStore {
             out.push(r.map_err(|e| e.to_string())?);
         }
         Ok(out)
+    }
+
+    pub fn set_workflow_enabled(&self, name: &str, enabled: bool) -> Result<(), String> {
+        let changed = self
+            .conn
+            .execute(
+                "UPDATE workflows SET enabled = ?1, updated_at = ?2 WHERE name = ?3",
+                params![i32::from(enabled), now_epoch_str(), name],
+            )
+            .map_err(|e| e.to_string())?;
+        if changed == 0 {
+            return Err(format!("Workflow '{}' introuvable", name));
+        }
+        Ok(())
+    }
+
+    pub fn set_workflow_folder(&self, name: &str, folder: &str) -> Result<(), String> {
+        let clean = if folder.trim().is_empty() {
+            "General"
+        } else {
+            folder.trim()
+        };
+        let changed = self
+            .conn
+            .execute(
+                "UPDATE workflows SET folder = ?1, updated_at = ?2 WHERE name = ?3",
+                params![clean, now_epoch_str(), name],
+            )
+            .map_err(|e| e.to_string())?;
+        if changed == 0 {
+            return Err(format!("Workflow '{}' introuvable", name));
+        }
+        Ok(())
+    }
+
+    pub fn set_workflow_cron(&self, name: &str, cron_expr: Option<&str>) -> Result<(), String> {
+        let clean = cron_expr.map(str::trim).filter(|s| !s.is_empty());
+        let changed = self
+            .conn
+            .execute(
+                "UPDATE workflows SET cron_expr = ?1, updated_at = ?2 WHERE name = ?3",
+                params![clean, now_epoch_str(), name],
+            )
+            .map_err(|e| e.to_string())?;
+        if changed == 0 {
+            return Err(format!("Workflow '{}' introuvable", name));
+        }
+        Ok(())
+    }
+
+    pub fn list_runs(
+        &self,
+        workflow_name: Option<&str>,
+        limit: usize,
+    ) -> Result<Vec<RunSummary>, String> {
+        let lim = limit.max(1) as i64;
+        let mut out = Vec::new();
+        if let Some(wf) = workflow_name {
+            let mut stmt = self
+                .conn
+                .prepare("SELECT run_id, workflow_name, dry_run, status, started_at, finished_at, error_summary FROM runs WHERE workflow_name = ?1 ORDER BY rowid DESC LIMIT ?2")
+                .map_err(|e| e.to_string())?;
+            let rows = stmt
+                .query_map(params![wf, lim], |r| {
+                    Ok(RunSummary {
+                        run_id: r.get(0)?,
+                        workflow_name: r.get(1)?,
+                        dry_run: r.get::<_, i32>(2)? != 0,
+                        status: r.get(3)?,
+                        started_at: r.get(4)?,
+                        finished_at: r.get(5)?,
+                        error_summary: r.get(6)?,
+                    })
+                })
+                .map_err(|e| e.to_string())?;
+            for r in rows {
+                out.push(r.map_err(|e| e.to_string())?);
+            }
+        } else {
+            let mut stmt = self
+                .conn
+                .prepare("SELECT run_id, workflow_name, dry_run, status, started_at, finished_at, error_summary FROM runs ORDER BY rowid DESC LIMIT ?1")
+                .map_err(|e| e.to_string())?;
+            let rows = stmt
+                .query_map(params![lim], |r| {
+                    Ok(RunSummary {
+                        run_id: r.get(0)?,
+                        workflow_name: r.get(1)?,
+                        dry_run: r.get::<_, i32>(2)? != 0,
+                        status: r.get(3)?,
+                        started_at: r.get(4)?,
+                        finished_at: r.get(5)?,
+                        error_summary: r.get(6)?,
+                    })
+                })
+                .map_err(|e| e.to_string())?;
+            for r in rows {
+                out.push(r.map_err(|e| e.to_string())?);
+            }
+        }
+        Ok(out)
+    }
+
+    pub fn import_yaml_file(&self, file_path: &Path) -> Result<WorkflowRecord, String> {
+        let yaml = fs::read_to_string(file_path)
+            .map_err(|e| format!("Lecture '{}' impossible: {}", file_path.display(), e))?;
+        let spec = parse_workflow_yaml(&yaml)?;
+        self.save_draft(&spec, file_path)
+    }
+
+    pub fn scan_workflows_dir(&self, dir: &Path) -> Result<usize, String> {
+        if !dir.exists() {
+            return Ok(0);
+        }
+        let mut imported = 0usize;
+        let rd = fs::read_dir(dir).map_err(|e| e.to_string())?;
+        for entry in rd.flatten() {
+            let p = entry.path();
+            if p.is_file() {
+                let name = entry.file_name().to_string_lossy().to_string();
+                if name.ends_with(".wf.yaml") || name.ends_with(".wf.yml") {
+                    if let Ok(yaml) = fs::read_to_string(&p) {
+                        if let Ok(spec) = parse_workflow_yaml(&yaml) {
+                            if self.get_workflow(&spec.name)?.is_none()
+                                && self.save_draft(&spec, &p).is_ok()
+                            {
+                                imported += 1;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        Ok(imported)
     }
 
     pub fn execute_and_record(
@@ -217,6 +389,12 @@ impl WfStore {
         let disk_sha = workflow_sha256(&spec);
 
         if !opts.dry_run {
+            if !rec.enabled {
+                return Err(format!(
+                    "Workflow '{}' est désactivé : réactivez-le pour autoriser l'exécution réelle.",
+                    name
+                ));
+            }
             if rec.status != "sealed" {
                 return Err(format!(
                     "Workflow '{}' est en statut '{}' : exécution réelle refusée (utilisez dry_run=true ou scellez-le d'abord).",

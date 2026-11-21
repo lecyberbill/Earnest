@@ -7,9 +7,9 @@ pub mod store;
 pub mod validator;
 
 pub use ast::{ActionSpec, ConnectionSpec, StepSpec, TriggerSpec, WorkflowSpec};
-pub use runtime::{execute_workflow, ExecutionOptions, RunReport, StepLog};
+pub use runtime::{execute_workflow, DebugSession, ExecutionOptions, RunReport, StepLog};
 pub use schema::generate_schema_json;
-pub use store::{RunDetails, WfStore, WorkflowRecord};
+pub use store::{RunDetails, RunSummary, WfStore, WorkflowRecord};
 pub use validator::{validate_workflow, workflow_sha256, ValidationError, ValidationReport};
 
 /// Parse un document YAML brut en [`WorkflowSpec`] strict (`deny_unknown_fields`).

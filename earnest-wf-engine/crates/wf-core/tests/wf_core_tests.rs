@@ -427,3 +427,56 @@ steps:
 
     let _ = handle.join();
 }
+
+#[test]
+fn debug_session_and_store_folders_enabled_runs_work() {
+    let tmp = std::env::temp_dir().join(format!("wf_core_dbg_{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&tmp);
+    std::fs::create_dir_all(tmp.join("workflows")).unwrap();
+
+    let yaml = r#"
+version: "0.1"
+name: "dbg_flow"
+steps:
+  - id: s1
+    action: sys.log
+    params:
+      message: "step1"
+  - id: s2
+    action: sys.log
+    params:
+      message: "step2"
+"#;
+    std::fs::write(tmp.join("workflows/dbg_flow.wf.yaml"), yaml).unwrap();
+    let store = wf_core::WfStore::open(&tmp.join(".wf/wf.db")).unwrap();
+    assert_eq!(store.scan_workflows_dir(&tmp.join("workflows")).unwrap(), 1);
+    store.set_workflow_folder("dbg_flow", "Prod/Finance").unwrap();
+    store.set_workflow_cron("dbg_flow", Some("0 2 * * *")).unwrap();
+    store.seal_workflow("dbg_flow").unwrap();
+    store.set_workflow_enabled("dbg_flow", false).unwrap();
+    assert!(store
+        .execute_and_record("dbg_flow", ExecutionOptions::default())
+        .is_err());
+    store.set_workflow_enabled("dbg_flow", true).unwrap();
+    let (_rid, _rep) = store
+        .execute_and_record("dbg_flow", ExecutionOptions::default())
+        .unwrap();
+    assert_eq!(store.list_runs(Some("dbg_flow"), 10).unwrap().len(), 1);
+
+    let spec = parse_workflow_yaml(yaml).unwrap();
+    let mut dbg = wf_core::DebugSession::new(
+        spec,
+        ExecutionOptions {
+            dry_run: true,
+            ..Default::default()
+        },
+    )
+    .unwrap();
+    assert_eq!(dbg.current_step_id(), Some("s1"));
+    assert_eq!(dbg.step().unwrap().step_id, "s1");
+    assert_eq!(dbg.current_step_id(), Some("s2"));
+    assert_eq!(dbg.step().unwrap().step_id, "s2");
+    assert!(dbg.is_finished());
+
+    let _ = std::fs::remove_dir_all(&tmp);
+}

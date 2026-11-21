@@ -296,6 +296,117 @@ pub fn execute_workflow(spec: &WorkflowSpec, opts: ExecutionOptions) -> Result<R
     })
 }
 
+/// Session d'exécution pas à pas (pour le débugger interactif de `wf-ui`).
+pub struct DebugSession {
+    spec: WorkflowSpec,
+    inputs: HashMap<String, Value>,
+    vars: HashMap<String, Value>,
+    outputs: HashMap<String, Value>,
+    secrets: HashMap<String, String>,
+    dry_run: bool,
+    dry_vfs_files: HashMap<PathBuf, Vec<u8>>,
+    dry_vfs_deleted: HashSet<PathBuf>,
+    max_each_items: usize,
+    logs: Vec<StepLog>,
+    next_index: usize,
+    finished: bool,
+    error: Option<String>,
+}
+
+impl DebugSession {
+    pub fn new(spec: WorkflowSpec, opts: ExecutionOptions) -> Result<Self, String> {
+        let validation = validate_workflow(&spec);
+        if !validation.valid {
+            let msgs: Vec<String> = validation.errors.iter().map(|e| e.to_string()).collect();
+            return Err(format!("Workflow invalide :\n{}", msgs.join("\n")));
+        }
+        let mut inputs = HashMap::new();
+        for (name, param) in &spec.inputs {
+            if let Some(val) = opts.inputs.get(name) {
+                inputs.insert(name.clone(), val.clone());
+            } else if let Some(ref def) = param.default {
+                inputs.insert(name.clone(), def.clone());
+            } else if param.required {
+                return Err(format!("Paramètre d'entrée requis manquant : '{}'", name));
+            }
+        }
+        let vars = spec.vars.clone();
+        Ok(Self {
+            spec,
+            inputs,
+            vars,
+            outputs: HashMap::new(),
+            secrets: opts.secrets,
+            dry_run: opts.dry_run,
+            dry_vfs_files: HashMap::new(),
+            dry_vfs_deleted: HashSet::new(),
+            max_each_items: opts.max_each_items.max(1),
+            logs: Vec::new(),
+            next_index: 0,
+            finished: false,
+            error: None,
+        })
+    }
+
+    pub fn current_step_id(&self) -> Option<&str> {
+        if self.finished {
+            None
+        } else {
+            self.spec.steps.get(self.next_index).map(|s| s.id.as_str())
+        }
+    }
+
+    pub fn is_finished(&self) -> bool {
+        self.finished
+    }
+
+    pub fn logs(&self) -> &[StepLog] {
+        &self.logs
+    }
+
+    pub fn error(&self) -> Option<&str> {
+        self.error.as_deref()
+    }
+
+    /// Exécute l'étape suivante (`spec.steps[next_index]`) et retourne son dernier `StepLog`.
+    pub fn step(&mut self) -> Option<StepLog> {
+        if self.finished || self.next_index >= self.spec.steps.len() {
+            self.finished = true;
+            return None;
+        }
+        let step_spec = self.spec.steps[self.next_index].clone();
+        let mut ctx = RuntimeCtx {
+            spec: &self.spec,
+            inputs: std::mem::take(&mut self.inputs),
+            vars: std::mem::take(&mut self.vars),
+            outputs: std::mem::take(&mut self.outputs),
+            secrets: std::mem::take(&mut self.secrets),
+            dry_run: self.dry_run,
+            dry_vfs_files: std::mem::take(&mut self.dry_vfs_files),
+            dry_vfs_deleted: std::mem::take(&mut self.dry_vfs_deleted),
+            max_each_items: self.max_each_items,
+            logs: std::mem::take(&mut self.logs),
+        };
+        let res = exec_step(&mut ctx, &step_spec);
+        self.inputs = ctx.inputs;
+        self.vars = ctx.vars;
+        self.outputs = ctx.outputs;
+        self.secrets = ctx.secrets;
+        self.dry_vfs_files = ctx.dry_vfs_files;
+        self.dry_vfs_deleted = ctx.dry_vfs_deleted;
+        self.logs = ctx.logs;
+
+        self.next_index += 1;
+        if let Err(e) = res {
+            self.error = Some(e);
+            self.finished = true;
+        } else if self.next_index >= self.spec.steps.len() {
+            self.finished = true;
+        }
+        self.logs.last().cloned()
+    }
+}
+
 fn exec_steps(ctx: &mut RuntimeCtx<'_>, steps: &[StepSpec]) -> Result<(), String> {
     for step in steps {
         exec_step(ctx, step)?;

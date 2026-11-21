@@ -19,6 +19,7 @@ walkdir = "2.5"
 ignore = "0.4"
 similar = "2.6"
 sha2 = "0.10"
+portable-pty = "0.8"
 kv-wal-engine = { path = "../../crates/kv-wal-engine" }
 context-trimmer = { path = "../../crates/context-trimmer" }
 tool-output-cache = { path = "../../crates/tool-output-cache" }

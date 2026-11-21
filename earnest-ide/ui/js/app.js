@@ -292,10 +292,8 @@ document.addEventListener('DOMContentLoaded', () => {
     const paneProblems = document.getElementById('pane-problems');
     const paneLogs = document.getElementById('pane-logs');
     const bottomLogsContent = document.getElementById('bottom-logs-content');
-    const terminalOutput1 = document.getElementById('terminal-output-1');
-    const terminalInput1 = document.getElementById('terminal-input-1');
-    const terminalOutput2 = document.getElementById('terminal-output-2');
-    const terminalInput2 = document.getElementById('terminal-input-2');
+    const xtermContainer1 = document.getElementById('xterm-1');
+    const xtermContainer2 = document.getElementById('xterm-2');
     const bottomProblemsContent = document.getElementById('bottom-problems-content');
 
     // DOM Elements - Palette & Quick Open (Ctrl+P)
@@ -1719,11 +1717,17 @@ document.addEventListener('DOMContentLoaded', () => {
         if (tabName === 'term-1') {
             btnTabTerm1.classList.add('active');
             paneTerm1.classList.add('active');
-            terminalInput1.focus();
+            if (ptyTerminals['term-1']) {
+                ptyTerminals['term-1'].fit();
+                ptyTerminals['term-1'].term.focus();
+            }
         } else if (tabName === 'term-2') {
             btnTabTerm2.classList.add('active');
             paneTerm2.classList.add('active');
-            terminalInput2.focus();
+            if (ptyTerminals['term-2']) {
+                ptyTerminals['term-2'].fit();
+                ptyTerminals['term-2'].term.focus();
+            }
         } else if (tabName === 'problems') {
             btnTabProblems.classList.add('active');
             paneProblems.classList.add('active');
@@ -1775,83 +1779,92 @@ document.addEventListener('DOMContentLoaded', () => {
     }
     setInterval(pollIdeLogs, 1000);
 
-    function bindTerminal(inputEl, outputEl) {
-        inputEl.addEventListener('keydown', async (e) => {
-            if (e.key === 'c' && (e.ctrlKey || e.metaKey)) {
-                // Interruption de commande style Ctrl+C
-                const cancelLine = document.createElement('div');
-                cancelLine.style.color = 'var(--accent-amber)';
-                cancelLine.textContent = '^C (Interrompu)';
-                outputEl.appendChild(cancelLine);
-                outputEl.scrollTop = outputEl.scrollHeight;
-                inputEl.value = '';
-                return;
-            }
+    const ptyTerminals = {};
 
-            if (e.key === 'Enter') {
-                const cmd = inputEl.value.trim();
-                if (!cmd) return;
-                inputEl.value = '';
-                const line = document.createElement('div');
-                line.style.color = 'var(--accent-cyan)';
-                line.textContent = `> ${cmd}`;
-                outputEl.appendChild(line);
-
-                const runningLine = document.createElement('div');
-                runningLine.style.color = 'var(--text-muted)';
-                runningLine.style.fontStyle = 'italic';
-                runningLine.textContent = '⏳ Exécution en cours... (Ctrl+C pour annuler)';
-                outputEl.appendChild(runningLine);
-                outputEl.scrollTop = outputEl.scrollHeight;
-
-                try {
-                    const res = await fetch('/api/ide/terminal', {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ command: cmd, timeout_secs: 60 })
-                    });
-                    const data = await res.json();
-                    runningLine.remove();
-
-                    if (data.stdout) {
-                        const outDiv = document.createElement('div');
-                        outDiv.style.whiteSpace = 'pre-wrap';
-                        outDiv.textContent = data.stdout.trimEnd();
-                        outputEl.appendChild(outDiv);
-                    }
-                    if (data.stderr) {
-                        const errDiv = document.createElement('div');
-                        errDiv.style.whiteSpace = 'pre-wrap';
-                        errDiv.style.color = 'var(--accent-rose)';
-                        errDiv.textContent = data.stderr.trimEnd();
-                        outputEl.appendChild(errDiv);
-                    }
-
-                    const footerLine = document.createElement('div');
-                    footerLine.style.fontSize = '0.68rem';
-                    footerLine.style.color = data.exit_code === 0 ? 'var(--accent-emerald)' : 'var(--accent-rose)';
-                    footerLine.textContent = `[Exit ${data.exit_code} en ${data.duration_ms}ms]`;
-                    outputEl.appendChild(footerLine);
-
-                    outputEl.scrollTop = outputEl.scrollHeight;
-                } catch (err) {
-                    runningLine.remove();
-                    const errDiv = document.createElement('div');
-                    errDiv.style.color = 'var(--accent-rose)';
-                    errDiv.textContent = `Erreur exécution: ${err.message}`;
-                    outputEl.appendChild(errDiv);
-                }
-            }
-        });
+    function decodeBase64ToBytes(b64) {
+        const bin = atob(b64);
+        const bytes = new Uint8Array(bin.length);
+        for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+        return bytes;
     }
 
-    bindTerminal(terminalInput1, terminalOutput1);
-    bindTerminal(terminalInput2, terminalOutput2);
+    function initPtyTerminal(ptyId, containerEl) {
+        if (!containerEl || typeof Terminal === 'undefined') return null;
+        const term = new Terminal({
+            theme: {
+                background: '#060e20',
+                foreground: '#dae2fd',
+                cursor: '#4cd7f6',
+                selectionBackground: 'rgba(128, 131, 255, 0.35)',
+                black: '#0b1326',
+                brightBlack: '#464554',
+                red: '#ffb4ab',
+                green: '#4edea3',
+                yellow: '#f59e0b',
+                blue: '#8083ff',
+                magenta: '#c0c1ff',
+                cyan: '#4cd7f6',
+                white: '#dae2fd'
+            },
+            fontFamily: "'JetBrains Mono', Consolas, monospace",
+            fontSize: 13,
+            cursorBlink: true,
+            scrollback: 5000
+        });
+        const fitAddon = (typeof FitAddon !== 'undefined' && FitAddon.FitAddon) ? new FitAddon.FitAddon() : null;
+        if (fitAddon) term.loadAddon(fitAddon);
+        term.open(containerEl);
+
+        const fit = () => {
+            if (!fitAddon || containerEl.offsetParent === null) return;
+            try { fitAddon.fit(); } catch (_) { }
+        };
+        setTimeout(fit, 50);
+
+        const apiBase = window.__EARNEST_IDE_API__ || '';
+        const cols = term.cols || 100;
+        const rows = term.rows || 24;
+        const es = new EventSource(`${apiBase}/api/ide/pty/stream?id=${encodeURIComponent(ptyId)}&cols=${cols}&rows=${rows}`);
+        es.onmessage = (ev) => {
+            try {
+                const payload = JSON.parse(ev.data);
+                if (payload.b64) term.write(decodeBase64ToBytes(payload.b64));
+            } catch (_) { }
+        };
+
+        term.onData((data) => {
+            fetch('/api/ide/pty/write', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ id: ptyId, data })
+            }).catch(() => { });
+        });
+
+        term.onResize(({ cols: c, rows: r }) => {
+            fetch('/api/ide/pty/resize', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ id: ptyId, cols: c, rows: r })
+            }).catch(() => { });
+        });
+
+        if (typeof ResizeObserver !== 'undefined') {
+            new ResizeObserver(() => fit()).observe(containerEl);
+        }
+
+        ptyTerminals[ptyId] = { term, fit, es };
+        return ptyTerminals[ptyId];
+    }
+
+    initPtyTerminal('term-1', xtermContainer1);
+    initPtyTerminal('term-2', xtermContainer2);
 
     btnToggleBottom.addEventListener('click', () => {
         centerPane.classList.toggle('bottom-panel-closed');
         if (editorInstance) editorInstance.layout();
         if (diffEditorInstance) diffEditorInstance.layout();
+        if (ptyTerminals['term-1']) ptyTerminals['term-1'].fit();
+        if (ptyTerminals['term-2']) ptyTerminals['term-2'].fit();
     });
     btnCloseBottom.addEventListener('click', () => {
         centerPane.classList.add('bottom-panel-closed');
@@ -1859,8 +1872,8 @@ document.addEventListener('DOMContentLoaded', () => {
     });
 
     btnClearTerminal.addEventListener('click', async () => {
-        if (state.activeBottomTab === 'term-1') terminalOutput1.innerHTML = '';
-        if (state.activeBottomTab === 'term-2') terminalOutput2.innerHTML = '';
+        if (state.activeBottomTab === 'term-1' && ptyTerminals['term-1']) ptyTerminals['term-1'].term.clear();
+        if (state.activeBottomTab === 'term-2' && ptyTerminals['term-2']) ptyTerminals['term-2'].term.clear();
         if (state.activeBottomTab === 'logs' && bottomLogsContent) {
             bottomLogsContent.innerHTML = '<div style="color: var(--text-muted);">Logs effacés.</div>';
             await fetch('/api/ide/logs/clear', { method: 'POST' }).catch(() => {});

@@ -6,6 +6,7 @@ pub mod server;
 pub mod lsp;
 pub mod mcp;
 pub mod governance;
+pub mod pty;
 
 /// Crée un `std::process::Command` silencieux (sans fenêtre console sous Windows).
 pub fn hidden_command(program: impl AsRef<std::ffi::OsStr>) -> std::process::Command {

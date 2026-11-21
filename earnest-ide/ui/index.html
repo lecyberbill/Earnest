@@ -13,6 +13,7 @@
     <link rel="stylesheet" href="css/variables.css">
     <link rel="stylesheet" href="css/layout.css">
     <link rel="stylesheet" href="css/components.css">
+    <link rel="stylesheet" href="js/vendor/xterm/xterm.min.css">
     <link rel="stylesheet" href="js/vendor/monaco/vs/editor/editor.main.css">
     <script>
         (function () {
@@ -35,6 +36,8 @@
         })();
     </script>
     <script src="js/vendor/marked.min.js"></script>
+    <script src="js/vendor/xterm/xterm.min.js"></script>
+    <script src="js/vendor/xterm/addon-fit.min.js"></script>
     <script src="js/vendor/monaco/vs/loader.js"></script>
 
     <style>
@@ -1290,28 +1293,14 @@
                             </div>
                         </div>
 
-                        <!-- Terminal 1 Tab -->
+                        <!-- Terminal 1 Tab (PTY xterm.js) -->
                         <div class="bottom-content-pane active" id="pane-term-1">
-                            <div class="terminal-output" id="terminal-output-1">Earnest IDE Terminal 1 active. Type your
-                                commands...
-                            </div>
-                            <div class="terminal-input-bar">
-                                <span class="terminal-prompt-sym">&gt;</span>
-                                <input type="text" id="terminal-input-1" placeholder="Run a command..."
-                                    spellcheck="false" autocomplete="off" />
-                            </div>
+                            <div id="xterm-1" style="flex: 1; width: 100%; height: 100%; overflow: hidden; padding: 6px 8px; background: var(--surface-lowest); box-sizing: border-box;"></div>
                         </div>
 
-                        <!-- Terminal 2 Tab -->
+                        <!-- Terminal 2 Tab (PTY xterm.js) -->
                         <div class="bottom-content-pane" id="pane-term-2">
-                            <div class="terminal-output" id="terminal-output-2">Earnest IDE Terminal 2 (Second worker
-                                shell) active.
-                            </div>
-                            <div class="terminal-input-bar">
-                                <span class="terminal-prompt-sym">&gt;</span>
-                                <input type="text" id="terminal-input-2" placeholder="Run in worker..."
-                                    spellcheck="false" autocomplete="off" />
-                            </div>
+                            <div id="xterm-2" style="flex: 1; width: 100%; height: 100%; overflow: hidden; padding: 6px 8px; background: var(--surface-lowest); box-sizing: border-box;"></div>
                         </div>
 
                         <!-- Onglet Problèmes -->

@@ -344,6 +344,67 @@ fn handle_request(mut req: tiny_http::Request) {
             return;
         }
 
+        if path == "/api/ide/pty/stream" {
+            let pty_id = query.get("id").cloned().unwrap_or_else(|| "term-1".to_string());
+            let cols = query.get("cols").and_then(|s| s.parse::<u16>().ok()).unwrap_or(100);
+            let rows = query.get("rows").and_then(|s| s.parse::<u16>().ok()).unwrap_or(24);
+            let (snapshot, rx) = match crate::pty::PtyManager::global().subscribe(&pty_id, cols, rows) {
+                Ok(v) => v,
+                Err(e) => {
+                    let resp = Response::from_string(serde_json::json!({"error": e}).to_string())
+                        .with_status_code(500)
+                        .with_header(json_header)
+                        .with_header(cors_header);
+                    req.respond(resp).ok();
+                    return;
+                }
+            };
+            let sse_header = Header::from_bytes(&b"Content-Type"[..], &b"text/event-stream"[..]).unwrap();
+            let cache_header = Header::from_bytes(&b"Cache-Control"[..], &b"no-cache"[..]).unwrap();
+            let conn_header = Header::from_bytes(&b"Connection"[..], &b"keep-alive"[..]).unwrap();
+            let (reader, mut writer) = match std::io::pipe() {
+                Ok(p) => p,
+                Err(_) => {
+                    req.respond(Response::empty(500)).ok();
+                    return;
+                }
+            };
+            let resp = Response::empty(200)
+                .with_data(reader, None)
+                .with_header(sse_header)
+                .with_header(cache_header)
+                .with_header(conn_header)
+                .with_header(cors_header);
+
+            thread::spawn(move || {
+                use std::io::Write;
+                if !snapshot.is_empty() {
+                    let msg = serde_json::json!({"b64": crate::pty::encode_base64(&snapshot)});
+                    if writeln!(writer, "data: {}\n", msg).is_err() || writer.flush().is_err() {
+                        return;
+                    }
+                }
+                loop {
+                    match rx.recv_timeout(std::time::Duration::from_secs(15)) {
+                        Ok(chunk) => {
+                            let msg = serde_json::json!({"b64": crate::pty::encode_base64(&chunk)});
+                            if writeln!(writer, "data: {}\n", msg).is_err() || writer.flush().is_err() {
+                                break;
+                            }
+                        }
+                        Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {
+                            if writeln!(writer, ": keepalive\n").is_err() || writer.flush().is_err() {
+                                break;
+                            }
+                        }
+                        Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => break,
+                    }
+                }
+            });
+            req.respond(resp).ok();
+            return;
+        }
+
         if path == "/api/ide/logs" {
             let since = query
                 .get("since")
@@ -1655,6 +1716,44 @@ Garde l'indentation appropriée.";
             }).to_string())
                 .with_header(json_header)
                 .with_header(cors_header);
+            req.respond(resp).ok();
+            return;
+        }
+
+        if path == "/api/ide/pty/write" {
+            let pty_id = payload["id"].as_str().unwrap_or("term-1");
+            let data = payload["data"].as_str().unwrap_or("");
+            let res = match crate::pty::PtyManager::global().write(pty_id, data.as_bytes()) {
+                Ok(_) => serde_json::json!({"status": "ok"}),
+                Err(e) => serde_json::json!({"status": "error", "error": e}),
+            };
+            let resp = Response::from_string(res.to_string()).with_header(json_header).with_header(cors_header);
+            req.respond(resp).ok();
+            return;
+        }
+
+        if path == "/api/ide/pty/resize" {
+            let pty_id = payload["id"].as_str().unwrap_or("term-1");
+            let cols = payload["cols"].as_u64().unwrap_or(100) as u16;
+            let rows = payload["rows"].as_u64().unwrap_or(24) as u16;
+            let res = match crate::pty::PtyManager::global().resize(pty_id, cols, rows) {
+                Ok(_) => serde_json::json!({"status": "ok"}),
+                Err(e) => serde_json::json!({"status": "error", "error": e}),
+            };
+            let resp = Response::from_string(res.to_string()).with_header(json_header).with_header(cors_header);
+            req.respond(resp).ok();
+            return;
+        }
+
+        if path == "/api/ide/pty/restart" {
+            let pty_id = payload["id"].as_str().unwrap_or("term-1");
+            let cols = payload["cols"].as_u64().unwrap_or(100) as u16;
+            let rows = payload["rows"].as_u64().unwrap_or(24) as u16;
+            let res = match crate::pty::PtyManager::global().restart(pty_id, cols, rows) {
+                Ok(_) => serde_json::json!({"status": "ok"}),
+                Err(e) => serde_json::json!({"status": "error", "error": e}),
+            };
+            let resp = Response::from_string(res.to_string()).with_header(json_header).with_header(cors_header);
             req.respond(resp).ok();
             return;
         }

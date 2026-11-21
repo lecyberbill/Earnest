@@ -391,12 +391,29 @@ document.addEventListener('DOMContentLoaded', () => {
             // Enregistrement des providers LSP pour Python, Rust et langages courants
             registerUniversalLspProviders();
 
+            // Thème Monaco aligné sur le Cockpit d'Ingénierie (Tour de Contrôle)
+            monaco.editor.defineTheme('earnest-cockpit', {
+                base: 'vs-dark',
+                inherit: true,
+                rules: [],
+                colors: {
+                    'editor.background': '#0b1326',
+                    'editorGutter.background': '#060e20',
+                    'editor.lineHighlightBackground': '#131b2e',
+                    'editor.selectionBackground': '#8083ff38',
+                    'editorCursor.foreground': '#4cd7f6',
+                    'editorLineNumber.foreground': '#464554',
+                    'editorLineNumber.activeForeground': '#4cd7f6',
+                    'minimap.background': '#060e20'
+                }
+            });
+
             // S'assurer que le container a une géométrie calculée avant l'instanciation de Monaco
             requestAnimationFrame(() => {
                 editorInstance = monaco.editor.create(monacoEditorContainer, {
                     value: '// Earnest IDE Pro • Monaco Editor Active\n',
                     language: 'rust',
-                    theme: 'vs-dark',
+                    theme: 'earnest-cockpit',
                     automaticLayout: true,
                     fontSize: 13,
                     fontFamily: "'JetBrains Mono', Consolas, monospace",
@@ -427,7 +444,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 });
 
                 diffEditorInstance = monaco.editor.createDiffEditor(monacoDiffContainer, {
-                    theme: 'vs-dark',
+                    theme: 'earnest-cockpit',
                     automaticLayout: true,
                     fontSize: 13,
                     fontFamily: "'JetBrains Mono', Consolas, monospace",

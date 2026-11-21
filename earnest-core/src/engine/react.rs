@@ -359,11 +359,25 @@ Quand ta mission est entièrement accomplie et vérifiée sur disque, fournis di
             active_backend_name = active_backend;
             total_tokens += chat_res.total_tokens;
 
+            if let Some(ref reasoning) = chat_res.reasoning_content {
+                if !reasoning.trim().is_empty() {
+                    push_live_log("THOUGHT", &format!("[{}] {}", active_backend_name, context_trimmer::truncate_tool_output(reasoning, 300)));
+                    self.record_trace(&run_id, step_order, "thought", None, reasoning);
+                    on_trace(&run_id, step_order, "thought", None, reasoning, &active_backend_name);
+                    step_order += 1;
+                }
+            }
+
+            let is_final_answer = chat_res.tool_calls.is_empty()
+                && !(empty_tool_nudges < 3 && looks_like_unfinished_thought(&chat_res.content));
+
             if !chat_res.content.is_empty() {
-                push_live_log("THOUGHT", &format!("[{}] {}", active_backend_name, context_trimmer::truncate_tool_output(&chat_res.content, 300)));
-                self.record_trace(&run_id, step_order, "thought", None, &chat_res.content);
-                on_trace(&run_id, step_order, "thought", None, &chat_res.content, &active_backend_name);
-                step_order += 1;
+                if !is_final_answer {
+                    push_live_log("THOUGHT", &format!("[{}] {}", active_backend_name, context_trimmer::truncate_tool_output(&chat_res.content, 300)));
+                    self.record_trace(&run_id, step_order, "thought", None, &chat_res.content);
+                    on_trace(&run_id, step_order, "thought", None, &chat_res.content, &active_backend_name);
+                    step_order += 1;
+                }
                 messages.push(ChatMessage { role: "assistant".to_string(), content: chat_res.content.clone(), images: None });
             }
 
@@ -555,10 +569,21 @@ Quand ta mission est entièrement accomplie et vérifiée sur disque, fournis di
             let (chat_res, active_backend) = self.router.chat_completion_with_fallback(&messages, Some(&tools), &self.think_effort)?;
             step_budget_chars = self.router.estimate_context_chars(&active_backend);
             total_tokens += chat_res.total_tokens as i64;
+            if let Some(ref reasoning) = chat_res.reasoning_content {
+                if !reasoning.trim().is_empty() {
+                    self.record_trace(run_id, step_order as usize, "thought", None, reasoning);
+                    on_trace(run_id, step_order as usize, "thought", None, reasoning, &active_backend);
+                    step_order += 1;
+                }
+            }
+            let is_final_answer = chat_res.tool_calls.is_empty()
+                && !(empty_tool_nudges < 3 && looks_like_unfinished_thought(&chat_res.content));
             if !chat_res.content.is_empty() {
-                self.record_trace(run_id, step_order as usize, "thought", None, &chat_res.content);
-                on_trace(run_id, step_order as usize, "thought", None, &chat_res.content, &active_backend);
-                step_order += 1;
+                if !is_final_answer {
+                    self.record_trace(run_id, step_order as usize, "thought", None, &chat_res.content);
+                    on_trace(run_id, step_order as usize, "thought", None, &chat_res.content, &active_backend);
+                    step_order += 1;
+                }
                 messages.push(ChatMessage { role: "assistant".to_string(), content: chat_res.content.clone(), images: None });
             }
             if chat_res.tool_calls.is_empty() {

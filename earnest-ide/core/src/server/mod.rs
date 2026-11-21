@@ -378,6 +378,9 @@ fn handle_request(mut req: tiny_http::Request) {
 
             thread::spawn(move || {
                 use std::io::Write;
+                if writeln!(writer, ": connected\n").is_err() || writer.flush().is_err() {
+                    return;
+                }
                 if !snapshot.is_empty() {
                     let msg = serde_json::json!({"b64": crate::pty::encode_base64(&snapshot)});
                     if writeln!(writer, "data: {}\n", msg).is_err() || writer.flush().is_err() {

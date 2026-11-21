@@ -1789,7 +1789,11 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     function initPtyTerminal(ptyId, containerEl) {
-        if (!containerEl || typeof Terminal === 'undefined') return null;
+        if (!containerEl) return null;
+        if (typeof Terminal === 'undefined') {
+            containerEl.innerHTML = '<div style="color:var(--accent-rose);padding:12px;font-family:var(--font-mono);font-size:12px;">xterm.js non chargé (Terminal undefined).</div>';
+            return null;
+        }
         const term = new Terminal({
             theme: {
                 background: '#060e20',
@@ -1814,6 +1818,45 @@ document.addEventListener('DOMContentLoaded', () => {
         const fitAddon = (typeof FitAddon !== 'undefined' && FitAddon.FitAddon) ? new FitAddon.FitAddon() : null;
         if (fitAddon) term.loadAddon(fitAddon);
         term.open(containerEl);
+        containerEl.addEventListener('mousedown', () => term.focus());
+
+        // Copier / Coller standard Windows Terminal (Ctrl+C avec sélection, Ctrl+V, Ctrl+Shift+C/V, clic droit)
+        term.attachCustomKeyEventHandler((ev) => {
+            if (ev.type !== 'keydown') return true;
+            const key = ev.key.toLowerCase();
+            if ((ev.ctrlKey || ev.metaKey) && key === 'c' && (ev.shiftKey || term.hasSelection())) {
+                const sel = term.getSelection();
+                if (sel && navigator.clipboard) {
+                    navigator.clipboard.writeText(sel).catch(() => { });
+                    term.clearSelection();
+                }
+                ev.preventDefault();
+                return false;
+            }
+            if ((ev.ctrlKey || ev.metaKey) && key === 'v') {
+                if (navigator.clipboard) {
+                    navigator.clipboard.readText().then((txt) => {
+                        if (txt) term.paste(txt);
+                    }).catch(() => { });
+                }
+                ev.preventDefault();
+                return false;
+            }
+            return true;
+        });
+
+        containerEl.addEventListener('contextmenu', (ev) => {
+            ev.preventDefault();
+            if (term.hasSelection()) {
+                const sel = term.getSelection();
+                if (sel && navigator.clipboard) navigator.clipboard.writeText(sel).catch(() => { });
+                term.clearSelection();
+            } else if (navigator.clipboard) {
+                navigator.clipboard.readText().then((txt) => {
+                    if (txt) term.paste(txt);
+                }).catch(() => { });
+            }
+        });
 
         const fit = () => {
             if (!fitAddon || containerEl.offsetParent === null) return;

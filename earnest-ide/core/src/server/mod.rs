@@ -352,52 +352,37 @@ fn handle_request(mut req: tiny_http::Request) {
                     return;
                 }
             };
-            let sse_header = Header::from_bytes(&b"Content-Type"[..], &b"text/event-stream"[..]).unwrap();
-            let cache_header = Header::from_bytes(&b"Cache-Control"[..], &b"no-cache"[..]).unwrap();
-            let conn_header = Header::from_bytes(&b"Connection"[..], &b"keep-alive"[..]).unwrap();
-            let (reader, mut writer) = match std::io::pipe() {
-                Ok(p) => p,
-                Err(_) => {
-                    req.respond(Response::empty(500)).ok();
-                    return;
-                }
-            };
-            let resp = Response::empty(200)
-                .with_data(reader, None)
-                .with_header(sse_header)
-                .with_header(cache_header)
-                .with_header(conn_header)
-                .with_header(cors_header);
 
-            thread::spawn(move || {
-                use std::io::Write;
-                if writeln!(writer, ": connected\n").is_err() || writer.flush().is_err() {
+            use std::io::Write;
+            let mut raw = req.into_writer();
+            if write!(
+                raw,
+                "HTTP/1.1 200 OK\r\nContent-Type: text/event-stream; charset=utf-8\r\nCache-Control: no-cache\r\nConnection: close\r\nAccess-Control-Allow-Origin: *\r\n\r\n: connected\n\n"
+            ).is_err() || raw.flush().is_err() {
+                return;
+            }
+            if !snapshot.is_empty() {
+                let msg = serde_json::json!({"b64": crate::pty::encode_base64(&snapshot)});
+                if writeln!(raw, "data: {}\n", msg).is_err() || raw.flush().is_err() {
                     return;
                 }
-                if !snapshot.is_empty() {
-                    let msg = serde_json::json!({"b64": crate::pty::encode_base64(&snapshot)});
-                    if writeln!(writer, "data: {}\n", msg).is_err() || writer.flush().is_err() {
-                        return;
-                    }
-                }
-                loop {
-                    match rx.recv_timeout(std::time::Duration::from_secs(15)) {
-                        Ok(chunk) => {
-                            let msg = serde_json::json!({"b64": crate::pty::encode_base64(&chunk)});
-                            if writeln!(writer, "data: {}\n", msg).is_err() || writer.flush().is_err() {
-                                break;
-                            }
+            }
+            loop {
+                match rx.recv_timeout(std::time::Duration::from_secs(15)) {
+                    Ok(chunk) => {
+                        let msg = serde_json::json!({"b64": crate::pty::encode_base64(&chunk)});
+                        if writeln!(raw, "data: {}\n", msg).is_err() || raw.flush().is_err() {
+                            break;
                         }
-                        Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {
-                            if writeln!(writer, ": keepalive\n").is_err() || writer.flush().is_err() {
-                                break;
-                            }
-                        }
-                        Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => break,
                     }
+                    Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {
+                        if writeln!(raw, ": keepalive\n").is_err() || raw.flush().is_err() {
+                            break;
+                        }
+                    }
+                    Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => break,
                 }
-            });
-            req.respond(resp).ok();
+            }
             return;
         }
 

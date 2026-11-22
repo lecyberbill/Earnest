@@ -1443,7 +1443,7 @@ Garde l'indentation appropriée.";
                 if b.provider_type == "ollama" {
                     let show_url = format!("{}/api/show", b.base_url.trim_end_matches('/'));
                     let client = reqwest::blocking::Client::builder()
-                        .timeout(std::time::Duration::from_secs(3))
+                        .timeout(std::time::Duration::from_secs(6))
                         .build()
                         .unwrap_or_else(|_| reqwest::blocking::Client::new());
                     if let Ok(resp) = client.post(&show_url).json(&serde_json::json!({ "model": b.model })).send() {

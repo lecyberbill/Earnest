@@ -1411,7 +1411,9 @@ document.addEventListener('DOMContentLoaded', () => {
                     });
                 }
                 const modelBadge = document.getElementById('status-active-model');
-                if (modelBadge) modelBadge.textContent = `Modèle : ${payload.default_model}`;
+                if (modelBadge) modelBadge.textContent = `Model: ${payload.default_model}`;
+                if (chatModelSel) chatModelSel.value = payload.default_model;
+                if (typeof refreshEffortDropdown === 'function') refreshEffortDropdown(payload.default_model);
                 if (prefStatusMsg) {
                     prefStatusMsg.style.display = 'block';
                     setTimeout(() => { prefStatusMsg.style.display = 'none'; }, 2000);
@@ -2961,6 +2963,9 @@ document.addEventListener('DOMContentLoaded', () => {
                 const sData = await sRes.json();
                 if (sData.default_model) cms.value = sData.default_model;
             }
+            if (typeof refreshEffortDropdown === 'function' && cms.value) {
+                refreshEffortDropdown(cms.value);
+            }
         } catch (e) {
             console.warn('syncChatModels error:', e);
         }
@@ -3066,6 +3071,9 @@ document.addEventListener('DOMContentLoaded', () => {
             if (sRes.ok) {
                 const sData = await sRes.json();
                 if (sData.default_model) cms.value = sData.default_model;
+            }
+            if (typeof refreshEffortDropdown === 'function' && cms.value) {
+                refreshEffortDropdown(cms.value);
             }
         } catch (e) {
             console.warn('syncChatModels error:', e);
@@ -3179,6 +3187,9 @@ document.addEventListener('DOMContentLoaded', () => {
             if (sRes.ok) {
                 const sData = await sRes.json();
                 if (sData.default_model) cms.value = sData.default_model;
+            }
+            if (typeof refreshEffortDropdown === 'function' && cms.value) {
+                refreshEffortDropdown(cms.value);
             }
         } catch (e) {
             console.warn('syncChatModels error:', e);

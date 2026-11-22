@@ -2506,24 +2506,5 @@ fn probe_model_capabilities(provider_type: &str, base_url: &str, model: &str) ->
 }
 
 fn resolve_kb_db_path() -> PathBuf {
-    let mut candidates = vec![
-        PathBuf::from("earnest-bcpe/kb.db"),
-        PathBuf::from("../earnest-bcpe/kb.db"),
-        PathBuf::from("../../earnest-bcpe/kb.db"),
-        PathBuf::from("kb.db"),
-    ];
-    if let Ok(exe) = std::env::current_exe() {
-        if let Some(dir) = exe.parent() {
-            candidates.push(dir.join("earnest-bcpe/kb.db"));
-            candidates.push(dir.join("../../../earnest-bcpe/kb.db"));
-            candidates.push(dir.join("../../../../earnest-bcpe/kb.db"));
-        }
-    }
-    if let Some(home) = std::env::var_os("USERPROFILE").or_else(|| std::env::var_os("HOME")) {
-        candidates.push(PathBuf::from(home).join(".local/share/earnest-bcpe/kb.db"));
-    }
-    candidates
-        .into_iter()
-        .find(|p| p.exists())
-        .unwrap_or_else(|| PathBuf::from("earnest-bcpe/kb.db"))
+    crate::tools::resolve_kb_db_path()
 }

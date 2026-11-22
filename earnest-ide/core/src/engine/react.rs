@@ -1025,21 +1025,17 @@ impl<'a> ReActEngine<'a> {
                     }).to_string(), None),
                 }
             }
+            "kb_list_products" => {
+                let mcp = kb_mcp_client();
+                match mcp.call_tool("kb_list_products", &serde_json::json!({})) {
+                    Ok(res) => (res.to_string(), None),
+                    Err(e) => (serde_json::json!({"status": "error", "error": e}).to_string(), None),
+                }
+            }
             "kb_search" => {
                 let pid = args["product_id"].as_str().unwrap_or("earnest");
                 let q = args["query"].as_str().unwrap_or("");
-                let mcp = crate::mcp::McpClient::new(
-                    [
-                        r"earnest-bcpe\target\release\kb.exe",
-                        r"..\earnest-bcpe\target\release\kb.exe",
-                        r"..\..\earnest-bcpe\target\release\kb.exe",
-                        r"D:\Projet\Hernest\earnest-bcpe\target\release\kb.exe",
-                    ]
-                    .into_iter()
-                    .find(|p| std::path::Path::new(p).exists())
-                    .unwrap_or(r"earnest-bcpe\target\release\kb.exe"),
-                    &["serve".to_string(), "--db".to_string(), r"earnest-bcpe\kb.db".to_string()]
-                );
+                let mcp = kb_mcp_client();
                 let call_args = serde_json::json!({ "product_id": pid, "query": q });
                 match mcp.call_tool("kb_search", &call_args) {
                     Ok(res) => (res.to_string(), None),
@@ -1056,20 +1052,15 @@ impl<'a> ReActEngine<'a> {
                 let correction = args["correction"].as_str().unwrap_or("");
                 let example = args["example"].as_str();
 
-                let mcp = crate::mcp::McpClient::new(
-                    [
-                        r"D:\Tools\earnest-bcpe\kb.exe",
-                        r"earnest-bcpe\target\release\kb.exe",
-                        r"..\earnest-bcpe\target\release\kb.exe",
-                        r"..\..\earnest-bcpe\target\release\kb.exe",
-                        r"D:\Projet\Hernest\earnest-bcpe\target\release\kb.exe",
-                    ]
-                    .into_iter()
-                    .find(|p| std::path::Path::new(p).exists())
-                    .unwrap_or(r"D:\Tools\earnest-bcpe\kb.exe"),
-                    &["serve".to_string(), "--db".to_string(), r"earnest-bcpe\kb.db".to_string()]
-                );
+                let db_path = crate::tools::resolve_kb_db_path();
+                if let Ok(conn) = rusqlite::Connection::open(&db_path) {
+                    let _ = conn.execute(
+                        "INSERT OR IGNORE INTO products (product_id, name, current_version) VALUES (?, ?, '1.0.0')",
+                        rusqlite::params![pid, pid],
+                    );
+                }
 
+                let mcp = kb_mcp_client();
                 mcp.call_tool("kb_search", &serde_json::json!({ "product_id": pid, "query": subject_key })).ok();
 
                 let mut propose_args = serde_json::json!({
@@ -1180,7 +1171,7 @@ impl<'a> ReActEngine<'a> {
             // Mode 3 (Architecture / Spec-First) : STRICTEMENT AUCUN write_file / edit_file / terminal_exec
             // Contrainte 2 : kb_search et consultation autorisés
             GovernanceMode::Architecture => {
-                let allowed_std = ["read_file", "list_files", "grep_search", "workspace_map", "web_search", "web_fetch", "store_memory", "recall_memory", "recall_recent_runs", "kb_search"];
+                let allowed_std = ["read_file", "list_files", "grep_search", "workspace_map", "web_search", "web_fetch", "store_memory", "recall_memory", "recall_recent_runs", "kb_list_products", "kb_search"];
                 let allowed_gov = ["add_invariant", "submit_invariants", "request_architecture_review", "symbol_search"];
 
                 let mut tools: Vec<Value> = std_tools.into_iter()
@@ -1197,7 +1188,7 @@ impl<'a> ReActEngine<'a> {
 
             // Mode 2 (Contraint / Invariants & Shadow Sandbox)
             GovernanceMode::Constrained => {
-                let allowed_std = ["read_file", "list_files", "grep_search", "workspace_map", "web_search", "web_fetch", "store_memory", "recall_memory", "recall_recent_runs", "kb_search", "kb_propose"];
+                let allowed_std = ["read_file", "list_files", "grep_search", "workspace_map", "web_search", "web_fetch", "store_memory", "recall_memory", "recall_recent_runs", "kb_list_products", "kb_search", "kb_propose"];
                 let allowed_gov = ["write_code", "shadow_check", "shadow_copy", "shadow_validate_and_merge", "query_invariants", "request_contract_mutation", "report_checkpoint_status", "symbol_search"];
 
                 let mut tools: Vec<Value> = std_tools.into_iter()
@@ -1964,4 +1955,33 @@ fn compact_messages_if_needed(messages: &mut Vec<ChatMessage>, max_chars: usize)
             images: None,
         })
         .collect();
+}
+
+fn kb_mcp_client() -> crate::mcp::McpClient {
+    let mut exe_candidates = vec![
+        std::path::PathBuf::from(r"D:\Tools\earnest-bcpe\kb.exe"),
+        std::path::PathBuf::from(r"earnest-bcpe\target\release\kb.exe"),
+        std::path::PathBuf::from(r"..\earnest-bcpe\target\release\kb.exe"),
+        std::path::PathBuf::from(r"..\..\earnest-bcpe\target\release\kb.exe"),
+        std::path::PathBuf::from(r"D:\Projet\Hernest\earnest-bcpe\target\release\kb.exe"),
+    ];
+    if let Ok(exe) = std::env::current_exe() {
+        if let Some(dir) = exe.parent() {
+            exe_candidates.push(dir.join("kb.exe"));
+            exe_candidates.push(dir.join(r"..\..\..\earnest-bcpe\target\release\kb.exe"));
+        }
+    }
+    let kb_exe = exe_candidates
+        .into_iter()
+        .find(|p| p.exists())
+        .unwrap_or_else(|| std::path::PathBuf::from(r"D:\Projet\Hernest\earnest-bcpe\target\release\kb.exe"));
+    let kb_db = crate::tools::resolve_kb_db_path();
+    crate::mcp::McpClient::new(
+        &kb_exe.to_string_lossy(),
+        &[
+            "serve".to_string(),
+            "--db".to_string(),
+            kb_db.to_string_lossy().to_string(),
+        ],
+    )
 }

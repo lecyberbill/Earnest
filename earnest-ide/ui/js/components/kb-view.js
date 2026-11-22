@@ -2,8 +2,10 @@ export class KbView {
     constructor(containerId) {
         this.container = document.getElementById(containerId);
         this.entries = [];
+        this.products = [];
         this.currentFilterKind = '';
         this.currentFilterStatus = '';
+        this.currentFilterProduct = '';
         this.searchQuery = '';
         this.selectedEntryId = null;
         this.init();
@@ -12,6 +14,7 @@ export class KbView {
     init() {
         this.renderLayout();
         this.bindEvents();
+        this.loadProducts();
         this.loadEntries();
         window.addEventListener('earnest:lang_changed', () => {
             this.renderLayout();
@@ -49,6 +52,9 @@ export class KbView {
                         <button id="kb-btn-refresh" class="icon-btn" style="border: 1px solid var(--border-subtle); padding: 5px 10px; font-size: 0.75rem; border-radius: 4px; gap: 4px;" title="${t('kb.btn_refresh_title')}">
                             <span>🔄</span> ${t('kb.btn_refresh')}
                         </button>
+                        <button id="kb-btn-new-product" class="icon-btn" style="border: 1px solid var(--accent-cyan); color: var(--accent-cyan); padding: 5px 10px; font-size: 0.75rem; border-radius: 4px; gap: 4px;" title="Créer un produit dans la base de connaissances">
+                            <span>📦</span> + Produit
+                        </button>
                         <button id="kb-btn-new-rule" class="btn-primary" style="padding: 6px 14px; font-size: 0.78rem; font-weight: 700; display: flex; align-items: center; gap: 0.4rem; border-radius: 4px;">
                             <span>➕</span> ${t('kb.btn_new_rule')}
                         </button>
@@ -74,6 +80,9 @@ export class KbView {
                         <button class="kb-pill-status ${this.currentFilterStatus === '' ? 'active' : ''}" data-status="">${t('kb.filter_all_statuses')}</button>
                         <button class="kb-pill-status ${this.currentFilterStatus === 'valide' ? 'active' : ''}" data-status="valide">${t('kb.filter_validated')}</button>
                         <button class="kb-pill-status ${this.currentFilterStatus === 'non_teste' ? 'active' : ''}" data-status="non_teste">${t('kb.filter_discovered')}</button>
+                        <select id="kb-filter-product" style="background: var(--surface-lowest); border: 1px solid var(--border-subtle); color: var(--text-primary); padding: 4px 8px; border-radius: 12px; font-size: 0.72rem; font-family: var(--font-mono); margin-left: 4px;">
+                            <option value="">Tous produits</option>
+                        </select>
                     </div>
                 </div>
 
@@ -111,7 +120,12 @@ export class KbView {
                             </div>
                             <div>
                                 <label style="display: block; font-size: 0.72rem; color: var(--text-muted); margin-bottom: 3px;">${t('kb.field_product')}</label>
-                                <input type="text" id="kb-new-product" value="earnest" style="width: 100%; box-sizing: border-box; background: var(--surface-lowest); border: 1px solid var(--border-subtle); color: var(--text-primary); padding: 6px; border-radius: 4px; font-size: 0.78rem;" />
+                                <div style="display: flex; gap: 4px;">
+                                    <select id="kb-new-product" style="flex: 1; background: var(--surface-lowest); border: 1px solid var(--border-subtle); color: var(--text-primary); padding: 6px; border-radius: 4px; font-size: 0.78rem;">
+                                        <option value="earnest">earnest</option>
+                                    </select>
+                                    <button type="button" id="kb-new-product-quick" title="Créer un nouveau produit" style="background: var(--surface-lowest); border: 1px solid var(--accent-cyan); color: var(--accent-cyan); padding: 0 9px; border-radius: 4px; cursor: pointer; font-weight: 700;">+</button>
+                                </div>
                             </div>
                         </div>
 
@@ -138,6 +152,32 @@ export class KbView {
                         <div style="display: flex; justify-content: flex-end; gap: 0.6rem; margin-top: 0.5rem;">
                             <button id="kb-modal-cancel" style="background: transparent; border: 1px solid var(--border-subtle); color: var(--text-primary); padding: 6px 14px; border-radius: 4px; cursor: pointer; font-size: 0.78rem;">${t('btn.cancel')}</button>
                             <button id="kb-modal-submit" class="btn-primary" style="padding: 6px 16px; font-size: 0.78rem; font-weight: 700;">${t('kb.btn_save_seal')}</button>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Modal Nouveau Produit -->
+                <div id="kb-modal-product" style="display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.8); z-index: 10000; align-items: center; justify-content: center; backdrop-filter: blur(4px);">
+                    <div style="background: var(--surface-container); border: 1px solid var(--accent-cyan); width: 420px; max-width: 90vw; border-radius: 8px; padding: 1.35rem; display: flex; flex-direction: column; gap: 0.9rem; font-family: var(--font-mono); box-shadow: var(--shadow-soft), var(--shadow-glow-cyan);">
+                        <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid var(--border-subtle); padding-bottom: 0.5rem;">
+                            <span style="font-weight: 800; color: var(--accent-cyan); font-size: 0.9rem;">📦 Nouveau Produit (BCPE)</span>
+                            <button id="kb-prod-close" style="background: transparent; border: none; color: var(--text-primary); cursor: pointer; font-size: 1.1rem;">✕</button>
+                        </div>
+                        <div>
+                            <label style="display: block; font-size: 0.72rem; color: var(--text-muted); margin-bottom: 3px;">Identifiant (product_id)</label>
+                            <input type="text" id="kb-prod-id" placeholder="ex: powershell, rust, docker" style="width: 100%; box-sizing: border-box; background: var(--surface-lowest); border: 1px solid var(--border-subtle); color: var(--text-primary); padding: 6px; border-radius: 4px; font-size: 0.8rem;" />
+                        </div>
+                        <div>
+                            <label style="display: block; font-size: 0.72rem; color: var(--text-muted); margin-bottom: 3px;">Nom affiché</label>
+                            <input type="text" id="kb-prod-name" placeholder="ex: Windows PowerShell 5.1" style="width: 100%; box-sizing: border-box; background: var(--surface-lowest); border: 1px solid var(--border-subtle); color: var(--text-primary); padding: 6px; border-radius: 4px; font-size: 0.8rem;" />
+                        </div>
+                        <div>
+                            <label style="display: block; font-size: 0.72rem; color: var(--text-muted); margin-bottom: 3px;">Version courante</label>
+                            <input type="text" id="kb-prod-version" value="1.0.0" placeholder="ex: 5.1" style="width: 100%; box-sizing: border-box; background: var(--surface-lowest); border: 1px solid var(--border-subtle); color: var(--text-primary); padding: 6px; border-radius: 4px; font-size: 0.8rem;" />
+                        </div>
+                        <div style="display: flex; justify-content: flex-end; gap: 0.6rem; margin-top: 0.25rem;">
+                            <button id="kb-prod-cancel" style="background: transparent; border: 1px solid var(--border-subtle); color: var(--text-primary); padding: 6px 14px; border-radius: 4px; cursor: pointer; font-size: 0.78rem;">${t('btn.cancel')}</button>
+                            <button id="kb-prod-submit" class="btn-primary" style="padding: 6px 16px; font-size: 0.78rem; font-weight: 700;">Créer le produit</button>
                         </div>
                     </div>
                 </div>
@@ -239,14 +279,80 @@ export class KbView {
             });
         });
 
-        // Modal
+        // Modal Produit
+        const btnNewProd = this.container.querySelector('#kb-btn-new-product');
+        const btnQuickProd = this.container.querySelector('#kb-new-product-quick');
+        const prodModal = this.container.querySelector('#kb-modal-product');
+        const prodClose = this.container.querySelector('#kb-prod-close');
+        const prodCancel = this.container.querySelector('#kb-prod-cancel');
+        const prodSubmit = this.container.querySelector('#kb-prod-submit');
+        const filterProd = this.container.querySelector('#kb-filter-product');
+
+        if (filterProd) {
+            filterProd.addEventListener('change', () => {
+                this.currentFilterProduct = filterProd.value;
+                this.filterAndRender();
+            });
+        }
+        const openProdModal = () => {
+            if (prodModal) prodModal.style.display = 'flex';
+            const idInput = this.container.querySelector('#kb-prod-id');
+            if (idInput) idInput.focus();
+        };
+        const closeProdModal = () => { if (prodModal) prodModal.style.display = 'none'; };
+        if (btnNewProd) btnNewProd.addEventListener('click', openProdModal);
+        if (btnQuickProd) btnQuickProd.addEventListener('click', openProdModal);
+        if (prodClose) prodClose.addEventListener('click', closeProdModal);
+        if (prodCancel) prodCancel.addEventListener('click', closeProdModal);
+
+        if (prodSubmit) {
+            prodSubmit.addEventListener('click', async () => {
+                const product_id = this.container.querySelector('#kb-prod-id').value.trim();
+                const name = this.container.querySelector('#kb-prod-name').value.trim();
+                const current_version = this.container.querySelector('#kb-prod-version').value.trim();
+                if (!product_id) {
+                    alert("L'identifiant du produit est obligatoire.");
+                    return;
+                }
+                prodSubmit.disabled = true;
+                try {
+                    const res = await fetch('/api/ide/kb/products', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ product_id, name, current_version })
+                    });
+                    const data = await res.json();
+                    if (data.status === 'CREATED') {
+                        closeProdModal();
+                        this.container.querySelector('#kb-prod-id').value = '';
+                        this.container.querySelector('#kb-prod-name').value = '';
+                        await this.loadProducts();
+                        const newProdSelect = this.container.querySelector('#kb-new-product');
+                        if (newProdSelect && data.product && data.product.product_id) {
+                            newProdSelect.value = data.product.product_id;
+                        }
+                    } else {
+                        alert(data.error || 'Échec création produit');
+                    }
+                } catch (err) {
+                    alert(`Erreur réseau: ${err.message}`);
+                } finally {
+                    prodSubmit.disabled = false;
+                }
+            });
+        }
+
+        // Modal Règle / Piège
         const btnNew = this.container.querySelector('#kb-btn-new-rule');
         const modal = this.container.querySelector('#kb-modal-new');
         const btnClose = this.container.querySelector('#kb-modal-close');
         const btnCancel = this.container.querySelector('#kb-modal-cancel');
         const btnSubmit = this.container.querySelector('#kb-modal-submit');
 
-        btnNew.addEventListener('click', () => modal.style.display = 'flex');
+        btnNew.addEventListener('click', () => {
+            this.renderProductSelectors();
+            modal.style.display = 'flex';
+        });
         const closeModal = () => modal.style.display = 'none';
         btnClose.addEventListener('click', closeModal);
         btnCancel.addEventListener('click', closeModal);
@@ -303,8 +409,49 @@ export class KbView {
         });
     }
 
+    async loadProducts() {
+        try {
+            const res = await fetch('/api/ide/kb/products');
+            const data = await res.json();
+            this.products = Array.isArray(data.products) ? data.products : [];
+            this.renderProductSelectors();
+        } catch (err) { }
+    }
+
+    renderProductSelectors() {
+        const filterSel = this.container.querySelector('#kb-filter-product');
+        const newSel = this.container.querySelector('#kb-new-product');
+        const list = this.products.length > 0 ? this.products : [{ product_id: 'earnest', name: 'earnest', entry_count: 0 }];
+
+        if (filterSel) {
+            const prev = this.currentFilterProduct || '';
+            filterSel.innerHTML = '<option value="">Tous produits</option>';
+            list.forEach(p => {
+                const opt = document.createElement('option');
+                opt.value = p.product_id;
+                opt.textContent = `${p.product_id} (${p.entry_count || 0})`;
+                filterSel.appendChild(opt);
+            });
+            filterSel.value = prev;
+        }
+        if (newSel) {
+            const prevNew = newSel.value || 'earnest';
+            newSel.innerHTML = '';
+            list.forEach(p => {
+                const opt = document.createElement('option');
+                opt.value = p.product_id;
+                opt.textContent = p.name && p.name !== p.product_id ? `${p.product_id} — ${p.name}` : p.product_id;
+                newSel.appendChild(opt);
+            });
+            if ([...newSel.options].some(o => o.value === prevNew)) {
+                newSel.value = prevNew;
+            }
+        }
+    }
+
     async loadEntries() {
         try {
+            await this.loadProducts();
             const res = await fetch('/api/ide/kb/entries');
             const data = await res.json();
             this.entries = data.entries || [];
@@ -332,6 +479,9 @@ export class KbView {
         }
         if (this.currentFilterStatus) {
             filtered = filtered.filter(e => e.status === this.currentFilterStatus);
+        }
+        if (this.currentFilterProduct) {
+            filtered = filtered.filter(e => e.product_id === this.currentFilterProduct);
         }
         if (this.searchQuery) {
             const q = this.searchQuery.toLowerCase();

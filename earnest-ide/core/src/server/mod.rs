@@ -933,6 +933,45 @@ fn handle_request(mut req: tiny_http::Request) {
             return;
         }
 
+        // --- BASE DE CONNAISSANCES D'EXPÉRIENCE (BCPE) : PRODUITS ---
+        if path == "/api/ide/kb/products" {
+            let kb_path = [
+                PathBuf::from("earnest-bcpe/kb.db"),
+                PathBuf::from("../earnest-bcpe/kb.db"),
+                PathBuf::from("../../earnest-bcpe/kb.db"),
+                PathBuf::from("kb.db"),
+            ]
+            .into_iter()
+            .find(|p| p.exists())
+            .unwrap_or_else(|| PathBuf::from("earnest-bcpe/kb.db"));
+
+            let mut products = Vec::new();
+            if kb_path.exists() {
+                if let Ok(conn) = rusqlite::Connection::open(&kb_path) {
+                    let sql = "SELECT p.product_id, p.name, COALESCE(p.current_version, ''), COUNT(e.entry_id) FROM products p LEFT JOIN entries e ON e.product_id = p.product_id GROUP BY p.product_id ORDER BY p.product_id ASC";
+                    if let Ok(mut stmt) = conn.prepare(sql) {
+                        if let Ok(rows) = stmt.query_map([], |row| {
+                            Ok(serde_json::json!({
+                                "product_id": row.get::<_, String>(0)?,
+                                "name": row.get::<_, String>(1)?,
+                                "current_version": row.get::<_, String>(2)?,
+                                "entry_count": row.get::<_, i64>(3)?
+                            }))
+                        }) {
+                            for r in rows.flatten() {
+                                products.push(r);
+                            }
+                        }
+                    }
+                }
+            }
+            let resp = Response::from_string(serde_json::json!({ "products": products }).to_string())
+                .with_header(json_header)
+                .with_header(cors_header);
+            req.respond(resp).ok();
+            return;
+        }
+
         // --- BASE DE CONNAISSANCES D'EXPÉRIENCE (BCPE) : LISTE & RECHERCHE ---
         if path == "/api/ide/kb/entries" {
             let q_filter = query.get("q").map(|s| s.to_lowercase()).unwrap_or_default();
@@ -2240,6 +2279,67 @@ Garde l'indentation appropriée.";
             }
 
             let resp = Response::from_string(serde_json::json!({"status": "error", "error": "kb.db inaccessible"}).to_string())
+                .with_status_code(500).with_header(json_header).with_header(cors_header);
+            req.respond(resp).ok();
+            return;
+        }
+
+        // --- BASE DE CONNAISSANCES D'EXPÉRIENCE (BCPE) : CRÉATION / MISE À JOUR PRODUIT ---
+        if path == "/api/ide/kb/products" {
+            let raw_id = payload["product_id"].as_str().unwrap_or("").trim().to_lowercase();
+            let product_id: String = raw_id
+                .chars()
+                .map(|c| if c.is_ascii_alphanumeric() || c == '-' || c == '_' { c } else { '-' })
+                .collect();
+            let product_id = product_id.trim_matches('-').to_string();
+            let name = payload["name"].as_str().unwrap_or("").trim();
+            let display_name = if name.is_empty() { product_id.as_str() } else { name };
+            let current_version = payload["current_version"].as_str().unwrap_or("1.0.0").trim();
+            let version_opt = if current_version.is_empty() { None } else { Some(current_version) };
+
+            if product_id.is_empty() {
+                let resp = Response::from_string(serde_json::json!({"status": "error", "error": "L'identifiant du produit est obligatoire"}).to_string())
+                    .with_status_code(400).with_header(json_header).with_header(cors_header);
+                req.respond(resp).ok();
+                return;
+            }
+
+            let kb_path = [
+                PathBuf::from("earnest-bcpe/kb.db"),
+                PathBuf::from("../earnest-bcpe/kb.db"),
+                PathBuf::from("../../earnest-bcpe/kb.db"),
+                PathBuf::from("kb.db"),
+            ]
+            .into_iter()
+            .find(|p| p.exists())
+            .unwrap_or_else(|| PathBuf::from("earnest-bcpe/kb.db"));
+
+            if let Ok(conn) = rusqlite::Connection::open(&kb_path) {
+                match conn.execute(
+                    "INSERT INTO products (product_id, name, current_version) VALUES (?, ?, ?) ON CONFLICT(product_id) DO UPDATE SET name = excluded.name, current_version = excluded.current_version",
+                    rusqlite::params![product_id, display_name, version_opt],
+                ) {
+                    Ok(_) => {
+                        let resp = Response::from_string(serde_json::json!({
+                            "status": "CREATED",
+                            "product": {
+                                "product_id": product_id,
+                                "name": display_name,
+                                "current_version": current_version
+                            }
+                        }).to_string()).with_header(json_header).with_header(cors_header);
+                        req.respond(resp).ok();
+                        return;
+                    }
+                    Err(e) => {
+                        let resp = Response::from_string(serde_json::json!({"status": "error", "error": format!("{}", e)}).to_string())
+                            .with_status_code(500).with_header(json_header).with_header(cors_header);
+                        req.respond(resp).ok();
+                        return;
+                    }
+                }
+            }
+            let resp = Response::from_string(serde_json::json!({"status": "error", "error": "Impossible d'ouvrir kb.db"}).to_string())
                 .with_status_code(500).with_header(json_header).with_header(cors_header);
             req.respond(resp).ok();
             return;

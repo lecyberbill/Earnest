@@ -3155,6 +3155,7 @@ document.addEventListener('DOMContentLoaded', () => {
         if (!projectModal) return;
         projectModal.classList.add('open');
         newProjectForm.style.display = 'none';
+        if (btnSubmitNewProject) btnSubmitNewProject.style.display = 'none';
         loadProjectsList();
     (async function syncChatModels() {
         const cms = document.getElementById('chat-model-select');
@@ -3196,12 +3197,14 @@ document.addEventListener('DOMContentLoaded', () => {
         btnToggleNewProject.addEventListener('click', () => {
             const isShown = newProjectForm.style.display === 'flex';
             newProjectForm.style.display = isShown ? 'none' : 'flex';
+            if (btnSubmitNewProject) btnSubmitNewProject.style.display = isShown ? 'none' : 'inline-flex';
             if (!isShown) projNameInput.focus();
         });
     }
     if (btnCancelNewProject) {
         btnCancelNewProject.addEventListener('click', () => {
             newProjectForm.style.display = 'none';
+            if (btnSubmitNewProject) btnSubmitNewProject.style.display = 'none';
         });
     }
 

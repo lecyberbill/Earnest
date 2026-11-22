@@ -1118,6 +1118,7 @@ Garde l'indentation appropriée.";
 
         if path == "/api/ide/model_providers" || path == "/api/model_providers" {
             let conn = get_connection(None).unwrap();
+            ensure_model_metadata_columns(&conn);
             let p_id = payload["id"].as_str().map(|s| s.to_string()).unwrap_or_else(|| format!("provider_{}", &uuid::Uuid::new_v4().to_string().replace('-', "")[..8]));
             let name = payload["name"].as_str().unwrap_or("Nouveau Modèle");
             let provider_type = payload["provider_type"].as_str().unwrap_or("openai");
@@ -1126,12 +1127,21 @@ Garde l'indentation appropriée.";
             let raw_key = payload["api_key"].as_str();
             let is_enabled = if payload["is_enabled"].as_bool().unwrap_or(true) { 1 } else { 0 };
 
+            let (thinking_vals, default_thinking, context_chars) = probe_model_capabilities(provider_type, base_url, model);
+            let thinking_json = serde_json::to_string(&thinking_vals).unwrap_or_else(|_| "[\"off\"]".to_string());
+
             conn.execute(
-                "INSERT INTO model_providers (id, name, provider_type, base_url, model, api_key, is_enabled, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP) ON CONFLICT(id) DO UPDATE SET name=excluded.name, provider_type=excluded.provider_type, base_url=excluded.base_url, model=excluded.model, api_key=COALESCE(excluded.api_key, model_providers.api_key), is_enabled=excluded.is_enabled, updated_at=CURRENT_TIMESTAMP",
-                rusqlite::params![p_id, name, provider_type, base_url, model, raw_key, is_enabled],
+                "INSERT INTO model_providers (id, name, provider_type, base_url, model, api_key, is_enabled, thinking_values, default_thinking, context_chars, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP) ON CONFLICT(id) DO UPDATE SET name=excluded.name, provider_type=excluded.provider_type, base_url=excluded.base_url, model=excluded.model, api_key=COALESCE(excluded.api_key, model_providers.api_key), is_enabled=excluded.is_enabled, thinking_values=excluded.thinking_values, default_thinking=excluded.default_thinking, context_chars=excluded.context_chars, updated_at=CURRENT_TIMESTAMP",
+                rusqlite::params![p_id, name, provider_type, base_url, model, raw_key, is_enabled, thinking_json, default_thinking, context_chars as i64],
             ).ok();
 
-            let resp = Response::from_string(serde_json::json!({"status": "saved", "id": p_id}).to_string())
+            let resp = Response::from_string(serde_json::json!({
+                "status": "saved",
+                "id": p_id,
+                "thinking_values": thinking_vals,
+                "default_thinking": default_thinking,
+                "context_chars": context_chars
+            }).to_string())
                 .with_header(json_header)
                 .with_header(cors_header);
             req.respond(resp).ok();
@@ -1431,6 +1441,7 @@ Garde l'indentation appropriée.";
         if path == "/api/ide/models/capabilities" {
             let model_id = payload["model"].as_str().unwrap_or("");
             let conn = get_connection(None).unwrap();
+            ensure_model_metadata_columns(&conn);
             let router = crate::llm::router::LLMRouter::from_db(&conn);
             let backend = router.backends.iter()
                 .find(|b| b.id == model_id || b.name == model_id || b.model == model_id)
@@ -1440,41 +1451,34 @@ Garde l'indentation appropriée.";
             let mut default_val = "off".to_string();
 
             if let Some(b) = backend {
-                if b.provider_type == "ollama" {
-                    let show_url = format!("{}/api/show", b.base_url.trim_end_matches('/'));
-                    let client = reqwest::blocking::Client::builder()
-                        .timeout(std::time::Duration::from_secs(6))
-                        .build()
-                        .unwrap_or_else(|_| reqwest::blocking::Client::new());
-                    if let Ok(resp) = client.post(&show_url).json(&serde_json::json!({ "model": b.model })).send() {
-                        if let Ok(data) = resp.json::<serde_json::Value>() {
-                            println!("  🔍 [OLLAMA /api/show] {} -> thinking={:?} capabilities={:?}", b.model, data.get("thinking"), data.get("capabilities"));
-                            if let Some(arr) = data["thinking"]["values"].as_array() {
-                                for v in arr {
-                                    if let Some(s) = v.as_str() {
-                                        if !values.contains(&s.to_string()) {
-                                            values.push(s.to_string());
-                                        }
-                                    }
-                                }
-                                default_val = data["thinking"]["default"].as_str().unwrap_or("medium").to_string();
-                            } else if data.get("thinking").is_some()
-                                || data["capabilities"].as_array().map(|c| c.iter().any(|x| x.as_str() == Some("thinking"))).unwrap_or(false)
-                            {
-                                values.push("on".to_string());
-                                default_val = "on".to_string();
-                            }
+                let cached: Option<(Option<String>, Option<String>)> = conn
+                    .query_row(
+                        "SELECT thinking_values, default_thinking FROM model_providers WHERE id = ?",
+                        [&b.id],
+                        |r| Ok((r.get(0)?, r.get(1)?)),
+                    )
+                    .ok();
+
+                let mut loaded_from_cache = false;
+                if let Some((Some(tv_json), def_opt)) = cached {
+                    if let Ok(parsed) = serde_json::from_str::<Vec<String>>(&tv_json) {
+                        if !parsed.is_empty() {
+                            values = parsed;
+                            default_val = def_opt.unwrap_or_else(|| "off".to_string());
+                            loaded_from_cache = true;
                         }
                     }
-                } else {
-                    let m_low = b.model.to_lowercase();
-                    let url_low = b.base_url.to_lowercase();
-                    if url_low.contains("deepseek") || m_low.contains("deepseek") {
-                        values = vec!["off".into(), "low".into(), "medium".into(), "high".into()];
-                        default_val = if m_low.contains("reasoner") { "medium" } else { "off" }.into();
-                    } else if m_low.starts_with("o1") || m_low.starts_with("o3") || m_low.contains("thinking") {
-                        values = vec!["low".into(), "medium".into(), "high".into()];
-                        default_val = "medium".into();
+                }
+
+                if !loaded_from_cache {
+                    let (probed_vals, probed_def, ctx_chars) = probe_model_capabilities(&b.provider_type, &b.base_url, &b.model);
+                    values = probed_vals;
+                    default_val = probed_def;
+                    if let Ok(tv_json) = serde_json::to_string(&values) {
+                        let _ = conn.execute(
+                            "UPDATE model_providers SET thinking_values = ?, default_thinking = ?, context_chars = ? WHERE id = ?",
+                            rusqlite::params![tv_json, default_val, ctx_chars as i64, b.id],
+                        );
                     }
                 }
             }
@@ -2298,4 +2302,70 @@ fn serve_static_asset(req: tiny_http::Request, path: &str) {
     }
 
     req.respond(Response::empty(404)).ok();
+}
+
+fn ensure_model_metadata_columns(conn: &rusqlite::Connection) {
+    let _ = conn.execute("ALTER TABLE model_providers ADD COLUMN thinking_values TEXT", []);
+    let _ = conn.execute("ALTER TABLE model_providers ADD COLUMN default_thinking TEXT", []);
+    let _ = conn.execute("ALTER TABLE model_providers ADD COLUMN context_chars INTEGER", []);
+}
+
+fn probe_model_capabilities(provider_type: &str, base_url: &str, model: &str) -> (Vec<String>, String, usize) {
+    let mut values = vec!["off".to_string()];
+    let mut default_val = "off".to_string();
+    let mut context_chars = if base_url.contains("deepseek") {
+        160_000usize
+    } else if base_url.contains("127.0.0.1") || base_url.contains("localhost") {
+        24_000usize
+    } else {
+        60_000usize
+    };
+
+    if provider_type == "ollama" {
+        let show_url = format!("{}/api/show", base_url.trim_end_matches('/'));
+        let client = reqwest::blocking::Client::builder()
+            .timeout(std::time::Duration::from_secs(6))
+            .build()
+            .unwrap_or_else(|_| reqwest::blocking::Client::new());
+        if let Ok(resp) = client.post(&show_url).json(&serde_json::json!({ "model": model })).send() {
+            if let Ok(data) = resp.json::<serde_json::Value>() {
+                if let Some(params) = data["parameters"].as_str() {
+                    for line in params.lines() {
+                        if line.trim_start().starts_with("num_ctx") {
+                            if let Some(n) = line.split_whitespace().last().and_then(|s| s.parse::<usize>().ok()) {
+                                context_chars = (n * 3).clamp(16_000, 180_000);
+                            }
+                        }
+                    }
+                }
+                if let Some(arr) = data["thinking"]["values"].as_array() {
+                    for v in arr {
+                        if let Some(s) = v.as_str() {
+                            if !values.contains(&s.to_string()) {
+                                values.push(s.to_string());
+                            }
+                        }
+                    }
+                    default_val = data["thinking"]["default"].as_str().unwrap_or("medium").to_string();
+                } else if data.get("thinking").is_some()
+                    || data["capabilities"].as_array().map(|c| c.iter().any(|x| x.as_str() == Some("thinking"))).unwrap_or(false)
+                {
+                    values.push("on".to_string());
+                    default_val = "on".to_string();
+                }
+            }
+        }
+    } else {
+        let m_low = model.to_lowercase();
+        let url_low = base_url.to_lowercase();
+        if url_low.contains("deepseek") || m_low.contains("deepseek") {
+            values = vec!["off".into(), "low".into(), "medium".into(), "high".into()];
+            default_val = if m_low.contains("reasoner") { "medium" } else { "off" }.into();
+        } else if m_low.starts_with("o1") || m_low.starts_with("o3") || m_low.contains("thinking") {
+            values = vec!["low".into(), "medium".into(), "high".into()];
+            default_val = "medium".into();
+        }
+    }
+
+    (values, default_val, context_chars)
 }

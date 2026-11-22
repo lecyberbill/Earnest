@@ -33,10 +33,12 @@
     - `git` : Contrôle de source Git intégré (status, diff, commit).
     - `diagnostics` : Analyse statique et linter en temps réel (`cargo check`).
     - `memories` : Mémoire de projet RAG et injection automatique dans le prompt ReAct.
-- `earnest-ide/ui/` : Interface IDE professionnelle Zéro-Build
+  - `src/lsp/client.rs` : Client **LSP générique JSON-RPC 2.0** (stdio `Content-Length`) avec catalogue intégré de 12 langages (`rust`, `python`, `typescript`, `javascript`, `go`, `c`, `cpp`, `toml`, `yaml`, `json`, `html`, `css`), détection dans le `PATH` et installation en un clic (`/api/ide/lsp/catalog`, `/api/ide/lsp/status`, `/api/ide/lsp/install`).
+- `earnest-ide/ui/` : Interface IDE professionnelle Zéro-Build (ES Modules natifs)
   - **Monaco Editor** : Bibliothèque Monaco complète officielle AMD intégrée en statique avec prise en charge Web Worker par Blob URL.
   - **Monaco Diff Editor** : Comparateur de code côte à côte.
-  - **Panneaux & Vues** : Explorateur dynamique avec dossiers extensibles/repliables, recherche globale (`Ctrl+Shift+F`), palette de commandes (`Ctrl+P`), édition IA inline (`Ctrl+K`), panneau de préférences et gestionnaire de modèles CRUD.
+  - **Modules JS** : `js/app.js` (orchestrateur), `js/components/kb-view.js` (BCPE), `js/features/monaco-lsp.js` (providers LSP Monaco), `js/features/lsp-settings.js` (catalogue LSP & bannière auto-install), `js/features/file-watcher.js`.
+  - **Panneaux & Vues** : Explorateur dynamique avec dossiers extensibles/repliables, recherche globale (`Ctrl+Shift+F`), palette de commandes (`Ctrl+P`), édition IA inline (`Ctrl+K`), panneau de préférences, catalogue LSP et gestionnaire de modèles CRUD.
 - `earnest-ide/src-tauri/` : Wrapper application de bureau native ultra-légère (Rust + Webview2).
 
 ### C. Référentiel & Invariants

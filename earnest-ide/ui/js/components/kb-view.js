@@ -52,8 +52,8 @@ export class KbView {
                         <button id="kb-btn-refresh" class="icon-btn" style="border: 1px solid var(--border-subtle); padding: 5px 10px; font-size: 0.75rem; border-radius: 4px; gap: 4px;" title="${t('kb.btn_refresh_title')}">
                             <span>🔄</span> ${t('kb.btn_refresh')}
                         </button>
-                        <button id="kb-btn-new-product" class="icon-btn" style="border: 1px solid var(--accent-cyan); color: var(--accent-cyan); padding: 5px 10px; font-size: 0.75rem; border-radius: 4px; gap: 4px;" title="Créer un produit dans la base de connaissances">
-                            <span>📦</span> + Produit
+                        <button id="kb-btn-new-product" class="icon-btn" style="border: 1px solid var(--accent-cyan); color: var(--accent-cyan); padding: 5px 10px; font-size: 0.75rem; border-radius: 4px; gap: 4px;" title="${t('kb.btn_new_product_title')}">
+                            <span>📦</span> ${t('kb.btn_new_product')}
                         </button>
                         <button id="kb-btn-new-rule" class="btn-primary" style="padding: 6px 14px; font-size: 0.78rem; font-weight: 700; display: flex; align-items: center; gap: 0.4rem; border-radius: 4px;">
                             <span>➕</span> ${t('kb.btn_new_rule')}
@@ -81,7 +81,7 @@ export class KbView {
                         <button class="kb-pill-status ${this.currentFilterStatus === 'valide' ? 'active' : ''}" data-status="valide">${t('kb.filter_validated')}</button>
                         <button class="kb-pill-status ${this.currentFilterStatus === 'non_teste' ? 'active' : ''}" data-status="non_teste">${t('kb.filter_discovered')}</button>
                         <select id="kb-filter-product" style="background: var(--surface-lowest); border: 1px solid var(--border-subtle); color: var(--text-primary); padding: 4px 8px; border-radius: 12px; font-size: 0.72rem; font-family: var(--font-mono); margin-left: 4px;">
-                            <option value="">Tous produits</option>
+                            <option value="">${t('kb.filter_all_products')}</option>
                         </select>
                     </div>
                 </div>
@@ -160,24 +160,24 @@ export class KbView {
                 <div id="kb-modal-product" style="display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.8); z-index: 10000; align-items: center; justify-content: center; backdrop-filter: blur(4px);">
                     <div style="background: var(--surface-container); border: 1px solid var(--accent-cyan); width: 420px; max-width: 90vw; border-radius: 8px; padding: 1.35rem; display: flex; flex-direction: column; gap: 0.9rem; font-family: var(--font-mono); box-shadow: var(--shadow-soft), var(--shadow-glow-cyan);">
                         <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid var(--border-subtle); padding-bottom: 0.5rem;">
-                            <span style="font-weight: 800; color: var(--accent-cyan); font-size: 0.9rem;">📦 Nouveau Produit (BCPE)</span>
+                            <span style="font-weight: 800; color: var(--accent-cyan); font-size: 0.9rem;">${t('kb.prod_modal_title')}</span>
                             <button id="kb-prod-close" style="background: transparent; border: none; color: var(--text-primary); cursor: pointer; font-size: 1.1rem;">✕</button>
                         </div>
                         <div>
-                            <label style="display: block; font-size: 0.72rem; color: var(--text-muted); margin-bottom: 3px;">Identifiant (product_id)</label>
-                            <input type="text" id="kb-prod-id" placeholder="ex: powershell, rust, docker" style="width: 100%; box-sizing: border-box; background: var(--surface-lowest); border: 1px solid var(--border-subtle); color: var(--text-primary); padding: 6px; border-radius: 4px; font-size: 0.8rem;" />
+                            <label style="display: block; font-size: 0.72rem; color: var(--text-muted); margin-bottom: 3px;">${t('kb.prod_field_id')}</label>
+                            <input type="text" id="kb-prod-id" placeholder="${t('kb.prod_ph_id')}" style="width: 100%; box-sizing: border-box; background: var(--surface-lowest); border: 1px solid var(--border-subtle); color: var(--text-primary); padding: 6px; border-radius: 4px; font-size: 0.8rem;" />
                         </div>
                         <div>
-                            <label style="display: block; font-size: 0.72rem; color: var(--text-muted); margin-bottom: 3px;">Nom affiché</label>
-                            <input type="text" id="kb-prod-name" placeholder="ex: Windows PowerShell 5.1" style="width: 100%; box-sizing: border-box; background: var(--surface-lowest); border: 1px solid var(--border-subtle); color: var(--text-primary); padding: 6px; border-radius: 4px; font-size: 0.8rem;" />
+                            <label style="display: block; font-size: 0.72rem; color: var(--text-muted); margin-bottom: 3px;">${t('kb.prod_field_name')}</label>
+                            <input type="text" id="kb-prod-name" placeholder="${t('kb.prod_ph_name')}" style="width: 100%; box-sizing: border-box; background: var(--surface-lowest); border: 1px solid var(--border-subtle); color: var(--text-primary); padding: 6px; border-radius: 4px; font-size: 0.8rem;" />
                         </div>
                         <div>
-                            <label style="display: block; font-size: 0.72rem; color: var(--text-muted); margin-bottom: 3px;">Version courante</label>
+                            <label style="display: block; font-size: 0.72rem; color: var(--text-muted); margin-bottom: 3px;">${t('kb.prod_field_version')}</label>
                             <input type="text" id="kb-prod-version" value="1.0.0" placeholder="ex: 5.1" style="width: 100%; box-sizing: border-box; background: var(--surface-lowest); border: 1px solid var(--border-subtle); color: var(--text-primary); padding: 6px; border-radius: 4px; font-size: 0.8rem;" />
                         </div>
                         <div style="display: flex; justify-content: flex-end; gap: 0.6rem; margin-top: 0.25rem;">
                             <button id="kb-prod-cancel" style="background: transparent; border: 1px solid var(--border-subtle); color: var(--text-primary); padding: 6px 14px; border-radius: 4px; cursor: pointer; font-size: 0.78rem;">${t('btn.cancel')}</button>
-                            <button id="kb-prod-submit" class="btn-primary" style="padding: 6px 16px; font-size: 0.78rem; font-weight: 700;">Créer le produit</button>
+                            <button id="kb-prod-submit" class="btn-primary" style="padding: 6px 16px; font-size: 0.78rem; font-weight: 700;">${t('kb.prod_btn_create')}</button>
                         </div>
                     </div>
                 </div>
@@ -311,7 +311,7 @@ export class KbView {
                 const name = this.container.querySelector('#kb-prod-name').value.trim();
                 const current_version = this.container.querySelector('#kb-prod-version').value.trim();
                 if (!product_id) {
-                    alert("L'identifiant du produit est obligatoire.");
+                    alert(window.t ? window.t('kb.prod_err_required') : 'Product identifier is required.');
                     return;
                 }
                 prodSubmit.disabled = true;
@@ -425,7 +425,8 @@ export class KbView {
 
         if (filterSel) {
             const prev = this.currentFilterProduct || '';
-            filterSel.innerHTML = '<option value="">Tous produits</option>';
+            const allLabel = window.t ? window.t('kb.filter_all_products') : 'All products';
+            filterSel.innerHTML = `<option value="">${allLabel}</option>`;
             list.forEach(p => {
                 const opt = document.createElement('option');
                 opt.value = p.product_id;

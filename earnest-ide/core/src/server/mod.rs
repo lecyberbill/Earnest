@@ -935,15 +935,7 @@ fn handle_request(mut req: tiny_http::Request) {
 
         // --- BASE DE CONNAISSANCES D'EXPÉRIENCE (BCPE) : PRODUITS ---
         if path == "/api/ide/kb/products" {
-            let kb_path = [
-                PathBuf::from("earnest-bcpe/kb.db"),
-                PathBuf::from("../earnest-bcpe/kb.db"),
-                PathBuf::from("../../earnest-bcpe/kb.db"),
-                PathBuf::from("kb.db"),
-            ]
-            .into_iter()
-            .find(|p| p.exists())
-            .unwrap_or_else(|| PathBuf::from("earnest-bcpe/kb.db"));
+            let kb_path = resolve_kb_db_path();
 
             let mut products = Vec::new();
             if kb_path.exists() {
@@ -978,21 +970,7 @@ fn handle_request(mut req: tiny_http::Request) {
             let kind_filter = query.get("kind").map(|s| s.as_str()).unwrap_or("");
             let status_filter = query.get("status").map(|s| s.as_str()).unwrap_or("");
 
-            // Chercher la base kb.db (relatif ou dans earnest-bcpe)
-            let kb_candidates = vec![
-                PathBuf::from("earnest-bcpe/kb.db"),
-                PathBuf::from("../earnest-bcpe/kb.db"),
-                PathBuf::from("../../earnest-bcpe/kb.db"),
-                PathBuf::from("kb.db"),
-            ];
-
-            let mut kb_path = PathBuf::from("earnest-bcpe/kb.db");
-            for cand in kb_candidates {
-                if cand.exists() {
-                    kb_path = cand;
-                    break;
-                }
-            }
+            let kb_path = resolve_kb_db_path();
 
             if !kb_path.exists() {
                 let resp = Response::from_string(serde_json::json!({
@@ -2228,19 +2206,7 @@ Garde l'indentation appropriée.";
             let annotator = payload["annotator"].as_str().unwrap_or("developer");
             let correction = payload["correction"].as_str();
 
-            let kb_candidates = vec![
-                PathBuf::from("earnest-bcpe/kb.db"),
-                PathBuf::from("../earnest-bcpe/kb.db"),
-                PathBuf::from("../../earnest-bcpe/kb.db"),
-                PathBuf::from("kb.db"),
-            ];
-            let mut kb_path = PathBuf::from("earnest-bcpe/kb.db");
-            for cand in kb_candidates {
-                if cand.exists() {
-                    kb_path = cand;
-                    break;
-                }
-            }
+            let kb_path = resolve_kb_db_path();
 
             if let Ok(conn) = rusqlite::Connection::open(&kb_path) {
                 let now = chrono::Utc::now().to_rfc3339();
@@ -2304,15 +2270,7 @@ Garde l'indentation appropriée.";
                 return;
             }
 
-            let kb_path = [
-                PathBuf::from("earnest-bcpe/kb.db"),
-                PathBuf::from("../earnest-bcpe/kb.db"),
-                PathBuf::from("../../earnest-bcpe/kb.db"),
-                PathBuf::from("kb.db"),
-            ]
-            .into_iter()
-            .find(|p| p.exists())
-            .unwrap_or_else(|| PathBuf::from("earnest-bcpe/kb.db"));
+            let kb_path = resolve_kb_db_path();
 
             if let Ok(conn) = rusqlite::Connection::open(&kb_path) {
                 match conn.execute(
@@ -2363,19 +2321,7 @@ Garde l'indentation appropriée.";
                 return;
             }
 
-            let kb_candidates = vec![
-                PathBuf::from("earnest-bcpe/kb.db"),
-                PathBuf::from("../earnest-bcpe/kb.db"),
-                PathBuf::from("../../earnest-bcpe/kb.db"),
-                PathBuf::from("kb.db"),
-            ];
-            let mut kb_path = PathBuf::from("earnest-bcpe/kb.db");
-            for cand in kb_candidates {
-                if cand.exists() {
-                    kb_path = cand;
-                    break;
-                }
-            }
+            let kb_path = resolve_kb_db_path();
 
             let subject_key = format!("usr_{}", &uuid::Uuid::new_v4().to_string().replace('-', "")[..10]);
             let now = chrono::Utc::now().to_rfc3339();
@@ -2557,4 +2503,27 @@ fn probe_model_capabilities(provider_type: &str, base_url: &str, model: &str) ->
     }
 
     (values, default_val, context_chars)
+}
+
+fn resolve_kb_db_path() -> PathBuf {
+    let mut candidates = vec![
+        PathBuf::from("earnest-bcpe/kb.db"),
+        PathBuf::from("../earnest-bcpe/kb.db"),
+        PathBuf::from("../../earnest-bcpe/kb.db"),
+        PathBuf::from("kb.db"),
+    ];
+    if let Ok(exe) = std::env::current_exe() {
+        if let Some(dir) = exe.parent() {
+            candidates.push(dir.join("earnest-bcpe/kb.db"));
+            candidates.push(dir.join("../../../earnest-bcpe/kb.db"));
+            candidates.push(dir.join("../../../../earnest-bcpe/kb.db"));
+        }
+    }
+    if let Some(home) = std::env::var_os("USERPROFILE").or_else(|| std::env::var_os("HOME")) {
+        candidates.push(PathBuf::from(home).join(".local/share/earnest-bcpe/kb.db"));
+    }
+    candidates
+        .into_iter()
+        .find(|p| p.exists())
+        .unwrap_or_else(|| PathBuf::from("earnest-bcpe/kb.db"))
 }

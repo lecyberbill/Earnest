@@ -2731,7 +2731,7 @@ document.addEventListener('DOMContentLoaded', () => {
             agentHistoryPane.innerHTML = '';
 
             if (!runs || runs.length === 0) {
-                agentHistoryPane.innerHTML = '<div style="color:var(--text-muted); padding:0.25rem;">Aucune session précédente enregistrée</div>';
+                agentHistoryPane.innerHTML = `<div style="color:var(--text-muted); padding:0.25rem;">${t('history.empty')}</div>`;
                 return;
             }
 

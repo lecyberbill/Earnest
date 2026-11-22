@@ -1113,6 +1113,45 @@ fn handle_request(mut req: tiny_http::Request) {
             return;
         }
 
+        if path == "/api/runs/resume" {
+            let run_id = body["run_id"].as_str().unwrap_or("").trim();
+            if run_id.is_empty() {
+                let resp = Response::from_string(serde_json::json!({"status": "error", "error": "run_id manquant"}).to_string())
+                    .with_status_code(400)
+                    .with_header(json_header)
+                    .with_header(cors_header);
+                req.respond(resp).ok();
+                return;
+            }
+            let project_id = body["project_id"].as_str().unwrap_or("default_workspace");
+            let think_effort = body["think_effort"].as_str().unwrap_or("off");
+            let conn = get_connection(None).unwrap();
+            let router = LLMRouter::from_db(&conn);
+            let mut engine = ReActEngine::new(&conn, &router, project_id);
+            engine.think_effort = think_effort.to_string();
+
+            match engine.resume_with_callback(run_id, |_, _, _, _, _, _| {}) {
+                Ok(res) => {
+                    let json = serde_json::json!({
+                        "status": "success",
+                        "run_id": res.run_id,
+                        "answer": res.answer,
+                        "steps_count": res.steps_count,
+                        "total_tokens": res.total_tokens,
+                        "duration_ms": res.duration_ms
+                    });
+                    let resp = Response::from_string(json.to_string()).with_header(json_header).with_header(cors_header);
+                    req.respond(resp).ok();
+                }
+                Err(e) => {
+                    let json = serde_json::json!({"status": "error", "error": e});
+                    let resp = Response::from_string(json.to_string()).with_status_code(500).with_header(json_header).with_header(cors_header);
+                    req.respond(resp).ok();
+                }
+            }
+            return;
+        }
+
         if path == "/api/pipeline/run" {
             let proj_id = body["project_id"].as_str().unwrap_or("default_workspace");
             let max_steps = body["max_steps"].as_u64().unwrap_or(20) as usize;

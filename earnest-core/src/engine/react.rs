@@ -306,7 +306,7 @@ Quand ta mission est entièrement accomplie et vérifiée sur disque, fournis di
         let mut step_order = 1;
         let mut total_tokens = 0;
         let mut final_answer = String::new();
-        let mut active_backend_name: String;
+        let mut active_backend_name = String::new();
         static GLOBAL_TOOL_CACHE: OnceLock<Mutex<tool_output_cache::ToolCache>> = OnceLock::new();
         let cache_mutex = GLOBAL_TOOL_CACHE.get_or_init(|| Mutex::new(tool_output_cache::ToolCache::new(128)));
         let mut llm_budget = retry_budget::RetryBudget::new(10, 5);
@@ -322,6 +322,7 @@ Quand ta mission est entièrement accomplie et vérifiée sur disque, fournis di
             loop_detector::Config::new(24, 3, 5, 2).unwrap_or_default(),
         );
         let mut step_idx = 0usize;
+        let mut tool_history: Vec<(String, String)> = Vec::new();
         crate::llm::client::reset_cancel();
         loop {
             if crate::llm::client::is_cancelled() {
@@ -406,6 +407,7 @@ Quand ta mission est entièrement accomplie et vérifiée sur disque, fournis di
             for call in chat_res.tool_calls {
                 let fn_name = &call.name;
                 let fn_args = &call.arguments;
+                tool_history.push((fn_name.clone(), fn_args.to_string()));
 
                 self.record_trace(&run_id, step_order, "tool_call", Some(fn_name), &fn_args.to_string());
                 on_trace(&run_id, step_order, "tool_call", Some(fn_name), &fn_args.to_string(), &active_backend_name);
@@ -495,6 +497,23 @@ Quand ta mission est entièrement accomplie et vérifiée sur disque, fournis di
         let duration_ms = start.elapsed().as_millis();
         if !crate::llm::client::is_cancelled() {
             self.clear_checkpoint(&run_id);
+            if let Some(sug) = react_resilience::suggest_wfl_from_tool_trace(&run_id, &tool_history) {
+                let dir = std::path::Path::new(".wf").join("suggestions");
+                if std::fs::create_dir_all(&dir).is_ok() {
+                    let path = dir.join(format!("{}.wf.yaml", run_id));
+                    if std::fs::write(&path, &sug.yaml).is_ok() {
+                        let note = format!(
+                            "💡 Brouillon WFL proposé ({} x{}) → {}",
+                            sug.pattern_summary,
+                            sug.repetitions,
+                            path.display()
+                        );
+                        push_live_log("INFO", &note);
+                        self.record_trace(&run_id, step_order, "wfl_suggestion", None, &note);
+                        on_trace(&run_id, step_order, "wfl_suggestion", None, &note, &active_backend_name);
+                    }
+                }
+            }
         }
 
         self.conn.execute(
@@ -699,189 +718,66 @@ Quand ta mission est entièrement accomplie et vérifiée sur disque, fournis di
     }
 }
 
-/// Filtre les outils MCP selon l'intention du prompt lorsque le catalogue dépasse 8 outils,
-/// afin d'éviter de saturer la fenêtre de contexte des petits modèles locaux.
+/// Filtre les outils MCP selon l'intention du prompt via `react_resilience`.
 fn filter_mcp_tools_for_prompt(
     prompt: &str,
     tools: &[crate::mcp::client::McpToolInfo],
 ) -> Vec<crate::mcp::client::McpToolInfo> {
-    if tools.len() <= 8 {
-        return tools.to_vec();
+    match react_resilience::decide_mcp_servers_for_prompt(prompt, tools.len()) {
+        react_resilience::McpFilterDecision::All => tools.to_vec(),
+        react_resilience::McpFilterDecision::None => Vec::new(),
+        react_resilience::McpFilterDecision::AllowServers(servers) => tools
+            .iter()
+            .filter(|t| servers.iter().any(|s| *s == t.server_name))
+            .cloned()
+            .collect(),
     }
-    let lower = prompt.to_lowercase();
-    let broad = lower.contains("auto-éval")
-        || lower.contains("auto éval")
-        || lower.contains("selftest")
-        || lower.contains("mcp")
-        || lower.contains("capacit");
-    if broad {
-        return tools.to_vec();
-    }
-    let want_wfl = lower.contains("wfl")
-        || lower.contains("workflow")
-        || lower.contains("yaml")
-        || lower.contains("dry_run")
-        || lower.contains("seal");
-    let want_bcpe = lower.contains("bcpe")
-        || lower.contains("kb")
-        || lower.contains("connaissance")
-        || lower.contains("knowledge")
-        || lower.contains("incident")
-        || lower.contains("produit");
+}
 
-    if !want_wfl && !want_bcpe {
-        return Vec::new();
-    }
-    tools
+fn to_resilience_msgs(messages: &[ChatMessage]) -> Vec<react_resilience::CompactionMessage> {
+    messages
         .iter()
-        .filter(|t| {
-            (want_wfl && t.server_name == "wfl") || (want_bcpe && t.server_name == "bcpe")
+        .map(|m| react_resilience::CompactionMessage {
+            role: m.role.clone(),
+            content: m.content.clone(),
+            has_images: m.images.is_some(),
         })
-        .cloned()
         .collect()
 }
 
-/// Compacte l'historique `messages` s'il dépasse `soft_limit` caractères, en
-/// conservant le prompt système, la requête initiale, un résumé roulant structuré
-/// (Rolling Working Memory) des messages évincés, et les derniers échanges.
-fn compact_messages(messages: &mut Vec<ChatMessage>, soft_limit: usize) {
-    let total_chars: usize = messages.iter().map(|m| m.content.len()).sum();
-    if total_chars <= soft_limit || messages.len() <= 18 {
+fn apply_resilience_msgs(messages: &mut Vec<ChatMessage>, compacted: Vec<react_resilience::CompactionMessage>) {
+    if compacted.len() == messages.len()
+        && compacted.iter().zip(messages.iter()).all(|(a, b)| a.role == b.role && a.content == b.content)
+    {
         return;
     }
-    let keep_head = 2usize.min(messages.len());
-    let keep_tail = 16usize;
-    if messages.len() <= keep_head + keep_tail {
-        return;
-    }
-    let drop_end = messages.len() - keep_tail;
-    let dropped_slice = &messages[keep_head..drop_end];
-
-    let mut summary_lines: Vec<String> = Vec::new();
-    for msg in dropped_slice {
-        if msg.content.starts_with("[ROLLING WORKING MEMORY") {
-            for line in msg.content.lines().skip(1) {
-                if !line.trim().is_empty() {
-                    summary_lines.push(line.to_string());
-                }
-            }
-            continue;
-        }
-        let first_line = msg
-            .content
-            .lines()
-            .find(|l| !l.trim().is_empty())
-            .unwrap_or("")
-            .trim();
-        if first_line.is_empty() {
-            continue;
-        }
-        let snippet: String = first_line.chars().take(150).collect();
-        summary_lines.push(format!("- [{}] {}", msg.role, snippet));
-    }
-    if summary_lines.len() > 24 {
-        let start_idx = summary_lines.len() - 24;
-        summary_lines = summary_lines[start_idx..].to_vec();
-    }
-
-    let mut compacted = Vec::with_capacity(keep_head + keep_tail + 1);
-    compacted.extend_from_slice(&messages[..keep_head]);
-    compacted.push(ChatMessage {
-        role: "user".to_string(),
-        content: format!(
-            "[ROLLING WORKING MEMORY — {} anciens messages résumés, ne pas refaire les étapes déjà acquises]\n{}",
-            dropped_slice.len(),
-            summary_lines.join("\n")
-        ),
-        images: None,
-    });
-    compacted.extend_from_slice(&messages[drop_end..]);
-    *messages = compacted;
-}
-
-/// Filet de sécurité par budget de tokens (`token-compactor`) si `messages` dépasse encore `max_chars`.
-fn compact_messages_by_tokens(messages: &mut Vec<ChatMessage>, max_chars: usize) {
-    if messages.iter().any(|m| m.images.is_some()) {
-        return;
-    }
-    let token_budget = (max_chars / token_compactor::TokenEstimator::CHARS_PER_TOKEN)
-        .max(token_compactor::Compactor::MIN_BUDGET);
-    let tc_msgs: Vec<token_compactor::Message> = messages
-        .iter()
-        .map(|m| {
-            let role = match m.role.as_str() {
-                "system" => token_compactor::Role::System,
-                "assistant" => token_compactor::Role::Assistant,
-                "tool" => token_compactor::Role::Tool,
-                _ => token_compactor::Role::User,
-            };
-            token_compactor::Message::new(role, m.content.clone())
+    *messages = compacted
+        .into_iter()
+        .map(|m| ChatMessage {
+            role: m.role,
+            content: m.content,
+            images: None,
         })
         .collect();
-    if token_compactor::TokenEstimator::estimate_messages(&tc_msgs) <= token_budget {
-        return;
-    }
-    if let Ok(res) = token_compactor::Compactor::new(12).compact(tc_msgs, token_budget) {
-        *messages = res
-            .messages
-            .into_iter()
-            .map(|m| {
-                let role = match m.role {
-                    token_compactor::Role::System => "system",
-                    token_compactor::Role::Assistant => "assistant",
-                    token_compactor::Role::Tool => "tool",
-                    token_compactor::Role::User => "user",
-                };
-                ChatMessage {
-                    role: role.to_string(),
-                    content: m.content,
-                    images: None,
-                }
-            })
-            .collect();
-    }
 }
 
-/// Détecte si une réponse texte sans `tool_calls` ressemble à une annonce
-/// intermédiaire (ex: "Je vais exécuter...") plutôt qu'à une conclusion finale.
+/// Compacte l'historique `messages` avec Rolling Working Memory via `react_resilience`.
+fn compact_messages(messages: &mut Vec<ChatMessage>, soft_limit: usize) {
+    let mut tmp = to_resilience_msgs(messages);
+    react_resilience::compact_with_rolling_memory(&mut tmp, soft_limit);
+    apply_resilience_msgs(messages, tmp);
+}
+
+/// Filet de sécurité par budget de tokens (`react_resilience` + `token-compactor`).
+fn compact_messages_by_tokens(messages: &mut Vec<ChatMessage>, max_chars: usize) {
+    let mut tmp = to_resilience_msgs(messages);
+    react_resilience::compact_by_tokens(&mut tmp, max_chars);
+    apply_resilience_msgs(messages, tmp);
+}
+
+/// Détecte si une réponse texte sans `tool_calls` ressemble à une annonce intermédiaire.
 fn looks_like_unfinished_thought(content: &str) -> bool {
-    let trimmed = content.trim();
-    if trimmed.is_empty() {
-        return true;
-    }
-    if trimmed.len() >= 500 {
-        return false;
-    }
-    let lower = trimmed.to_lowercase();
-    if trimmed.ends_with(':') {
-        return true;
-    }
-    [
-        "je vais ",
-        "je relance ",
-        "je scelle ",
-        "je continue ",
-        "je passe ",
-        "je teste ",
-        "je crée ",
-        "je sauvegarde ",
-        "je valide ",
-        "je tente ",
-        "je procède ",
-        "je commence ",
-        "je lance ",
-        "je vérifie",
-        "j'exécute ",
-        "utilisons ",
-        "exécutons ",
-        "let me ",
-        "i will ",
-        "i'll ",
-        "next, i ",
-        "séparateur powershell",
-    ]
-    .iter()
-    .any(|pat| lower.contains(pat))
+    react_resilience::looks_like_unfinished_thought(content)
 }
 
 /// Capture dynamiquement l'environnement système réel (OS, version, architecture,

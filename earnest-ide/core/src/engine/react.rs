@@ -1939,79 +1939,29 @@ fn normalize_cache_args_key(workspace_root: &Path, args: &Value) -> String {
     cloned.to_string()
 }
 
-/// Compresse les anciens `tool_output` (> 6 derniers messages) pour garder le KV-cache léger,
-/// et compresse davantage si le contexte total dépasse `max_chars`.
+/// Compacte l'historique via la brique partagée `react_resilience` (Rolling Working Memory + budget de tokens).
 fn compact_messages_if_needed(messages: &mut Vec<ChatMessage>, max_chars: usize) {
-    let total_chars: usize = messages.iter().map(|m| m.content.len()).sum();
-    let soft_limit = (max_chars / 2).max(60_000);
-    let keep_tail = 24;
-    if total_chars > soft_limit && messages.len() > keep_tail + 2 {
-        let split_idx = messages.len().saturating_sub(keep_tail);
-        for msg in messages.iter_mut().take(split_idx).skip(2) {
-            if msg.role == "user" && msg.content.starts_with("Résultat de l'outil ") && msg.content.len() > 800 {
-                let preview: String = msg.content.chars().take(450).collect();
-                msg.content = format!(
-                    "{}\n... [Sortie outil archivée : {} caractères]",
-                    preview,
-                    msg.content.len()
-                );
-            }
-        }
-    }
-
-    let total_chars: usize = messages.iter().map(|m| m.content.len()).sum();
-    if total_chars <= max_chars || messages.len() <= 8 {
+    let mut tmp: Vec<react_resilience::CompactionMessage> = messages
+        .iter()
+        .map(|m| react_resilience::CompactionMessage {
+            role: m.role.clone(),
+            content: m.content.clone(),
+            has_images: m.images.is_some(),
+        })
+        .collect();
+    react_resilience::compact_with_rolling_memory(&mut tmp, max_chars);
+    react_resilience::compact_by_tokens(&mut tmp, max_chars);
+    if tmp.len() == messages.len()
+        && tmp.iter().zip(messages.iter()).all(|(a, b)| a.role == b.role && a.content == b.content)
+    {
         return;
     }
-    let keep_tail = 10;
-    let split_idx = messages.len().saturating_sub(keep_tail);
-    for msg in messages.iter_mut().take(split_idx).skip(2) {
-        if msg.content.len() > 600 {
-            let preview: String = msg.content.chars().take(450).collect();
-            msg.content = format!(
-                "{}\n... [Contexte compressé : {} caractères omis]",
-                preview,
-                msg.content.len().saturating_sub(450)
-            );
-        }
-    }
-
-    // Filet de sécurité strict par budget de tokens (`token-compactor`)
-    if !messages.iter().any(|m| m.images.is_some()) {
-        let token_budget = (max_chars / token_compactor::TokenEstimator::CHARS_PER_TOKEN)
-            .max(token_compactor::Compactor::MIN_BUDGET);
-        let tc_msgs: Vec<token_compactor::Message> = messages
-            .iter()
-            .map(|m| {
-                let role = match m.role.as_str() {
-                    "system" => token_compactor::Role::System,
-                    "assistant" => token_compactor::Role::Assistant,
-                    "tool" => token_compactor::Role::Tool,
-                    _ => token_compactor::Role::User,
-                };
-                token_compactor::Message::new(role, m.content.clone())
-            })
-            .collect();
-        if token_compactor::TokenEstimator::estimate_messages(&tc_msgs) > token_budget {
-            if let Ok(res) = token_compactor::Compactor::new(10).compact(tc_msgs, token_budget) {
-                *messages = res
-                    .messages
-                    .into_iter()
-                    .map(|m| {
-                        let role = match m.role {
-                            token_compactor::Role::System => "system",
-                            token_compactor::Role::Assistant => "assistant",
-                            token_compactor::Role::Tool => "tool",
-                            token_compactor::Role::User => "user",
-                        };
-                        ChatMessage {
-                            role: role.to_string(),
-                            content: m.content,
-                            images: None,
-                        }
-                    })
-                    .collect();
-            }
-        }
-    }
+    *messages = tmp
+        .into_iter()
+        .map(|m| ChatMessage {
+            role: m.role,
+            content: m.content,
+            images: None,
+        })
+        .collect();
 }

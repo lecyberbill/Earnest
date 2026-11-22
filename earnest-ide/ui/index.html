@@ -1167,6 +1167,29 @@
                                     enregistrées ✓</span>
                             </div>
                         </div>
+
+                        <div
+                            style="background: var(--surface-dim); padding: 0.75rem; border-radius: 6px; border: 1px solid var(--border-subtle); margin-top: 0.75rem;">
+                            <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 0.5rem;">
+                                <h4 style="margin: 0; font-size: 0.75rem; color: var(--text-main);">LSP &amp; LANGUAGE SERVERS</h4>
+                                <button id="btn-refresh-lsp-catalog" class="icon-btn" title="Rafraîchir le statut des serveurs LSP"
+                                    style="font-size: 0.7rem; padding: 2px 6px; border: 1px solid var(--border-subtle); border-radius: 4px;">↻</button>
+                            </div>
+                            <div style="display: flex; flex-direction: column; gap: 0.4rem; font-size: 0.72rem; margin-bottom: 0.6rem;">
+                                <label style="display: flex; align-items: center; gap: 6px; color: var(--text-secondary); cursor: pointer;">
+                                    <input type="checkbox" id="pref-lsp-enabled" checked>
+                                    <span>Activer les serveurs LSP externes</span>
+                                </label>
+                                <label style="display: flex; align-items: center; gap: 6px; color: var(--text-secondary); cursor: pointer;">
+                                    <input type="checkbox" id="pref-lsp-auto-prompt" checked>
+                                    <span>Proposer d'installer le LSP à l'ouverture d'un fichier non couvert</span>
+                                </label>
+                            </div>
+                            <div id="lsp-catalog-list"
+                                style="display: flex; flex-direction: column; gap: 0.35rem; font-family: var(--font-mono); font-size: 0.7rem; max-height: 220px; overflow-y: auto;">
+                                <span style="color: var(--text-secondary);">Chargement du catalogue LSP...</span>
+                            </div>
+                        </div>
                     </div>
                 </section>
 
@@ -1524,6 +1547,18 @@
             <button id="btn-gov-reject" class="icon-btn" data-i18n="btn.reject"
                 style="border: 1px solid var(--border-subtle); padding: 4px 12px; font-size: 0.75rem;">Reject</button>
             <button id="btn-gov-approve" class="btn-primary" data-i18n="gov.btn_approve_short" style="padding: 4px 14px; font-size: 0.75rem;">Approve &amp; Seal</button>
+        </div>
+    </div>
+
+    <div id="lsp-install-banner"
+        style="display: none; position: fixed; bottom: 32px; right: 16px; z-index: 950; background: var(--surface-panel, #111827); border: 1px solid var(--accent-blue, #3b82f6); border-radius: 8px; padding: 0.65rem 0.9rem; box-shadow: 0 8px 24px rgba(0,0,0,0.45); max-width: 420px; font-size: 0.75rem; color: var(--text-main); align-items: center; gap: 0.75rem;">
+        <div style="flex: 1; min-width: 0;">
+            <div id="lsp-banner-title" style="font-weight: 600; margin-bottom: 2px;">Serveur LSP manquant</div>
+            <div id="lsp-banner-desc" style="color: var(--text-secondary); font-family: var(--font-mono); font-size: 0.68rem; word-break: break-word;"></div>
+        </div>
+        <div style="display: flex; gap: 0.4rem; flex-shrink: 0;">
+            <button id="btn-lsp-banner-install" class="btn-primary" style="padding: 4px 10px; font-size: 0.7rem;">Installer</button>
+            <button id="btn-lsp-banner-dismiss" class="icon-btn" style="padding: 4px 8px; font-size: 0.7rem; border: 1px solid var(--border-subtle); border-radius: 4px;">Ignorer</button>
         </div>
     </div>
 

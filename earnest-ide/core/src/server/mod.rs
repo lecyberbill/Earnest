@@ -399,6 +399,65 @@ fn handle_request(mut req: tiny_http::Request) {
             return;
         }
 
+        if path == "/api/ide/lsp/catalog" {
+            let conn = get_connection(None).ok();
+            let read_bool = |key: &str, default: bool| -> bool {
+                conn.as_ref()
+                    .and_then(|c| c.query_row("SELECT value FROM app_settings WHERE key = ?", [key], |r| r.get::<_, String>(0)).ok())
+                    .map(|v| v != "false" && v != "0")
+                    .unwrap_or(default)
+            };
+            let out = serde_json::json!({
+                "enabled": read_bool("lsp_enabled", true),
+                "auto_prompt": read_bool("lsp_auto_prompt", true),
+                "servers": crate::lsp::client::LspManager::global().status_list(),
+            });
+            let resp = Response::from_string(out.to_string())
+                .with_header(json_header)
+                .with_header(cors_header);
+            req.respond(resp).ok();
+            return;
+        }
+
+        if path == "/api/ide/lsp/status" {
+            let lang = query.get("lang").map(|s| s.as_str()).unwrap_or("");
+            let conn = get_connection(None).ok();
+            let read_bool = |key: &str, default: bool| -> bool {
+                conn.as_ref()
+                    .and_then(|c| c.query_row("SELECT value FROM app_settings WHERE key = ?", [key], |r| r.get::<_, String>(0)).ok())
+                    .map(|v| v != "false" && v != "0")
+                    .unwrap_or(default)
+            };
+            let enabled = read_bool("lsp_enabled", true);
+            let auto_prompt = read_bool("lsp_auto_prompt", true);
+            let out = if let Some(entry) = crate::lsp::client::catalog_for(lang) {
+                let installed = crate::lsp::client::find_binary_in_path(entry.binary).is_some();
+                serde_json::json!({
+                    "language": lang,
+                    "supported": true,
+                    "installed": installed,
+                    "display_name": entry.display_name,
+                    "binary": entry.binary,
+                    "install_cmd": entry.install_cmd,
+                    "enabled": enabled,
+                    "auto_prompt": auto_prompt,
+                })
+            } else {
+                serde_json::json!({
+                    "language": lang,
+                    "supported": false,
+                    "installed": false,
+                    "enabled": enabled,
+                    "auto_prompt": auto_prompt,
+                })
+            };
+            let resp = Response::from_string(out.to_string())
+                .with_header(json_header)
+                .with_header(cors_header);
+            req.respond(resp).ok();
+            return;
+        }
+
         if path == "/api/ide/checkpoints" {
             let ws_root = std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("."));
             let mut ids = Vec::new();
@@ -1389,6 +1448,36 @@ Garde l'indentation appropriée.";
                 .with_header(json_header)
                 .with_header(cors_header);
             req.respond(resp).ok();
+            return;
+        }
+
+        if path == "/api/ide/lsp/install" {
+            let lang = payload["language"].as_str().unwrap_or("");
+            match crate::lsp::client::LspManager::global().install_language(lang) {
+                Ok(output) => {
+                    let out = serde_json::json!({
+                        "status": "ok",
+                        "language": lang,
+                        "output": output,
+                    });
+                    let resp = Response::from_string(out.to_string())
+                        .with_header(json_header)
+                        .with_header(cors_header);
+                    req.respond(resp).ok();
+                }
+                Err(err) => {
+                    let out = serde_json::json!({
+                        "status": "error",
+                        "language": lang,
+                        "error": err,
+                    });
+                    let resp = Response::from_string(out.to_string())
+                        .with_status_code(500)
+                        .with_header(json_header)
+                        .with_header(cors_header);
+                    req.respond(resp).ok();
+                }
+            }
             return;
         }
 

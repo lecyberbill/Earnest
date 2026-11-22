@@ -1,10 +1,14 @@
 pub mod python;
 pub mod indexer;
 pub mod rust;
+pub mod client;
 
 use serde_json::Value;
 
 pub fn handle_lsp_complete(lang: &str, code: &str, line: u64, column: u64, path: &str, interpreter: Option<String>) -> Result<Value, String> {
+    if let Some(items) = client::LspManager::global().complete(lang, ".", path, code, line, column) {
+        return Ok(serde_json::json!({ "items": items, "source": "lsp" }));
+    }
     if lang == "python" || path.ends_with(".py") {
         let worker = python::PythonLspWorker::new(interpreter);
         let params = serde_json::json!({
@@ -31,6 +35,9 @@ pub fn handle_lsp_complete(lang: &str, code: &str, line: u64, column: u64, path:
 }
 
 pub fn handle_lsp_hover(lang: &str, code: &str, line: u64, column: u64, path: &str, interpreter: Option<String>) -> Result<Value, String> {
+    if let Some(contents) = client::LspManager::global().hover(lang, ".", path, code, line, column) {
+        return Ok(serde_json::json!({ "contents": contents, "source": "lsp" }));
+    }
     if lang == "python" || path.ends_with(".py") {
         let worker = python::PythonLspWorker::new(interpreter);
         let params = serde_json::json!({
@@ -48,6 +55,9 @@ pub fn handle_lsp_hover(lang: &str, code: &str, line: u64, column: u64, path: &s
 }
 
 pub fn handle_lsp_definition(lang: &str, root: &str, path: &str, symbol: &str, code: &str, line: u64, column: u64, interpreter: Option<String>) -> Result<Value, String> {
+    if let Some(defs) = client::LspManager::global().definition(lang, root, path, code, line, column) {
+        return Ok(serde_json::json!({ "definitions": defs, "source": "lsp" }));
+    }
     if lang == "python" || path.ends_with(".py") {
         let worker = python::PythonLspWorker::new(interpreter);
         let params = serde_json::json!({

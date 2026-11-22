@@ -2429,6 +2429,16 @@ document.addEventListener('DOMContentLoaded', () => {
                 }
             }
 
+            if (!state.copilotHistoryByRoot) state.copilotHistoryByRoot = {};
+            const projKey = state.currentRoot || 'earnest_ide_workspace';
+            const prevTurns = state.copilotHistoryByRoot[projKey] || [];
+            if (prevTurns.length > 0) {
+                const recent = prevTurns.slice(-4).map(t => `[${t.role === 'user' ? 'Utilisateur' : 'Copilote'}]: ${t.text.slice(0, 1200)}`).join('\n');
+                enrichedPrompt = `[Contexte récent de la session Copilote sur ${projKey}]\n${recent}\n\n[Nouvelle demande utilisateur]\n${enrichedPrompt}`;
+            }
+            prevTurns.push({ role: 'user', text });
+            state.copilotHistoryByRoot[projKey] = prevTurns.slice(-8);
+
             currentRunAbortController = new AbortController();
             const res = await fetch('/api/ide/run/stream', {
                 method: 'POST',
@@ -2591,6 +2601,10 @@ document.addEventListener('DOMContentLoaded', () => {
                             finalAnswer.className = 'markdown-body';
                             finalAnswer.style.color = 'var(--text-primary)';
                             const ansText = payload.answer || 'Tâche terminée avec succès.';
+                            if (state.copilotHistoryByRoot && state.copilotHistoryByRoot[projKey]) {
+                                state.copilotHistoryByRoot[projKey].push({ role: 'assistant', text: ansText });
+                                state.copilotHistoryByRoot[projKey] = state.copilotHistoryByRoot[projKey].slice(-8);
+                            }
                             finalAnswer.innerHTML = typeof marked !== 'undefined' ? marked.parse(ansText) : escapeHtml(ansText);
                             assistantBubble.appendChild(finalAnswer);
 

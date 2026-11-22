@@ -159,7 +159,7 @@ impl LLMClient {
             "stream": true,
             "think": think_val,
             "options": {
-                "num_predict": 16384,
+                "num_predict": 32768,
                 "num_ctx": num_ctx
             }
         });

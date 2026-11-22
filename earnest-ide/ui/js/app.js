@@ -3218,6 +3218,9 @@ document.addEventListener('DOMContentLoaded', () => {
             const selectedModeInput = document.querySelector('input[name="proj-gov-mode"]:checked');
             const govMode = selectedModeInput ? selectedModeInput.value : 'normal';
 
+            const prevText = btnSubmitNewProject.textContent;
+            btnSubmitNewProject.disabled = true;
+            btnSubmitNewProject.textContent = '...';
             try {
                 const res = await fetch('/api/ide/projects', {
                     method: 'POST',
@@ -3229,9 +3232,12 @@ document.addEventListener('DOMContentLoaded', () => {
                     })
                 });
                 const data = await res.json();
+                if (!res.ok || data.status === 'error') {
+                    throw new Error(data.error || `HTTP ${res.status}`);
+                }
 
                 // Initialiser le mode de gouvernance choisi (.ide/policy.json)
-                await fetch('/api/ide/governance/init_mode', {
+                const govRes = await fetch('/api/ide/governance/init_mode', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({
@@ -3239,16 +3245,24 @@ document.addEventListener('DOMContentLoaded', () => {
                         mode: govMode
                     })
                 });
+                const govData = await govRes.json().catch(() => ({}));
+                if (!govRes.ok || govData.status === 'error') {
+                    throw new Error(govData.error || `Init mode HTTP ${govRes.status}`);
+                }
 
                 projNameInput.value = '';
                 projRootInput.value = '';
                 newProjectForm.style.display = 'none';
 
-                // Basculer directement sur le nouveau projet créé
+                // Rafraîchir la liste des projets et basculer directement sur le nouveau projet créé
+                await loadProjectsList();
                 await switchProject({ id: data.id, name, root_path: root });
                 closeProjectModal();
             } catch (e) {
                 alert(`Erreur création projet: ${e.message}`);
+            } finally {
+                btnSubmitNewProject.disabled = false;
+                btnSubmitNewProject.textContent = prevText;
             }
         });
     }

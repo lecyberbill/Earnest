@@ -1266,12 +1266,30 @@ Garde l'indentation appropriée.";
             let root_path = payload["root_path"].as_str().unwrap_or(".");
             let desc = payload["description"].as_str().unwrap_or("");
 
-            conn.execute(
+            if !root_path.is_empty() && root_path != "." {
+                if let Err(e) = std::fs::create_dir_all(root_path) {
+                    let resp = Response::from_string(serde_json::json!({"status": "error", "error": format!("Impossible de créer le dossier {}: {}", root_path, e)}).to_string())
+                        .with_status_code(500)
+                        .with_header(json_header)
+                        .with_header(cors_header);
+                    req.respond(resp).ok();
+                    return;
+                }
+            }
+
+            if let Err(e) = conn.execute(
                 "INSERT INTO projects (id, name, root_path, description, created_at, updated_at) VALUES (?1, ?2, ?3, ?4, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP) ON CONFLICT(id) DO UPDATE SET name=excluded.name, root_path=excluded.root_path, description=excluded.description, updated_at=CURRENT_TIMESTAMP",
                 rusqlite::params![p_id, name, root_path, desc],
-            ).ok();
+            ) {
+                let resp = Response::from_string(serde_json::json!({"status": "error", "error": format!("Erreur SQLite: {}", e)}).to_string())
+                    .with_status_code(500)
+                    .with_header(json_header)
+                    .with_header(cors_header);
+                req.respond(resp).ok();
+                return;
+            }
 
-            let resp = Response::from_string(serde_json::json!({"status": "saved", "id": p_id}).to_string())
+            let resp = Response::from_string(serde_json::json!({"status": "saved", "id": p_id, "name": name, "root_path": root_path}).to_string())
                 .with_header(json_header)
                 .with_header(cors_header);
             req.respond(resp).ok();

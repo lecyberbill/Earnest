@@ -704,17 +704,25 @@ document.addEventListener('DOMContentLoaded', () => {
         saveSessionState();
     }
 
-    function switchTab(filePath) {
-        // Si la vue KB ou Gouvernance plein écran était active, la masquer
+    function closeCentralOverlays() {
+        let restored = false;
         if (centralKbView && centralKbView.style.display === 'block') {
             centralKbView.style.display = 'none';
-            monacoEditorContainer.style.display = 'block';
             if (btnOpenKbTab) btnOpenKbTab.style.background = 'rgba(244, 63, 94, 0.1)';
+            restored = true;
         }
         if (centralGovView && centralGovView.style.display === 'block') {
             centralGovView.style.display = 'none';
-            monacoEditorContainer.style.display = 'block';
+            restored = true;
         }
+        if (restored && monacoEditorContainer) {
+            monacoEditorContainer.style.display = 'block';
+            if (editorInstance) editorInstance.layout();
+        }
+    }
+
+    function switchTab(filePath) {
+        closeCentralOverlays();
 
         state.activeTabPath = filePath;
         const tab = getActiveTab();
@@ -862,6 +870,7 @@ document.addEventListener('DOMContentLoaded', () => {
         [viewExplorer, viewSearch, viewGit, viewDiagnostics, viewKb, viewSettings].forEach(v => v && v.classList.remove('active'));
 
         if (viewName === 'explorer') {
+            closeCentralOverlays();
             actBtnExplorer.classList.add('active');
             viewExplorer.classList.add('active');
         } else if (viewName === 'search') {
@@ -1000,11 +1009,7 @@ document.addEventListener('DOMContentLoaded', () => {
             const isKbActive = centralKbView && centralKbView.style.display === 'block';
             if (isKbActive) {
                 // Fermer la KB et restaurer Monaco
-                centralKbView.style.display = 'none';
-                if (centralGovView) centralGovView.style.display = 'none';
-                monacoEditorContainer.style.display = 'block';
-                btnOpenKbTab.style.background = 'rgba(244, 63, 94, 0.1)';
-                if (editorInstance) editorInstance.layout();
+                closeCentralOverlays();
             } else {
                 // Afficher la KB en plein panneau central
                 monacoEditorContainer.style.display = 'none';
@@ -1862,6 +1867,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const mViewDiagnostics = document.getElementById('m-view-diagnostics');
 
     if (mViewExplorer) mViewExplorer.addEventListener('click', () => {
+        closeCentralOverlays();
         toggleSidebar(true);
         switchSidebarView('explorer');
         document.querySelectorAll('.menu-dropdown-content').forEach(d => d.classList.remove('show'));

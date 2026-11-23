@@ -5,7 +5,7 @@ use sha2::{Digest, Sha256};
 
 use crate::ast::{ActionSpec, StepSpec, TriggerSpec, WorkflowSpec};
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
 pub struct ValidationError {
     pub code: &'static str,
     pub path: String,
@@ -18,7 +18,7 @@ impl fmt::Display for ValidationError {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
 pub struct ValidationReport {
     pub valid: bool,
     pub sha256: String,

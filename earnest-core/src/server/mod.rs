@@ -218,12 +218,14 @@ fn handle_request(mut req: tiny_http::Request) {
             let resp = match wf_core::WfStore::open(&ws.join(".wf").join("wf.db")) {
                 Ok(store) => match store.get_workflow(name) {
                     Ok(Some(rec)) => {
-                        let spec = wf_core::parse_workflow_yaml(&rec.yaml_source).ok();
+                        let yaml_src = std::fs::read_to_string(&rec.file_path).unwrap_or_default();
+                        let spec = wf_core::parse_workflow_yaml(&yaml_src).ok();
                         let runs = store.list_runs(Some(name), 15).unwrap_or_default();
                         Response::from_string(serde_json::json!({
                             "status": "ok",
                             "workflow": rec,
                             "spec": spec,
+                            "yaml": yaml_src,
                             "runs": runs
                         }).to_string())
                     }

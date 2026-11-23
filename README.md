@@ -34,7 +34,9 @@ When an LLM writes code directly to your working tree:
 **EARNEST changes the paradigm:** An agent should **never** write directly to the working tree. Instead, software evolution must follow a **formal proof cycle** backed by cryptographic invariants and isolated git worktrees.
 
 ---
+<img width="1725" height="1046" alt="image" src="https://github.com/user-attachments/assets/3a7d032b-e9e5-46a7-b35f-87bdfcb0b33d" />
 
+---
 ## 🏛️ Architecture: The EARNEST Triad
 
 EARNEST is composed of three self-reinforcing, modular pillars:

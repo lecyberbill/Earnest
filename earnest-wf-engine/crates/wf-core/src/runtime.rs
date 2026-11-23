@@ -171,6 +171,46 @@ impl<'a> RuntimeCtx<'a> {
         out
     }
 
+    fn render_str_checked(&self, template: &str) -> Result<String, String> {
+        let mut out = String::with_capacity(template.len());
+        let mut rest = template;
+        while !rest.is_empty() {
+            let next_brace = rest.find("{{");
+            let next_dollar = rest.find("${");
+            let (start, open, close) = match (next_brace, next_dollar) {
+                (Some(a), Some(b)) if a <= b => (a, "{{", "}}"),
+                (Some(_), Some(b)) => (b, "${", "}"),
+                (Some(a), None) => (a, "{{", "}}"),
+                (None, Some(b)) => (b, "${", "}"),
+                (None, None) => {
+                    out.push_str(rest);
+                    break;
+                }
+            };
+            out.push_str(&rest[..start]);
+            let after = &rest[start + open.len()..];
+            if let Some(end) = after.find(close) {
+                let expr = after[..end].trim();
+                let resolved = self.resolve_path_expr(expr).ok_or_else(|| {
+                    format!("Variable ou expression introuvable : '{}{}{}'", open, expr, close)
+                })?;
+                let rendered = match resolved {
+                    Value::String(s) => s,
+                    Value::Number(n) => n.to_string(),
+                    Value::Bool(b) => b.to_string(),
+                    Value::Null => String::new(),
+                    other => other.to_string(),
+                };
+                out.push_str(&rendered);
+                rest = &after[end + close.len()..];
+            } else {
+                out.push_str(open);
+                rest = after;
+            }
+        }
+        Ok(out)
+    }
+
     fn eval_condition(&self, cond: &str) -> bool {
         let c = cond.trim();
         if c == "true" {
@@ -186,7 +226,8 @@ impl<'a> RuntimeCtx<'a> {
                 return compare_values(&lv, &rv, op);
             }
         }
-        match self.resolve_path_expr(c) {
+        let expr = unwrap_template_expr(c);
+        match self.resolve_path_expr(expr) {
             Some(Value::Bool(b)) => b,
             Some(Value::Number(n)) => n.as_f64().unwrap_or(0.0) != 0.0,
             Some(Value::String(s)) => !s.is_empty(),
@@ -213,13 +254,14 @@ impl<'a> RuntimeCtx<'a> {
         if let Ok(f) = raw.parse::<f64>() {
             return json!(f);
         }
-        self.resolve_path_expr(raw).unwrap_or(Value::Null)
+        let expr = unwrap_template_expr(raw);
+        self.resolve_path_expr(expr).unwrap_or(Value::Null)
     }
 
     fn local_root(&self, conn_name: &str) -> Result<PathBuf, String> {
         match self.spec.connections.get(conn_name) {
             Some(ConnectionSpec::Local { root }) => {
-                let rendered = self.render_str(root);
+                let rendered = self.render_str_checked(root)?;
                 Ok(PathBuf::from(rendered))
             }
             Some(_) => Err(format!(
@@ -232,7 +274,7 @@ impl<'a> RuntimeCtx<'a> {
 
     fn safe_local_path(&self, conn_name: &str, rel_raw: &str) -> Result<PathBuf, String> {
         let root = self.local_root(conn_name)?;
-        let rendered = self.render_str(rel_raw);
+        let rendered = self.render_str_checked(rel_raw)?;
         let rel = rendered.trim().trim_start_matches(['/', '\\']);
         let p = Path::new(rel);
         if tool_guard::path::has_traversal(p) {
@@ -489,7 +531,10 @@ fn exec_action(ctx: &mut RuntimeCtx<'_>, step: &StepSpec) -> Result<Option<Value
     match &step.action {
         ActionSpec::FlowSet { params } => {
             let val = match &params.value {
-                Value::String(s) => Value::String(ctx.render_str(s)),
+                Value::String(s) => {
+                    let rendered = ctx.render_str(s);
+                    eval_arithmetic(&rendered).unwrap_or(Value::String(rendered))
+                }
                 other => other.clone(),
             };
             ctx.vars.insert(params.var.clone(), val.clone());
@@ -527,13 +572,13 @@ fn exec_action(ctx: &mut RuntimeCtx<'_>, step: &StepSpec) -> Result<Option<Value
             steps,
             ..
         } => {
-            let expr = items
-                .trim()
-                .trim_start_matches("{{")
-                .trim_end_matches("}}")
-                .trim();
+            let expr = unwrap_template_expr(items.trim());
             let list = match ctx.resolve_path_expr(expr) {
                 Some(Value::Array(arr)) => arr,
+                Some(Value::Object(map)) => match map.get("data") {
+                    Some(Value::Array(arr)) => arr.clone(),
+                    _ => return Err(format!("`flow.each` attend un tableau pour '{}'", items)),
+                },
                 _ => return Err(format!("`flow.each` attend un tableau pour '{}'", items)),
             };
             if list.len() > ctx.max_each_items {
@@ -560,27 +605,9 @@ fn exec_action(ctx: &mut RuntimeCtx<'_>, step: &StepSpec) -> Result<Option<Value
         }
         ActionSpec::VfsList { params } => {
             let dir = ctx.safe_local_path(&params.conn, &params.path)?;
+            let glob = params.glob.as_deref().map(str::trim).filter(|g| !g.is_empty());
             let mut entries = Vec::new();
-            let rd = fs::read_dir(&dir).map_err(|e| format!("vfs.list '{}': {}", dir.display(), e))?;
-            for entry in rd.flatten() {
-                let p = entry.path();
-                if p.is_file() {
-                    let name = entry.file_name().to_string_lossy().to_string();
-                    if let Some(glob) = params.glob.as_deref().map(str::trim).filter(|g| !g.is_empty()) {
-                        if let Some(suffix) = glob.strip_prefix('*') {
-                            if !name.ends_with(suffix) {
-                                continue;
-                            }
-                        } else if name != glob {
-                            continue;
-                        }
-                    }
-                    entries.push(json!({
-                        "name": name,
-                        "path": name,
-                    }));
-                }
-            }
+            collect_vfs_list(&dir, &dir, params.recursive, glob, &mut entries)?;
             Ok(Some(json!({ "data": entries })))
         }
         ActionSpec::VfsRead { params } => {
@@ -721,8 +748,28 @@ fn exec_action(ctx: &mut RuntimeCtx<'_>, step: &StepSpec) -> Result<Option<Value
                 use std::os::windows::process::CommandExt;
                 cmd.creation_flags(0x0800_0000);
             }
-            let out = cmd
-                .output()
+            let mut child = cmd
+                .spawn()
+                .map_err(|e| format!("sys.exec '{}': {}", program, e))?;
+            if let Some(ms) = step.timeout_ms {
+                let deadline = std::time::Instant::now() + Duration::from_millis(ms.max(50));
+                loop {
+                    match child.try_wait() {
+                        Ok(Some(_)) => break,
+                        Ok(None) => {
+                            if std::time::Instant::now() >= deadline {
+                                let _ = child.kill();
+                                let _ = child.wait();
+                                return Err(format!("sys.exec '{}' timeout après {}ms", program, ms));
+                            }
+                            std::thread::sleep(Duration::from_millis(20));
+                        }
+                        Err(e) => return Err(format!("sys.exec '{}': {}", program, e)),
+                    }
+                }
+            }
+            let out = child
+                .wait_with_output()
                 .map_err(|e| format!("sys.exec '{}': {}", program, e))?;
             let code = out.status.code().unwrap_or(-1);
             let stdout = ctx.sanitize(&String::from_utf8_lossy(&out.stdout));
@@ -871,4 +918,112 @@ fn exec_sys_http(
         "status": status.as_u16(),
         "body": body_val
     })))
+}
+
+fn unwrap_template_expr(raw: &str) -> &str {
+    let t = raw.trim();
+    t.strip_prefix("{{")
+        .and_then(|s| s.strip_suffix("}}"))
+        .or_else(|| t.strip_prefix("${").and_then(|s| s.strip_suffix('}')))
+        .unwrap_or(t)
+        .trim()
+}
+
+fn eval_arithmetic(raw: &str) -> Option<Value> {
+    let s = raw.trim();
+    for (idx, ch) in s.char_indices() {
+        if idx == 0 || !matches!(ch, '+' | '-' | '*' | '/') {
+            continue;
+        }
+        let lhs = s[..idx].trim();
+        let rhs = s[idx + 1..].trim();
+        if lhs.is_empty() || rhs.is_empty() {
+            continue;
+        }
+        if let (Ok(a), Ok(b)) = (lhs.parse::<i64>(), rhs.parse::<i64>()) {
+            return match ch {
+                '+' => Some(Value::from(a.saturating_add(b))),
+                '-' => Some(Value::from(a.saturating_sub(b))),
+                '*' => Some(Value::from(a.saturating_mul(b))),
+                '/' if b != 0 && a % b == 0 => Some(Value::from(a / b)),
+                '/' if b != 0 => Some(json!((a as f64) / (b as f64))),
+                _ => None,
+            };
+        }
+        if let (Ok(a), Ok(b)) = (lhs.parse::<f64>(), rhs.parse::<f64>()) {
+            let res = match ch {
+                '+' => a + b,
+                '-' => a - b,
+                '*' => a * b,
+                '/' if b != 0.0 => a / b,
+                _ => return None,
+            };
+            return Some(json!(res));
+        }
+    }
+    None
+}
+
+fn glob_match(pattern: &str, text: &str) -> bool {
+    let p: Vec<char> = pattern.chars().collect();
+    let t: Vec<char> = text.chars().collect();
+    let (mut pi, mut ti) = (0usize, 0usize);
+    let (mut star_pi, mut match_ti) = (None, 0usize);
+    while ti < t.len() {
+        if pi < p.len() && (p[pi] == '?' || p[pi] == t[ti]) {
+            pi += 1;
+            ti += 1;
+        } else if pi < p.len() && p[pi] == '*' {
+            star_pi = Some(pi);
+            match_ti = ti;
+            pi += 1;
+        } else if let Some(sp) = star_pi {
+            pi = sp + 1;
+            match_ti += 1;
+            ti = match_ti;
+        } else {
+            return false;
+        }
+    }
+    while pi < p.len() && p[pi] == '*' {
+        pi += 1;
+    }
+    pi == p.len()
+}
+
+fn collect_vfs_list(
+    base: &Path,
+    dir: &Path,
+    recursive: bool,
+    glob: Option<&str>,
+    entries: &mut Vec<Value>,
+) -> Result<(), String> {
+    let rd = fs::read_dir(dir).map_err(|e| format!("vfs.list '{}': {}", dir.display(), e))?;
+    for entry in rd.flatten() {
+        let p = entry.path();
+        if p.is_dir() {
+            if recursive {
+                collect_vfs_list(base, &p, true, glob, entries)?;
+            }
+            continue;
+        }
+        if p.is_file() {
+            let name = entry.file_name().to_string_lossy().to_string();
+            if let Some(pat) = glob {
+                if !glob_match(pat, &name) {
+                    continue;
+                }
+            }
+            let rel = p
+                .strip_prefix(base)
+                .unwrap_or(&p)
+                .to_string_lossy()
+                .replace('\\', "/");
+            entries.push(json!({
+                "name": name,
+                "path": rel,
+            }));
+        }
+    }
+    Ok(())
 }

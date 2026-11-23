@@ -143,6 +143,8 @@ export class WorkflowStudio {
         this.stepStatuses = {}; // step_id -> 'ok' | 'error' | 'skipped'
         this.collapsedCats = new Set();
         this.openOnErrorIds = new Set();
+        this.leftTab = 'tools';
+        this.selectedVarName = null;
         this.render();
     }
 
@@ -412,9 +414,91 @@ export class WorkflowStudio {
         }
     }
 
+    collectAllVarNames() {
+        const varNames = new Set(Object.keys(this.spec.vars || {}));
+        const walk = (arr) => {
+            for (const s of arr || []) {
+                if (s.output) varNames.add(s.output);
+                if (s.action === 'flow.set' && s.params?.var) varNames.add(s.params.var);
+                if (s.action === 'flow.each' && s.as) varNames.add(s.as);
+                walk(s.then);
+                walk(s.else);
+                walk(s.steps);
+                walk(s.on_error);
+            }
+        };
+        walk(this.spec.steps);
+        return [...varNames];
+    }
+
     renderPalette() {
         const pal = this.container.querySelector('#wfs-palette');
         if (!pal) return;
+
+        const varCount = Object.keys(this.spec.vars || {}).length;
+        pal.innerHTML = `
+            <div style="display:flex; gap:4px; margin-bottom:0.55rem; border-bottom:1px solid var(--border-subtle); padding-bottom:0.45rem;">
+                <button id="wfs-lt-tools" class="btn-bubble-action" style="flex:1;padding:4px 6px;font-size:0.72rem;cursor:pointer;background:${this.leftTab === 'tools' ? 'rgba(56,189,248,0.2)' : 'transparent'};color:${this.leftTab === 'tools' ? '#38bdf8' : 'var(--text-muted)'};border-color:${this.leftTab === 'tools' ? 'var(--accent-cyan)' : 'var(--border-subtle)'};">🧰 Outils</button>
+                <button id="wfs-lt-vars" class="btn-bubble-action" style="flex:1;padding:4px 6px;font-size:0.72rem;cursor:pointer;background:${this.leftTab === 'vars' ? 'rgba(251,191,36,0.2)' : 'transparent'};color:${this.leftTab === 'vars' ? '#fbbf24' : 'var(--text-muted)'};border-color:${this.leftTab === 'vars' ? '#fbbf24' : 'var(--border-subtle)'};">📌 Variables (${varCount})</button>
+            </div>
+            <div id="wfs-left-body"></div>
+        `;
+        pal.querySelector('#wfs-lt-tools').addEventListener('click', () => { this.leftTab = 'tools'; this.renderPalette(); });
+        pal.querySelector('#wfs-lt-vars').addEventListener('click', () => { this.leftTab = 'vars'; this.renderPalette(); });
+
+        const body = pal.querySelector('#wfs-left-body');
+        if (this.leftTab === 'vars') {
+            const addBtn = document.createElement('button');
+            addBtn.className = 'btn-primary';
+            addBtn.style.cssText = 'width:100%;padding:5px 8px;font-size:0.74rem;margin-bottom:0.55rem;';
+            addBtn.textContent = '+ Nouvelle variable';
+            addBtn.addEventListener('click', () => {
+                if (!this.spec.vars) this.spec.vars = {};
+                let n = Object.keys(this.spec.vars).length + 1;
+                while (`var_${n}` in this.spec.vars) n++;
+                const name = `var_${n}`;
+                this.spec.vars[name] = '';
+                this.selectedVarName = name;
+                this.selectedPath = null;
+                this.renderPalette();
+                this.renderCanvasAndInspector();
+            });
+            body.appendChild(addBtn);
+
+            const entries = Object.entries(this.spec.vars || {});
+            if (entries.length === 0) {
+                const empty = document.createElement('div');
+                empty.style.cssText = 'font-size:0.72rem;color:var(--text-muted);text-align:center;padding:1rem 0.25rem;';
+                empty.textContent = 'Aucune variable globale. Cliquez sur "+ Nouvelle variable" pour en créer une.';
+                body.appendChild(empty);
+                return;
+            }
+            const list = document.createElement('div');
+            list.style.cssText = 'display:flex;flex-direction:column;gap:4px;';
+            entries.forEach(([k, v]) => {
+                const isSel = this.selectedVarName === k;
+                const row = document.createElement('div');
+                row.style.cssText = `display:flex;align-items:center;gap:4px;padding:5px 7px;border-radius:4px;cursor:pointer;border:1px solid ${isSel ? '#fbbf24' : 'var(--border-subtle)'};background:${isSel ? 'rgba(251,191,36,0.12)' : 'rgba(255,255,255,0.03)'};`;
+                row.innerHTML = `<div style="flex:1;min-width:0;"><div style="font-family:var(--font-mono);font-size:0.74rem;color:#fde68a;font-weight:700;overflow:hidden;text-overflow:ellipsis;">${k}</div><div style="font-size:0.66rem;color:var(--text-muted);font-family:var(--font-mono);overflow:hidden;text-overflow:ellipsis;">${inferVarType(v)} = ${JSON.stringify(v)}</div></div><button type="button" style="background:none;border:none;color:#fda4af;cursor:pointer;font-size:0.75rem;">✕</button>`;
+                row.addEventListener('click', () => {
+                    this.selectedVarName = k;
+                    this.selectedPath = null;
+                    this.renderPalette();
+                    this.renderCanvasAndInspector();
+                });
+                row.querySelector('button').addEventListener('click', (e) => {
+                    e.stopPropagation();
+                    delete this.spec.vars[k];
+                    if (this.selectedVarName === k) this.selectedVarName = null;
+                    this.renderPalette();
+                    this.renderCanvasAndInspector();
+                });
+                list.appendChild(row);
+            });
+            body.appendChild(list);
+            return;
+        }
+
         const q = this.paletteQuery.toLowerCase();
         const grouped = {};
         for (const item of WF_ACTION_CATALOG) {
@@ -423,12 +507,11 @@ export class WorkflowStudio {
             grouped[item.cat].push(item);
         }
 
-        pal.innerHTML = `
-            <div style="font-size: 0.72rem; font-weight: 700; color: var(--accent-cyan); margin-bottom: 0.45rem; font-family: var(--font-mono);">PALETTE D'ACTIONS</div>
-            <input id="wfs-pal-search" type="text" value="${this.paletteQuery}" placeholder="Filtrer action..." style="width: 100%; box-sizing: border-box; background: #0b1326; border: 1px solid var(--border-subtle); color: #fff; padding: 5px 8px; border-radius: 4px; font-size: 0.75rem; margin-bottom: 0.6rem;">
+        body.innerHTML = `
+            <input id="wfs-pal-search" type="text" value="${this.paletteQuery}" placeholder="Filtrer outil..." style="width: 100%; box-sizing: border-box; background: #0b1326; border: 1px solid var(--border-subtle); color: #fff; padding: 5px 8px; border-radius: 4px; font-size: 0.75rem; margin-bottom: 0.6rem;">
             <div id="wfs-pal-groups" style="display: flex; flex-direction: column; gap: 0.55rem;"></div>
         `;
-        const search = pal.querySelector('#wfs-pal-search');
+        const search = body.querySelector('#wfs-pal-search');
         search.addEventListener('input', (e) => {
             this.paletteQuery = e.target.value;
             this.renderPalette();
@@ -436,7 +519,7 @@ export class WorkflowStudio {
             if (next) { next.focus(); next.setSelectionRange(next.value.length, next.value.length); }
         });
 
-        const groupsEl = pal.querySelector('#wfs-pal-groups');
+        const groupsEl = body.querySelector('#wfs-pal-groups');
         for (const [cat, items] of Object.entries(grouped)) {
             const box = document.createElement('div');
             const hdr = document.createElement('div');
@@ -672,6 +755,7 @@ export class WorkflowStudio {
             card.style.cssText = `background:${isSel ? 'rgba(56,189,248,0.1)' : 'rgba(15,23,42,0.75)'}; border:1px solid ${isSel ? 'var(--accent-cyan)' : 'var(--border-subtle)'}; border-left:4px solid ${meta.color}; border-radius:6px; padding:0.55rem 0.7rem; cursor:pointer;`;
             card.addEventListener('click', (e) => {
                 e.stopPropagation();
+                this.selectedVarName = null;
                 this.selectedPath = path;
                 this.renderCanvasAndInspector();
             });
@@ -761,6 +845,80 @@ export class WorkflowStudio {
     renderInspector() {
         const insp = this.container.querySelector('#wfs-inspector');
         if (!insp) return;
+
+        if (this.selectedVarName !== null && this.spec.vars && this.selectedVarName in this.spec.vars) {
+            const origName = this.selectedVarName;
+            let curVal = this.spec.vars[origName];
+            let curType = inferVarType(curVal);
+            insp.innerHTML = `
+                <div style="font-size:0.72rem; font-weight:700; color:#fbbf24; margin-bottom:0.6rem; font-family:var(--font-mono);">PROPRIÉTÉS : Variable</div>
+                <div style="display:flex; flex-direction:column; gap:0.55rem; font-size:0.75rem;">
+                    <div>
+                        <label style="display:block;color:var(--text-muted);margin-bottom:2px;">Nom de la variable</label>
+                        <input id="wfv-name" type="text" value="${origName}" style="width:100%;box-sizing:border-box;background:#0b1326;border:1px solid var(--border-subtle);color:#fde68a;padding:5px;border-radius:4px;font-family:var(--font-mono);">
+                    </div>
+                    <div>
+                        <label style="display:block;color:var(--text-muted);margin-bottom:2px;">Type</label>
+                        <select id="wfv-type" style="width:100%;background:#0b1326;border:1px solid var(--border-subtle);color:var(--accent-cyan);padding:5px;border-radius:4px;font-family:var(--font-mono);">
+                            <option value="string">string</option>
+                            <option value="int">int</option>
+                            <option value="float">float</option>
+                            <option value="bool">bool</option>
+                            <option value="json">json</option>
+                        </select>
+                    </div>
+                    <div>
+                        <label style="display:block;color:var(--text-muted);margin-bottom:2px;">Valeur initiale</label>
+                        <div id="wfv-val-wrap"></div>
+                    </div>
+                    <div style="font-size:0.68rem;color:var(--text-muted);font-family:var(--font-mono);">Appel dans les étapes : <code style="color:#fde68a;">\${vars.${origName}}</code></div>
+                    <div style="display:flex;gap:0.5rem;margin-top:0.25rem;">
+                        <button id="wfv-save" class="btn-primary" style="flex:1;padding:5px 10px;font-size:0.75rem;">Appliquer</button>
+                        <button id="wfv-del" class="btn-bubble-action" style="padding:5px 10px;font-size:0.75rem;color:#fda4af;">Supprimer</button>
+                    </div>
+                </div>
+            `;
+            const typeSel = insp.querySelector('#wfv-type');
+            const valWrap = insp.querySelector('#wfv-val-wrap');
+            typeSel.value = curType;
+            const mount = () => {
+                valWrap.innerHTML = '';
+                valWrap.appendChild(createTypedValueControl(curType, curVal, (nv) => {
+                    curVal = nv;
+                    this.spec.vars[this.selectedVarName] = nv;
+                    this.renderPalette();
+                    this.renderCanvas();
+                }));
+            };
+            mount();
+            typeSel.addEventListener('change', () => {
+                curType = typeSel.value;
+                curVal = defaultForType(curType);
+                this.spec.vars[this.selectedVarName] = curVal;
+                mount();
+                this.renderPalette();
+                this.renderCanvas();
+            });
+            insp.querySelector('#wfv-save').addEventListener('click', () => {
+                const nn = insp.querySelector('#wfv-name').value.trim();
+                if (!nn) return;
+                if (nn !== origName) {
+                    delete this.spec.vars[origName];
+                    this.selectedVarName = nn;
+                }
+                this.spec.vars[nn] = curVal;
+                this.renderPalette();
+                this.renderCanvasAndInspector();
+            });
+            insp.querySelector('#wfv-del').addEventListener('click', () => {
+                delete this.spec.vars[origName];
+                this.selectedVarName = null;
+                this.renderPalette();
+                this.renderCanvasAndInspector();
+            });
+            return;
+        }
+
         const step = this.getSelectedStep();
         if (!step) {
             insp.innerHTML = `<div style="color:var(--text-muted); font-size:0.78rem; padding:1.5rem; text-align:center;">Sélectionnez une étape sur le canvas pour configurer ses paramètres.</div>`;
@@ -1013,45 +1171,58 @@ export class WorkflowStudio {
         const syncJson = () => { if (jsonTa) jsonTa.value = JSON.stringify(step.params || {}, null, 2); };
         syncJson();
 
-        // Suivi du dernier champ focalisé pour insérer une référence ${vars.*} en 1 clic
+        // Suivi du dernier champ focalisé + datalist autocomplétion + dropdown d'insertion
+        const allVars = this.collectAllVarNames();
+        let dl = document.getElementById('wfs-vars-datalist');
+        if (!dl) {
+            dl = document.createElement('datalist');
+            dl.id = 'wfs-vars-datalist';
+            document.body.appendChild(dl);
+        }
+        dl.innerHTML = allVars.map(vn => `<option value="\${vars.${vn}}"></option>`).join('');
+
         let lastFocusedInput = null;
         insp.querySelectorAll('input[type="text"], textarea').forEach(el => {
             if (el.id !== 'wfi-id' && el.id !== 'wfi-output' && el.id !== 'wfi-params-json') {
+                if (el.tagName === 'INPUT') el.setAttribute('list', 'wfs-vars-datalist');
                 el.addEventListener('focus', () => { lastFocusedInput = el; });
             }
         });
+        const insertRef = (vn) => {
+            const target = lastFocusedInput || insp.querySelector('#wfi-cond') || insp.querySelector('#wfi-specific input[type="text"], #wfi-specific textarea');
+            if (!target) return;
+            const pos = target.selectionStart ?? target.value.length;
+            const refText = `\${vars.${vn}}`;
+            target.value = target.value.slice(0, pos) + refText + target.value.slice(pos);
+            target.dispatchEvent(new Event('input', { bubbles: true }));
+            target.focus();
+        };
         const chipsBox = insp.querySelector('#wfi-vars-chips');
         if (chipsBox) {
-            const varNames = new Set(Object.keys(this.spec.vars || {}));
-            const collectStepVars = (arr) => {
-                for (const s of arr || []) {
-                    if (s.output) varNames.add(s.output);
-                    if (s.action === 'flow.set' && s.params?.var) varNames.add(s.params.var);
-                    if (s.action === 'flow.each' && s.as) varNames.add(s.as);
-                    collectStepVars(s.then);
-                    collectStepVars(s.else);
-                    collectStepVars(s.steps);
-                }
-            };
-            collectStepVars(this.spec.steps);
-            if (varNames.size === 0) {
+            if (allVars.length === 0) {
                 chipsBox.innerHTML = '<span style="font-size:0.66rem;color:var(--text-muted);">Aucune variable déclarée</span>';
             } else {
-                varNames.forEach(vn => {
+                const sel = document.createElement('select');
+                sel.style.cssText = 'width:100%;margin-bottom:4px;background:#0b1326;border:1px solid var(--border-subtle);color:#fde68a;padding:3px 5px;border-radius:4px;font-family:var(--font-mono);font-size:0.7rem;';
+                sel.innerHTML = '<option value="">${} Insérer une variable dans le champ actif...</option>';
+                allVars.forEach(vn => {
+                    const o = document.createElement('option');
+                    o.value = vn;
+                    o.textContent = `\${vars.${vn}}`;
+                    sel.appendChild(o);
+                });
+                sel.addEventListener('change', () => {
+                    if (sel.value) { insertRef(sel.value); sel.value = ''; }
+                });
+                chipsBox.appendChild(sel);
+
+                allVars.forEach(vn => {
                     const chip = document.createElement('button');
                     chip.type = 'button';
                     chip.className = 'btn-bubble-action';
                     chip.style.cssText = 'font-size:0.66rem;padding:1px 6px;font-family:var(--font-mono);color:#fde68a;cursor:pointer;';
                     chip.textContent = `\${vars.${vn}}`;
-                    chip.addEventListener('click', () => {
-                        const target = lastFocusedInput || insp.querySelector('#wfi-cond');
-                        if (!target) return;
-                        const pos = target.selectionStart ?? target.value.length;
-                        const refText = `\${vars.${vn}}`;
-                        target.value = target.value.slice(0, pos) + refText + target.value.slice(pos);
-                        target.dispatchEvent(new Event('input', { bubbles: true }));
-                        target.focus();
-                    });
+                    chip.addEventListener('click', () => insertRef(vn));
                     chipsBox.appendChild(chip);
                 });
             }

@@ -142,6 +142,7 @@ export class WorkflowStudio {
         this.paletteQuery = '';
         this.stepStatuses = {}; // step_id -> 'ok' | 'error' | 'skipped'
         this.collapsedCats = new Set();
+        this.openOnErrorIds = new Set();
         this.render();
     }
 
@@ -686,12 +687,19 @@ export class WorkflowStudio {
                     ${stBadge ? `<span>${stBadge}</span>` : ''}
                 </div>
                 <div style="display:flex; gap:3px; flex-shrink:0;">
+                    <button data-act="onerr" title="Branche on_error" class="btn-bubble-action" style="padding:1px 6px;font-size:0.68rem;color:#fb7185;cursor:pointer;">🛡️${(step.on_error && step.on_error.length) ? `(${step.on_error.length})` : ''}</button>
                     <button data-act="up" title="Monter" class="btn-bubble-action" style="padding:1px 6px;font-size:0.7rem;cursor:pointer;">↑</button>
                     <button data-act="down" title="Descendre" class="btn-bubble-action" style="padding:1px 6px;font-size:0.7rem;cursor:pointer;">↓</button>
                     <button data-act="dup" title="Dupliquer" class="btn-bubble-action" style="padding:1px 6px;font-size:0.7rem;cursor:pointer;">⧉</button>
                     <button data-act="del" title="Supprimer" class="btn-bubble-action" style="padding:1px 6px;font-size:0.7rem;color:#fda4af;cursor:pointer;">✕</button>
                 </div>
             `;
+            top.querySelector('[data-act="onerr"]').addEventListener('click', (e) => {
+                e.stopPropagation();
+                if (this.openOnErrorIds.has(step.id)) this.openOnErrorIds.delete(step.id);
+                else this.openOnErrorIds.add(step.id);
+                this.renderCanvas();
+            });
             top.querySelector('[data-act="up"]').addEventListener('click', (e) => { e.stopPropagation(); this.moveStep(path, -1); });
             top.querySelector('[data-act="down"]').addEventListener('click', (e) => { e.stopPropagation(); this.moveStep(path, 1); });
             top.querySelector('[data-act="dup"]').addEventListener('click', (e) => { e.stopPropagation(); this.duplicateStep(path); });
@@ -726,6 +734,17 @@ export class WorkflowStudio {
                 body.appendChild(lbl);
                 body.appendChild(this.renderStepList(step.steps || (step.steps = []), [...path, 'steps']));
                 card.appendChild(body);
+            }
+
+            if (this.openOnErrorIds.has(step.id) || (step.on_error && step.on_error.length > 0)) {
+                const errWrap = document.createElement('div');
+                errWrap.style.cssText = 'margin-top:0.5rem; padding-left:0.65rem; border-left:2px solid rgba(244,63,94,0.5);';
+                const errLbl = document.createElement('div');
+                errLbl.style.cssText = 'font-size:0.68rem; color:#fb7185; font-weight:700; margin-bottom:4px;';
+                errLbl.textContent = '🛡️ ON ERROR (Si échec de l\'étape)';
+                errWrap.appendChild(errLbl);
+                errWrap.appendChild(this.renderStepList(step.on_error || (step.on_error = []), [...path, 'on_error']));
+                card.appendChild(errWrap);
             }
 
             wrap.appendChild(card);
@@ -947,6 +966,47 @@ export class WorkflowStudio {
                 }
                 specBox.appendChild(row);
             });
+
+            // Éditeur visuel Clé/Valeur pour les objets imbriqués (env, headers, query, inputs)
+            Object.entries(step.params)
+                .filter(([, v]) => v && typeof v === 'object' && !Array.isArray(v))
+                .forEach(([k, obj]) => {
+                    const box = document.createElement('div');
+                    box.style.cssText = 'border:1px solid var(--border-subtle);border-radius:4px;padding:6px;margin-top:4px;background:rgba(255,255,255,0.02);';
+                    const hdr = document.createElement('div');
+                    hdr.style.cssText = 'display:flex;justify-content:space-between;align-items:center;margin-bottom:4px;';
+                    hdr.innerHTML = `<span style="font-size:0.7rem;color:var(--accent-cyan);font-weight:700;">${k} (clé = valeur)</span><button type="button" class="btn-bubble-action" style="font-size:0.65rem;padding:1px 6px;cursor:pointer;">+ Ajouter</button>`;
+                    const rowsEl = document.createElement('div');
+                    rowsEl.style.cssText = 'display:flex;flex-direction:column;gap:3px;';
+                    const renderKv = () => {
+                        rowsEl.innerHTML = '';
+                        Object.entries(obj).forEach(([ek, ev]) => {
+                            const r = document.createElement('div');
+                            r.style.cssText = 'display:flex;gap:3px;align-items:center;';
+                            r.innerHTML = `<input type="text" value="${ek}" style="width:42%;background:#0b1326;border:1px solid var(--border-subtle);color:#fde68a;padding:3px 5px;border-radius:3px;font-family:var(--font-mono);font-size:0.7rem;"><input type="text" value="${typeof ev === 'string' ? ev : JSON.stringify(ev)}" style="flex:1;background:#0b1326;border:1px solid var(--border-subtle);color:#fff;padding:3px 5px;border-radius:3px;font-family:var(--font-mono);font-size:0.7rem;"><button type="button" style="background:none;border:none;color:#fda4af;cursor:pointer;font-size:0.75rem;">✕</button>`;
+                            const [kInp, vInp, delBtn] = r.children;
+                            kInp.addEventListener('change', () => {
+                                const nk = kInp.value.trim();
+                                if (!nk || nk === ek) return;
+                                obj[nk] = obj[ek]; delete obj[ek]; syncJson(); renderKv();
+                            });
+                            vInp.addEventListener('input', () => { obj[ek] = vInp.value; syncJson(); });
+                            delBtn.addEventListener('click', () => { delete obj[ek]; syncJson(); renderKv(); });
+                            rowsEl.appendChild(r);
+                        });
+                    };
+                    hdr.querySelector('button').addEventListener('click', () => {
+                        let idx = Object.keys(obj).length + 1;
+                        while (`key_${idx}` in obj) idx++;
+                        obj[`key_${idx}`] = '';
+                        syncJson();
+                        renderKv();
+                    });
+                    renderKv();
+                    box.appendChild(hdr);
+                    box.appendChild(rowsEl);
+                    specBox.appendChild(box);
+                });
         }
 
         const jsonTa = insp.querySelector('#wfi-params-json');

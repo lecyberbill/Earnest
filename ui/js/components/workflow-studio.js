@@ -62,6 +62,73 @@ function summarizeStep(step) {
     }
 }
 
+function inferVarType(v) {
+    if (typeof v === 'boolean') return 'bool';
+    if (typeof v === 'number') return Number.isInteger(v) ? 'int' : 'float';
+    if (v !== null && typeof v === 'object') return 'json';
+    return 'string';
+}
+
+function defaultForType(type) {
+    if (type === 'bool') return true;
+    if (type === 'int') return 0;
+    if (type === 'float') return 0.0;
+    if (type === 'json') return [];
+    return '';
+}
+
+function createTypedValueControl(type, value, onChange) {
+    const baseCss = 'width:100%;box-sizing:border-box;background:#0b1326;border:1px solid var(--border-subtle);color:#fff;padding:5px;border-radius:4px;font-family:var(--font-mono);font-size:0.75rem;';
+    if (type === 'bool') {
+        const sel = document.createElement('select');
+        sel.style.cssText = baseCss;
+        ['true', 'false'].forEach(optVal => {
+            const o = document.createElement('option');
+            o.value = optVal;
+            o.textContent = optVal;
+            if (String(Boolean(value)) === optVal) o.selected = true;
+            sel.appendChild(o);
+        });
+        sel.addEventListener('change', () => onChange(sel.value === 'true'));
+        return sel;
+    }
+    if (type === 'int' || type === 'float') {
+        const inp = document.createElement('input');
+        inp.type = 'number';
+        inp.step = type === 'int' ? '1' : 'any';
+        inp.value = typeof value === 'number' ? String(value) : '0';
+        inp.style.cssText = baseCss;
+        inp.addEventListener('input', () => {
+            const parsed = type === 'int' ? parseInt(inp.value, 10) : parseFloat(inp.value);
+            if (!Number.isNaN(parsed)) onChange(parsed);
+        });
+        return inp;
+    }
+    if (type === 'json') {
+        const ta = document.createElement('textarea');
+        ta.rows = 3;
+        ta.spellcheck = false;
+        ta.value = typeof value === 'string' ? value : JSON.stringify(value ?? [], null, 2);
+        ta.style.cssText = baseCss;
+        ta.addEventListener('input', () => {
+            try {
+                const parsed = JSON.parse(ta.value);
+                ta.style.borderColor = 'var(--border-subtle)';
+                onChange(parsed);
+            } catch (_) {
+                ta.style.borderColor = 'var(--accent-rose)';
+            }
+        });
+        return ta;
+    }
+    const inp = document.createElement('input');
+    inp.type = 'text';
+    inp.value = value ?? '';
+    inp.style.cssText = baseCss;
+    inp.addEventListener('input', () => onChange(inp.value));
+    return inp;
+}
+
 export class WorkflowStudio {
     constructor(container, { onSaved, onStatus } = {}) {
         this.container = container;
@@ -421,7 +488,7 @@ export class WorkflowStudio {
             return `<span class="badge badge-primary" style="display:inline-flex;align-items:center;gap:4px;">${label} <button data-del-trig="${idx}" style="background:none;border:none;color:#fda4af;cursor:pointer;padding:0;font-size:0.7rem;">✕</button></span>`;
         }).join('');
         const connList = Object.entries(this.spec.connections || {}).map(([k, c]) => `<span class="badge" style="background:rgba(52,211,153,0.12);color:#34d399;">🔌 ${k} (${c.driver})</span>`).join('');
-        const varsList = Object.entries(this.spec.vars || {}).map(([k, v]) => `<span class="badge" style="background:rgba(251,191,36,0.12);color:#fbbf24;display:inline-flex;align-items:center;gap:4px;">📌 ${k}=${JSON.stringify(v)} <button data-del-var="${k}" style="background:none;border:none;color:#fda4af;cursor:pointer;padding:0;font-size:0.7rem;">✕</button></span>`).join('');
+        const varsList = Object.entries(this.spec.vars || {}).map(([k, v]) => `<span class="badge" data-edit-var="${k}" title="Cliquer pour modifier" style="background:rgba(251,191,36,0.12);color:#fbbf24;display:inline-flex;align-items:center;gap:4px;cursor:pointer;">📌 ${k} (${inferVarType(v)})=${JSON.stringify(v)} <button data-del-var="${k}" style="background:none;border:none;color:#fda4af;cursor:pointer;padding:0;font-size:0.7rem;">✕</button></span>`).join('');
         meta.innerHTML = `
             <div style="display:flex;align-items:center;gap:4px;flex-wrap:wrap;">
                 <span style="color:var(--text-muted);font-family:var(--font-mono);">TRIGGERS:</span> ${trigList}
@@ -431,24 +498,65 @@ export class WorkflowStudio {
                 <span style="color:var(--text-muted);font-family:var(--font-mono);">CONNEXIONS:</span> ${connList}
                 <button id="wfs-add-conn" class="btn-bubble-action" style="font-size:0.68rem;padding:2px 6px;cursor:pointer;">+ Connexion</button>
             </div>
-            <div style="display:flex;align-items:center;gap:4px;flex-wrap:wrap;">
+            <div style="display:flex;align-items:center;gap:4px;flex-wrap:wrap;width:100%;">
                 <span style="color:var(--text-muted);font-family:var(--font-mono);">VARS:</span> ${varsList}
                 <button id="wfs-add-var" class="btn-bubble-action" style="font-size:0.68rem;padding:2px 6px;cursor:pointer;">+ Variable</button>
             </div>
+            <div id="wfs-var-editor" style="display:none;width:100%;background:rgba(15,23,42,0.9);border:1px solid var(--accent-cyan);border-radius:6px;padding:0.5rem;gap:0.4rem;align-items:center;flex-wrap:wrap;"></div>
         `;
-        meta.querySelectorAll('[data-del-var]').forEach(b => b.addEventListener('click', () => {
+        const openVarEditor = (editName = '', editVal = true) => {
+            const box = meta.querySelector('#wfs-var-editor');
+            if (!box) return;
+            let curType = editName ? inferVarType(editVal) : 'bool';
+            let curVal = editName ? editVal : true;
+            box.style.display = 'flex';
+            box.innerHTML = `
+                <input id="wfs-ve-name" type="text" placeholder="nom_var" value="${editName}" style="width:120px;background:#0b1326;border:1px solid var(--border-subtle);color:#fff;padding:4px 6px;border-radius:4px;font-family:var(--font-mono);font-size:0.74rem;">
+                <select id="wfs-ve-type" style="background:#0b1326;border:1px solid var(--border-subtle);color:var(--accent-cyan);padding:4px 6px;border-radius:4px;font-family:var(--font-mono);font-size:0.74rem;">
+                    <option value="string">string</option>
+                    <option value="int">int</option>
+                    <option value="float">float</option>
+                    <option value="bool">bool</option>
+                    <option value="json">json</option>
+                </select>
+                <div id="wfs-ve-val-wrap" style="flex:1;min-width:130px;"></div>
+                <button id="wfs-ve-ok" class="btn-primary" style="padding:4px 10px;font-size:0.72rem;">OK</button>
+                <button id="wfs-ve-cancel" class="btn-bubble-action" style="padding:4px 8px;font-size:0.72rem;">✕</button>
+            `;
+            const typeSel = box.querySelector('#wfs-ve-type');
+            const valWrap = box.querySelector('#wfs-ve-val-wrap');
+            typeSel.value = curType;
+            const mountCtrl = () => {
+                valWrap.innerHTML = '';
+                valWrap.appendChild(createTypedValueControl(curType, curVal, (nv) => { curVal = nv; }));
+            };
+            mountCtrl();
+            typeSel.addEventListener('change', () => {
+                curType = typeSel.value;
+                curVal = defaultForType(curType);
+                mountCtrl();
+            });
+            box.querySelector('#wfs-ve-ok').addEventListener('click', () => {
+                const n = box.querySelector('#wfs-ve-name').value.trim();
+                if (!n) return;
+                if (!this.spec.vars) this.spec.vars = {};
+                if (editName && editName !== n) delete this.spec.vars[editName];
+                this.spec.vars[n] = curVal;
+                this.renderCanvasAndInspector();
+            });
+            box.querySelector('#wfs-ve-cancel').addEventListener('click', () => { box.style.display = 'none'; });
+            box.querySelector('#wfs-ve-name').focus();
+        };
+        meta.querySelectorAll('[data-del-var]').forEach(b => b.addEventListener('click', (e) => {
+            e.stopPropagation();
             delete this.spec.vars[b.getAttribute('data-del-var')];
-            this.renderCanvas();
+            this.renderCanvasAndInspector();
         }));
-        meta.querySelector('#wfs-add-var').addEventListener('click', () => {
-            const vname = prompt('Nom de la variable :', 'ok');
-            if (!vname || !vname.trim()) return;
-            const rawVal = prompt(`Valeur initiale pour '${vname.trim()}' (true, 42, "texte", ["a","b"]) :`, 'true');
-            if (rawVal === null) return;
-            if (!this.spec.vars) this.spec.vars = {};
-            try { this.spec.vars[vname.trim()] = JSON.parse(rawVal); } catch (_) { this.spec.vars[vname.trim()] = rawVal; }
-            this.renderCanvas();
-        });
+        meta.querySelectorAll('[data-edit-var]').forEach(b => b.addEventListener('click', () => {
+            const k = b.getAttribute('data-edit-var');
+            openVarEditor(k, this.spec.vars[k]);
+        }));
+        meta.querySelector('#wfs-add-var').addEventListener('click', () => openVarEditor());
         meta.querySelectorAll('[data-del-trig]').forEach(b => b.addEventListener('click', () => {
             this.spec.triggers.splice(parseInt(b.getAttribute('data-del-trig'), 10), 1);
             if (this.spec.triggers.length === 0) this.spec.triggers.push({ type: 'manual' });
@@ -603,6 +711,10 @@ export class WorkflowStudio {
                     <input id="wfi-output" type="text" value="${step.output || ''}" placeholder="ex: res_http" style="width:100%;box-sizing:border-box;background:#0b1326;border:1px solid var(--border-subtle);color:#fff;padding:5px;border-radius:4px;font-family:var(--font-mono);">
                 </div>
                 <div id="wfi-specific"></div>
+                <div id="wfi-vars-helper" style="background:rgba(251,191,36,0.06);border:1px solid rgba(251,191,36,0.25);border-radius:4px;padding:5px 7px;">
+                    <div style="font-size:0.66rem;color:#fbbf24;margin-bottom:3px;">Variables disponibles (clic = insérer) :</div>
+                    <div id="wfi-vars-chips" style="display:flex;flex-wrap:wrap;gap:3px;"></div>
+                </div>
                 <div>
                     <label style="display:block;color:var(--text-muted);margin-bottom:2px;">Paramètres JSON (avancé)</label>
                     <textarea id="wfi-params-json" rows="7" spellcheck="false" style="width:100%;box-sizing:border-box;background:#040914;border:1px solid var(--border-subtle);color:#a5f3fc;padding:6px;border-radius:4px;font-family:var(--font-mono);font-size:0.72rem;"></textarea>
@@ -663,18 +775,42 @@ export class WorkflowStudio {
                     cb.type = 'checkbox'; cb.checked = v;
                     cb.addEventListener('change', () => { step.params[k] = cb.checked; syncJson(); this.renderCanvas(); });
                     row.appendChild(cb);
+                } else if (step.action === 'flow.set' && k === 'value') {
+                    let curType = inferVarType(v);
+                    const typeSel = document.createElement('select');
+                    typeSel.style.cssText = 'width:100%;margin-bottom:4px;background:#0b1326;border:1px solid var(--border-subtle);color:var(--accent-cyan);padding:4px;border-radius:4px;font-family:var(--font-mono);font-size:0.74rem;';
+                    ['string', 'int', 'float', 'bool', 'json'].forEach(tp => {
+                        const o = document.createElement('option');
+                        o.value = tp; o.textContent = `Type: ${tp}`;
+                        if (tp === curType) o.selected = true;
+                        typeSel.appendChild(o);
+                    });
+                    const valHolder = document.createElement('div');
+                    const mountVal = () => {
+                        valHolder.innerHTML = '';
+                        valHolder.appendChild(createTypedValueControl(curType, step.params[k], (nv) => {
+                            step.params[k] = nv;
+                            syncJson();
+                            this.renderCanvas();
+                        }));
+                    };
+                    typeSel.addEventListener('change', () => {
+                        curType = typeSel.value;
+                        step.params[k] = defaultForType(curType);
+                        mountVal();
+                        syncJson();
+                        this.renderCanvas();
+                    });
+                    row.appendChild(typeSel);
+                    row.appendChild(valHolder);
+                    mountVal();
                 } else {
                     const inp = document.createElement('input');
                     inp.type = typeof v === 'number' ? 'number' : 'text';
-                    inp.value = (step.action === 'flow.set' && k === 'value' && typeof v !== 'string') ? JSON.stringify(v) : (v ?? '');
+                    inp.value = v ?? '';
                     inp.style.cssText = 'width:100%;box-sizing:border-box;background:#0b1326;border:1px solid var(--border-subtle);color:#fff;padding:5px;border-radius:4px;font-family:var(--font-mono);';
                     inp.addEventListener('input', () => {
-                        if (step.action === 'flow.set' && k === 'value') {
-                            const raw = inp.value.trim();
-                            try { step.params[k] = JSON.parse(raw); } catch (_) { step.params[k] = inp.value; }
-                        } else {
-                            step.params[k] = typeof v === 'number' ? Number(inp.value) : inp.value;
-                        }
+                        step.params[k] = typeof v === 'number' ? Number(inp.value) : inp.value;
                         syncJson();
                         this.renderCanvas();
                     });
@@ -687,6 +823,50 @@ export class WorkflowStudio {
         const jsonTa = insp.querySelector('#wfi-params-json');
         const syncJson = () => { if (jsonTa) jsonTa.value = JSON.stringify(step.params || {}, null, 2); };
         syncJson();
+
+        // Suivi du dernier champ focalisé pour insérer une référence ${vars.*} en 1 clic
+        let lastFocusedInput = null;
+        insp.querySelectorAll('input[type="text"], textarea').forEach(el => {
+            if (el.id !== 'wfi-id' && el.id !== 'wfi-output' && el.id !== 'wfi-params-json') {
+                el.addEventListener('focus', () => { lastFocusedInput = el; });
+            }
+        });
+        const chipsBox = insp.querySelector('#wfi-vars-chips');
+        if (chipsBox) {
+            const varNames = new Set(Object.keys(this.spec.vars || {}));
+            const collectStepVars = (arr) => {
+                for (const s of arr || []) {
+                    if (s.output) varNames.add(s.output);
+                    if (s.action === 'flow.set' && s.params?.var) varNames.add(s.params.var);
+                    if (s.action === 'flow.each' && s.as) varNames.add(s.as);
+                    collectStepVars(s.then);
+                    collectStepVars(s.else);
+                    collectStepVars(s.steps);
+                }
+            };
+            collectStepVars(this.spec.steps);
+            if (varNames.size === 0) {
+                chipsBox.innerHTML = '<span style="font-size:0.66rem;color:var(--text-muted);">Aucune variable déclarée</span>';
+            } else {
+                varNames.forEach(vn => {
+                    const chip = document.createElement('button');
+                    chip.type = 'button';
+                    chip.className = 'btn-bubble-action';
+                    chip.style.cssText = 'font-size:0.66rem;padding:1px 6px;font-family:var(--font-mono);color:#fde68a;cursor:pointer;';
+                    chip.textContent = `\${vars.${vn}}`;
+                    chip.addEventListener('click', () => {
+                        const target = lastFocusedInput || insp.querySelector('#wfi-cond');
+                        if (!target) return;
+                        const pos = target.selectionStart ?? target.value.length;
+                        const refText = `\${vars.${vn}}`;
+                        target.value = target.value.slice(0, pos) + refText + target.value.slice(pos);
+                        target.dispatchEvent(new Event('input', { bubbles: true }));
+                        target.focus();
+                    });
+                    chipsBox.appendChild(chip);
+                });
+            }
+        }
         jsonTa.addEventListener('change', () => {
             try {
                 step.params = JSON.parse(jsonTa.value);

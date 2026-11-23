@@ -14,7 +14,8 @@ export function renderMarkdown(md) {
                 gfm: true,
                 breaks: true
             });
-            const rendered = window.marked.parse(md);
+            const safeMd = String(md).replace(/<\/?(?:think|thought)>/gi, (m) => `&lt;${m.slice(1, -1)}&gt;`);
+            const rendered = window.marked.parse(safeMd);
             return `<div class="markdown-body">${rendered}</div>`;
         } catch (e) {
             console.warn('Fallback markdown parsing', e);

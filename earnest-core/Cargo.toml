@@ -26,4 +26,5 @@ tool-guard = { path = "../crates/tool-guard" }
 token-compactor = { path = "../crates/token-compactor" }
 react-resilience = { path = "../crates/react-resilience" }
 agent-scheduler = { path = "../crates/agent-scheduler" }
+stream-cleaner = { path = "../crates/stream-cleaner" }
 wf-core = { path = "../earnest-wf-engine/crates/wf-core" }

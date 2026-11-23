@@ -257,6 +257,38 @@ impl<'a> ReActEngine<'a> {
                     Err(e) => serde_json::json!({"status": "error", "error": e.to_string()}).to_string(),
                 }
             }
+            "kb_list_products" => call_kb_mcp_tool("kb_list_products", &serde_json::json!({})),
+            "kb_search" => {
+                let pid = args["product_id"].as_str().unwrap_or("earnest");
+                let q = args["query"].as_str().unwrap_or("");
+                call_kb_mcp_tool("kb_search", &serde_json::json!({ "product_id": pid, "query": q }))
+            }
+            "kb_propose" => {
+                let pid = args["product_id"].as_str().unwrap_or("earnest");
+                let subject_key = args["subject_key"].as_str().unwrap_or("");
+                let kind = args["kind"].as_str().unwrap_or("piege");
+                let title = args["title"].as_str().unwrap_or("");
+                let correction = args["correction"].as_str().unwrap_or("");
+                let db_path = crate::tools::resolve_kb_db_path();
+                if let Ok(conn) = rusqlite::Connection::open(&db_path) {
+                    let _ = conn.execute(
+                        "INSERT OR IGNORE INTO products (product_id, name, current_version) VALUES (?, ?, '1.0.0')",
+                        rusqlite::params![pid, pid],
+                    );
+                }
+                let mut propose_args = serde_json::json!({
+                    "product_id": pid,
+                    "subject_key": subject_key,
+                    "kind": kind,
+                    "source": "agent_discovery",
+                    "title": title,
+                    "correction": correction
+                });
+                if let Some(s) = args["symptom"].as_str() { propose_args["symptom"] = serde_json::json!(s); }
+                if let Some(c) = args["cause"].as_str() { propose_args["cause"] = serde_json::json!(c); }
+                if let Some(e) = args["example"].as_str() { propose_args["example"] = serde_json::json!(e); }
+                call_kb_mcp_tool("kb_propose", &propose_args)
+            }
             n if n.starts_with("mcp__") => {
                 match crate::mcp::client::call_prefixed_mcp_tool(self.conn, n, args) {
                     Ok(res) => res.to_string(),
@@ -855,6 +887,43 @@ pub fn detect_runtime_environment() -> String {
         .map(|p| p.display().to_string())
         .unwrap_or_else(|_| ".".to_string());
     format!("{}, CWD={}", base, cwd)
+}
+
+fn call_kb_mcp_tool(raw_name: &str, args: &Value) -> String {
+    let mut exe_candidates = vec![
+        std::path::PathBuf::from(r"D:\Tools\earnest-bcpe\kb.exe"),
+        std::path::PathBuf::from(r"earnest-bcpe\target\release\kb.exe"),
+        std::path::PathBuf::from(r"..\earnest-bcpe\target\release\kb.exe"),
+        std::path::PathBuf::from(r"..\..\earnest-bcpe\target\release\kb.exe"),
+        std::path::PathBuf::from(r"D:\Projet\Hernest\earnest-bcpe\target\release\kb.exe"),
+    ];
+    if let Ok(exe) = std::env::current_exe() {
+        if let Some(dir) = exe.parent() {
+            exe_candidates.push(dir.join("kb.exe"));
+            exe_candidates.push(dir.join(r"..\..\..\earnest-bcpe\target\release\kb.exe"));
+        }
+    }
+    let kb_exe = exe_candidates
+        .into_iter()
+        .find(|p| p.exists())
+        .unwrap_or_else(|| std::path::PathBuf::from(r"D:\Projet\Hernest\earnest-bcpe\target\release\kb.exe"));
+    let kb_db = crate::tools::resolve_kb_db_path();
+    let cfg = crate::mcp::client::McpServerConfig {
+        name: "bcpe".to_string(),
+        command: kb_exe.to_string_lossy().to_string(),
+        args: vec![
+            "serve".to_string(),
+            "--db".to_string(),
+            kb_db.to_string_lossy().to_string(),
+        ],
+    };
+    match crate::mcp::client::McpStdioClient::spawn(&cfg) {
+        Ok(mut client) => match client.call_tool(raw_name, args) {
+            Ok(res) => res.to_string(),
+            Err(e) => serde_json::json!({"status": "error", "error": e}).to_string(),
+        },
+        Err(e) => serde_json::json!({"status": "error", "error": e}).to_string(),
+    }
 }
 
 #[cfg(test)]

@@ -4,6 +4,29 @@ pub mod web;
 
 use serde_json::Value;
 
+pub fn resolve_kb_db_path() -> std::path::PathBuf {
+    let mut candidates = vec![
+        std::path::PathBuf::from("earnest-bcpe/kb.db"),
+        std::path::PathBuf::from("../earnest-bcpe/kb.db"),
+        std::path::PathBuf::from("../../earnest-bcpe/kb.db"),
+        std::path::PathBuf::from("kb.db"),
+    ];
+    if let Ok(exe) = std::env::current_exe() {
+        if let Some(dir) = exe.parent() {
+            candidates.push(dir.join("earnest-bcpe/kb.db"));
+            candidates.push(dir.join("../../../earnest-bcpe/kb.db"));
+            candidates.push(dir.join("../../../../earnest-bcpe/kb.db"));
+        }
+    }
+    if let Some(home) = std::env::var_os("USERPROFILE").or_else(|| std::env::var_os("HOME")) {
+        candidates.push(std::path::PathBuf::from(home).join(".local/share/earnest-bcpe/kb.db"));
+    }
+    candidates
+        .into_iter()
+        .find(|p| p.exists())
+        .unwrap_or_else(|| std::path::PathBuf::from("earnest-bcpe/kb.db"))
+}
+
 pub fn get_primitive_tools_schemas() -> Vec<Value> {
     vec![
         serde_json::json!({
@@ -127,6 +150,53 @@ pub fn get_primitive_tools_schemas() -> Vec<Value> {
                         "file_path": { "type": "string", "description": "Chemin cible optionnel" }
                     },
                     "required": ["title", "content"]
+                }
+            }
+        }),
+        serde_json::json!({
+            "type": "function",
+            "function": {
+                "name": "kb_list_products",
+                "description": "Liste tous les produits/technologies disponibles dans la base de connaissances d'expérience (BCPE) avant d'appeler kb_search.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {}
+                }
+            }
+        }),
+        serde_json::json!({
+            "type": "function",
+            "function": {
+                "name": "kb_search",
+                "description": "Recherche dans la base de connaissances d'expérience (BCPE) les pièges, règles et solutions connus pour un produit (appelle kb_list_products si tu ne connais pas le product_id exact, ex: 'powershell', 'rust', 'earnest').",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "product_id": { "type": "string", "description": "Identifiant du produit ou technologie (ex: 'powershell', 'rust', 'earnest')" },
+                        "query": { "type": "string", "description": "Mots-clés du problème rencontré, fonction ou symptôme" }
+                    },
+                    "required": ["product_id", "query"]
+                }
+            }
+        }),
+        serde_json::json!({
+            "type": "function",
+            "function": {
+                "name": "kb_propose",
+                "description": "Enregistre une découverte, un bug résolu ou un piège évité dans la base de connaissances d'expérience (BCPE) pour qu'il ne se reproduise plus jamais.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "product_id": { "type": "string", "description": "Identifiant du produit (ex: 'powershell', 'rust', 'earnest')" },
+                        "subject_key": { "type": "string", "description": "Clé slug unique du sujet (ex: 'powershell-pipe-syntax')" },
+                        "kind": { "type": "string", "description": "Type d'entrée: 'piege', 'regle', 'catalogue'" },
+                        "title": { "type": "string", "description": "Titre explicite du piège ou de la découverte" },
+                        "symptom": { "type": "string", "description": "Message d'erreur exact ou symptôme constaté" },
+                        "cause": { "type": "string", "description": "Cause racine technique identifiée" },
+                        "correction": { "type": "string", "description": "Solution technique exacte appliquée pour corriger" },
+                        "example": { "type": "string", "description": "Extrait de code minimal d'illustration (optionnel)" }
+                    },
+                    "required": ["product_id", "subject_key", "kind", "title", "correction"]
                 }
             }
         })

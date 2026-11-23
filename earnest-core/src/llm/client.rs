@@ -150,6 +150,7 @@ impl LLMClient {
         let mut completion_tokens = 0usize;
 
         let reader = BufReader::new(resp);
+        let mut cleaner = stream_cleaner::StreamCleaner::new();
         for line_res in reader.lines() {
             if is_cancelled() {
                 return Err("Run annulé par l'utilisateur.".to_string());
@@ -171,7 +172,13 @@ impl LLMClient {
                 reasoning.push_str(think_chunk);
             }
             if let Some(chunk) = msg["content"].as_str() {
-                content.push_str(chunk);
+                let out = cleaner.push(chunk);
+                if !out.thought.is_empty() {
+                    reasoning.push_str(&out.thought);
+                }
+                if !out.visible.is_empty() {
+                    content.push_str(&out.visible);
+                }
             }
             if let Some(arr) = msg["tool_calls"].as_array() {
                 for call in arr {
@@ -246,6 +253,7 @@ impl LLMClient {
         let mut completion_tokens = 0usize;
 
         let reader = BufReader::new(resp);
+        let mut cleaner = stream_cleaner::StreamCleaner::new();
         for line_res in reader.lines() {
             if is_cancelled() {
                 return Err("Run annulé par l'utilisateur.".to_string());
@@ -281,7 +289,13 @@ impl LLMClient {
                 reasoning.push_str(rc);
             }
             if let Some(c) = delta["content"].as_str() {
-                content.push_str(c);
+                let out = cleaner.push(c);
+                if !out.thought.is_empty() {
+                    reasoning.push_str(&out.thought);
+                }
+                if !out.visible.is_empty() {
+                    content.push_str(&out.visible);
+                }
             }
             if let Some(tcs) = delta["tool_calls"].as_array() {
                 for tc in tcs {

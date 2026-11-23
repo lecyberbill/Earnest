@@ -172,16 +172,17 @@ Add EARNEST to your MCP client configuration (`claude_desktop_config.json` or `m
 
 ```text
 Ernest/
-├── crates/                     # Pure-Rust zero-dep crates (atomic-patch, symbol-index, loop-detector, tool-guard, token-compactor, agent-scheduler, log-sanitizer, context-trimmer, tool-output-cache, retry-budget, json-repair, kv-wal-engine, stream-cleaner)
-├── earnest/                    # Python Core: Agent runtime, tools, DB & telemetry
-├── earnest-core/               # Rust Native Engine: High performance ReAct loop, SSE streaming & server
+├── crates/                     # Pure-Rust zero-dep crates (agent-scheduler, atomic-patch, context-trimmer, json-repair, kv-wal-engine, log-sanitizer, loop-detector, react-resilience, retry-budget, stream-cleaner, symbol-index, token-compactor, tool-guard, tool-output-cache)
+├── docs/                       # Architecture specs, technical reports & Qwen 3.8 benchmarks
+├── earnest-bcpe/               # Experience Knowledge Base (RAG, CLI & MCP server)
+├── earnest-core/               # Rust Native Engine: ReAct loop, DAG pipelines, SSE streaming & HTTP server
 ├── earnest-ide/                # Governance IDE
-│   ├── core/                   # Rust backend: MCP server, Shadow Worktree, Invariants
+│   ├── core/                   # Rust backend: MCP server, Shadow Worktree, Invariants, generic LSP
 │   ├── src-tauri/              # Desktop wrapper (Tauri v2)
-│   └── ui/                     # Vanilla JS + Monaco Editor UI cockpit
-├── earnest-bcpe/               # Experience Knowledge Base (RAG & Incident Memory)
-├── ui/                         # Operation Center Cockpit (Vanilla Web Components + Tauri)
-├── tests/                      # Formal test suites & Invariant verification harness
+│   └── ui/                     # Vanilla ES Modules + Monaco Editor UI cockpit
+├── earnest-wf-engine/          # Deterministic WFL Workflow Engine (wf-core, wf-mcp, wf-ui)
+├── src-tauri/                  # Operation Center Desktop wrapper (Tauri v2)
+├── ui/                         # Operation Center Cockpit (Vanilla Web Components + WFL Studio)
 └── .ide/                       # Project-level governance policy & invariant definitions
 ```
 

@@ -34,7 +34,13 @@ When an LLM writes code directly to your working tree:
 **EARNEST changes the paradigm:** An agent should **never** write directly to the working tree. Instead, software evolution must follow a **formal proof cycle** backed by cryptographic invariants and isolated git worktrees.
 
 ---
+Ernet IDE
 <img width="1725" height="1046" alt="image" src="https://github.com/user-attachments/assets/3a7d032b-e9e5-46a7-b35f-87bdfcb0b33d" />
+
+Ernest Agent center 
+<img width="1717" height="958" alt="image" src="https://github.com/user-attachments/assets/c4a3965d-9b2e-4e06-a0eb-1d0f71782c87" />
+<img width="1707" height="978" alt="image" src="https://github.com/user-attachments/assets/79342eef-8e01-4adc-9826-631788b48966" />
+
 
 ---
 ## 🏛️ Architecture: The EARNEST Triad

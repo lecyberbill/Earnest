@@ -8,6 +8,7 @@ export class KbView {
         this.currentFilterProduct = '';
         this.searchQuery = '';
         this.selectedEntryId = null;
+        this.editingEntryId = null;
         this.init();
     }
 
@@ -350,10 +351,18 @@ export class KbView {
         const btnSubmit = this.container.querySelector('#kb-modal-submit');
 
         btnNew.addEventListener('click', () => {
+            this.editingEntryId = null;
             this.renderProductSelectors();
+            const t = (k) => (window.t ? window.t(k) : k);
+            const titleEl = modal.querySelector('span');
+            if (titleEl) titleEl.textContent = t('kb.modal_title');
+            this.container.querySelector('#kb-new-title').value = '';
+            this.container.querySelector('#kb-new-symptom').value = '';
+            this.container.querySelector('#kb-new-correction').value = '';
+            this.container.querySelector('#kb-new-example').value = '';
             modal.style.display = 'flex';
         });
-        const closeModal = () => modal.style.display = 'none';
+        const closeModal = () => { this.editingEntryId = null; modal.style.display = 'none'; };
         btnClose.addEventListener('click', closeModal);
         btnCancel.addEventListener('click', closeModal);
 
@@ -371,31 +380,38 @@ export class KbView {
                 return;
             }
 
-            // Déduplication : vérifier si un titre similaire existe déjà
-            const normTitle = title.toLowerCase();
-            const duplicate = this.entries.find(e => e.title && e.title.toLowerCase() === normTitle);
-            if (duplicate && !confirm(t('kb.confirm_dup').replace('{title}', duplicate.title))) {
-                return;
+            if (!this.editingEntryId) {
+                const normTitle = title.toLowerCase();
+                const duplicate = this.entries.find(e => e.title && e.title.toLowerCase() === normTitle);
+                if (duplicate && !confirm(t('kb.confirm_dup').replace('{title}', duplicate.title))) {
+                    return;
+                }
             }
 
             btnSubmit.disabled = true;
             btnSubmit.textContent = t('kb.saving');
 
             try {
-                const res = await fetch('/api/ide/kb/create', {
+                const isEdit = Boolean(this.editingEntryId);
+                const endpoint = isEdit ? '/api/ide/kb/update' : '/api/ide/kb/create';
+                const payload = isEdit
+                    ? { entry_id: this.editingEntryId, product_id, kind, title, symptom, correction, example }
+                    : { product_id, kind, title, symptom, correction, example, author: 'human_expert' };
+                const res = await fetch(endpoint, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ product_id, kind, title, symptom, correction, example, author: 'human_expert' })
+                    body: JSON.stringify(payload)
                 });
                 const data = await res.json();
-                if (data.status === 'CREATED') {
+                if (data.status === 'CREATED' || data.status === 'UPDATED') {
+                    const savedId = data.entry_id || this.editingEntryId;
                     closeModal();
                     this.container.querySelector('#kb-new-title').value = '';
                     this.container.querySelector('#kb-new-symptom').value = '';
                     this.container.querySelector('#kb-new-correction').value = '';
                     this.container.querySelector('#kb-new-example').value = '';
                     await this.loadEntries();
-                    this.selectedEntryId = data.entry_id;
+                    this.selectedEntryId = savedId;
                     this.filterAndRender();
                 } else {
                     alert(`${t('kb.err_prefix')} ${data.error || 'Failed'}`);
@@ -601,9 +617,14 @@ export class KbView {
                             ${t('kb.btn_validate_seal')}
                         </button>
                     `}
-                    <button id="kb-btn-delete-entry" class="icon-btn" style="border: 1px solid rgba(244, 63, 94, 0.35); padding: 3px 9px; font-size: 0.7rem; border-radius: 4px; color: #fb7185;" title="${t('kb.btn_delete')}">
-                        🗑️ ${t('kb.btn_delete')}
-                    </button>
+                    <div style="display: flex; gap: 0.4rem;">
+                        <button id="kb-btn-edit-entry" class="icon-btn" style="border: 1px solid rgba(56, 189, 248, 0.4); padding: 3px 9px; font-size: 0.7rem; border-radius: 4px; color: var(--accent-cyan);" title="${t('kb.btn_edit')}">
+                            ✏️ ${t('kb.btn_edit')}
+                        </button>
+                        <button id="kb-btn-delete-entry" class="icon-btn" style="border: 1px solid rgba(244, 63, 94, 0.35); padding: 3px 9px; font-size: 0.7rem; border-radius: 4px; color: #fb7185;" title="${t('kb.btn_delete')}">
+                            🗑️ ${t('kb.btn_delete')}
+                        </button>
+                    </div>
                 </div>
             </div>
 
@@ -649,6 +670,29 @@ export class KbView {
         `;
 
         // Événements du panneau de détail
+        const btnEdit = detailPane.querySelector('#kb-btn-edit-entry');
+        if (btnEdit) {
+            btnEdit.addEventListener('click', () => {
+                const modal = this.container.querySelector('#kb-modal-new');
+                if (!modal) return;
+                this.editingEntryId = item.entry_id;
+                this.renderProductSelectors();
+                const titleEl = modal.querySelector('span');
+                if (titleEl) {
+                    const tpl = window.t ? window.t('kb.modal_edit_title') : '✏️ EDIT ENTRY #{id}';
+                    titleEl.textContent = tpl.replace('{id}', item.entry_id);
+                }
+                this.container.querySelector('#kb-new-kind').value = item.kind || 'regle';
+                const prodSel = this.container.querySelector('#kb-new-product');
+                if (prodSel) prodSel.value = item.product_id || 'earnest';
+                this.container.querySelector('#kb-new-title').value = item.title || '';
+                this.container.querySelector('#kb-new-symptom').value = item.symptom || '';
+                this.container.querySelector('#kb-new-correction').value = item.correction || '';
+                this.container.querySelector('#kb-new-example').value = item.example || '';
+                modal.style.display = 'flex';
+            });
+        }
+
         const btnDelete = detailPane.querySelector('#kb-btn-delete-entry');
         if (btnDelete) {
             btnDelete.addEventListener('click', async () => {

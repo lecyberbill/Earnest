@@ -2358,6 +2358,70 @@ Garde l'indentation appropriée.";
             return;
         }
 
+        // --- BASE DE CONNAISSANCES D'EXPÉRIENCE (BCPE) : MISE À JOUR D'UNE ENTRÉE ---
+        if path == "/api/ide/kb/update" {
+            let entry_id = payload["entry_id"].as_i64().unwrap_or(0);
+            let product_id = payload["product_id"].as_str().unwrap_or("earnest").trim();
+            let kind = payload["kind"].as_str().unwrap_or("regle");
+            let title = payload["title"].as_str().unwrap_or("").trim();
+            let symptom = payload["symptom"].as_str().unwrap_or("").trim();
+            let cause = payload["cause"].as_str().unwrap_or("").trim();
+            let correction = payload["correction"].as_str().unwrap_or("").trim();
+            let example = payload["example"].as_str().unwrap_or("").trim();
+
+            if entry_id <= 0 || title.is_empty() || correction.is_empty() {
+                let resp = Response::from_string(serde_json::json!({"status": "error", "error": "entry_id, titre et solution sont obligatoires"}).to_string())
+                    .with_status_code(400).with_header(json_header).with_header(cors_header);
+                req.respond(resp).ok();
+                return;
+            }
+            let kb_path = resolve_kb_db_path();
+            let now = chrono::Utc::now().to_rfc3339();
+            if let Ok(conn) = rusqlite::Connection::open(&kb_path) {
+                conn.execute(
+                    "INSERT OR IGNORE INTO products (product_id, name, current_version) VALUES (?, ?, '1.0.0')",
+                    rusqlite::params![product_id, product_id],
+                ).ok();
+                match conn.execute(
+                    "UPDATE entries SET product_id = ?, kind = ?, title = ?, symptom = ?, cause = ?, correction = ?, example = ?, updated_at = ? WHERE entry_id = ?",
+                    rusqlite::params![
+                        product_id,
+                        kind,
+                        title,
+                        if symptom.is_empty() { None } else { Some(symptom) },
+                        if cause.is_empty() { None } else { Some(cause) },
+                        correction,
+                        if example.is_empty() { None } else { Some(example) },
+                        now,
+                        entry_id
+                    ],
+                ) {
+                    Ok(n) if n > 0 => {
+                        let resp = Response::from_string(serde_json::json!({"status": "UPDATED", "entry_id": entry_id}).to_string())
+                            .with_header(json_header).with_header(cors_header);
+                        req.respond(resp).ok();
+                        return;
+                    }
+                    Ok(_) => {
+                        let resp = Response::from_string(serde_json::json!({"status": "error", "error": "Entrée introuvable"}).to_string())
+                            .with_status_code(404).with_header(json_header).with_header(cors_header);
+                        req.respond(resp).ok();
+                        return;
+                    }
+                    Err(e) => {
+                        let resp = Response::from_string(serde_json::json!({"status": "error", "error": format!("{}", e)}).to_string())
+                            .with_status_code(500).with_header(json_header).with_header(cors_header);
+                        req.respond(resp).ok();
+                        return;
+                    }
+                }
+            }
+            let resp = Response::from_string(serde_json::json!({"status": "error", "error": "Impossible d'ouvrir kb.db"}).to_string())
+                .with_status_code(500).with_header(json_header).with_header(cors_header);
+            req.respond(resp).ok();
+            return;
+        }
+
         // --- BASE DE CONNAISSANCES D'EXPÉRIENCE (BCPE) : SUPPRESSION D'UNE ENTRÉE ---
         if path == "/api/ide/kb/delete" {
             let entry_id = payload["entry_id"].as_i64().unwrap_or(0);

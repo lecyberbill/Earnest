@@ -133,10 +133,22 @@ impl<'a> RuntimeCtx<'a> {
     fn render_str(&self, template: &str) -> String {
         let mut out = String::with_capacity(template.len());
         let mut rest = template;
-        while let Some(start) = rest.find("{{") {
+        while !rest.is_empty() {
+            let next_brace = rest.find("{{");
+            let next_dollar = rest.find("${");
+            let (start, open, close) = match (next_brace, next_dollar) {
+                (Some(a), Some(b)) if a <= b => (a, "{{", "}}"),
+                (Some(_), Some(b)) => (b, "${", "}"),
+                (Some(a), None) => (a, "{{", "}}"),
+                (None, Some(b)) => (b, "${", "}"),
+                (None, None) => {
+                    out.push_str(rest);
+                    break;
+                }
+            };
             out.push_str(&rest[..start]);
-            let after = &rest[start + 2..];
-            if let Some(end) = after.find("}}") {
+            let after = &rest[start + open.len()..];
+            if let Some(end) = after.find(close) {
                 let expr = after[..end].trim();
                 let rendered = match self.resolve_path_expr(expr) {
                     Some(Value::String(s)) => s,
@@ -146,13 +158,12 @@ impl<'a> RuntimeCtx<'a> {
                     Some(other) => other.to_string(),
                 };
                 out.push_str(&rendered);
-                rest = &after[end + 2..];
+                rest = &after[end + close.len()..];
             } else {
-                out.push_str("{{");
+                out.push_str(open);
                 rest = after;
             }
         }
-        out.push_str(rest);
         out
     }
 

@@ -1191,9 +1191,14 @@ export class WorkflowStudio {
         const insertRef = (vn) => {
             const target = lastFocusedInput || insp.querySelector('#wfi-cond') || insp.querySelector('#wfi-specific input[type="text"], #wfi-specific textarea');
             if (!target) return;
-            const pos = target.selectionStart ?? target.value.length;
             const refText = `\${vars.${vn}}`;
-            target.value = target.value.slice(0, pos) + refText + target.value.slice(pos);
+            if (target.value.trim() === '.') {
+                target.value = refText;
+            } else {
+                const start = target.selectionStart ?? target.value.length;
+                const end = target.selectionEnd ?? start;
+                target.value = target.value.slice(0, start) + refText + target.value.slice(end);
+            }
             target.dispatchEvent(new Event('input', { bubbles: true }));
             target.focus();
         };

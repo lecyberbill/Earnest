@@ -2,6 +2,8 @@ import { KbView } from './components/kb-view.js';
 import { initLspSettings } from './features/lsp-settings.js';
 import { registerLspProviders, refreshLspDiagnostics } from './features/monaco-lsp.js';
 import { startFileWatcher } from './features/file-watcher.js';
+import { updateGovernanceContractsBar } from './features/governance-bar.js';
+import { initChatFileLinks } from './features/chat-links.js';
 
 function renderSafeMarkdown(rawText) {
     const text = String(rawText || '');
@@ -1286,6 +1288,16 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     const { loadLspCatalog, checkLspForLanguage } = initLspSettings(state);
+    initChatFileLinks({
+        chatStream,
+        openFileAt: async (filePath, line) => {
+            await openFile(filePath);
+            if (line && editorInstance) {
+                editorInstance.revealLineInCenter(line);
+                editorInstance.setPosition({ lineNumber: line, column: 1 });
+            }
+        }
+    });
 
     // ====================================================
     // 5. COMMAND PALETTE & QUICK FILE OPEN (CTRL + P)
@@ -3197,6 +3209,7 @@ document.addEventListener('DOMContentLoaded', () => {
                     ? `Mode Contraint : ${data.contracts.count} contrat(s) scellé(s) SHA-256`
                     : 'Alerte : Sceau cryptographique non vérifié !';
             }
+            updateGovernanceContractsBar(data, state.currentRoot);
         } catch (e) {
             console.error('Erreur refresh gouvernance:', e);
         }

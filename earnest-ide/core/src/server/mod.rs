@@ -748,6 +748,48 @@ fn handle_request(mut req: tiny_http::Request) {
             return;
         }
 
+        if path == "/api/ide/governance/shadow_diff" {
+            let root_str = query.get("root").map(|s| s.as_str()).unwrap_or(".");
+            let shadow_dir = PathBuf::from(root_str).join(".ide").join("shadow_worktree");
+            let out = if shadow_dir.exists() {
+                let status_out = crate::hidden_command("git")
+                    .args(["status", "--porcelain", "-uall"])
+                    .current_dir(&shadow_dir)
+                    .output()
+                    .ok()
+                    .map(|o| String::from_utf8_lossy(&o.stdout).to_string())
+                    .unwrap_or_default();
+                let diff_out = crate::hidden_command("git")
+                    .args(["diff", "--no-color"])
+                    .current_dir(&shadow_dir)
+                    .output()
+                    .ok()
+                    .map(|o| String::from_utf8_lossy(&o.stdout).to_string())
+                    .unwrap_or_default();
+                let files: Vec<String> = status_out
+                    .lines()
+                    .map(|l| l.trim().to_string())
+                    .filter(|l| !l.is_empty())
+                    .collect();
+                serde_json::json!({
+                    "shadow_exists": true,
+                    "files": files,
+                    "diff": diff_out
+                })
+            } else {
+                serde_json::json!({
+                    "shadow_exists": false,
+                    "files": [],
+                    "diff": ""
+                })
+            };
+            let resp = Response::from_string(out.to_string())
+                .with_header(json_header)
+                .with_header(cors_header);
+            req.respond(resp).ok();
+            return;
+        }
+
         // --- GOUVERNANCE PAR INVARIANTS : AUDIT LOG ---
         if path == "/api/ide/governance/audit" {
             let root_str = query.get("root").map(|s| s.as_str()).unwrap_or(".");

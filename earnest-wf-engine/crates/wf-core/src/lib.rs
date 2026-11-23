@@ -16,3 +16,8 @@ pub use validator::{validate_workflow, workflow_sha256, ValidationError, Validat
 pub fn parse_workflow_yaml(yaml: &str) -> Result<WorkflowSpec, String> {
     serde_yaml_ng::from_str::<WorkflowSpec>(yaml).map_err(|e| format!("Erreur parsing YAML WFL : {}", e))
 }
+
+/// Sérialise un [`WorkflowSpec`] en YAML WFL.
+pub fn serialize_workflow_yaml(spec: &WorkflowSpec) -> Result<String, String> {
+    serde_yaml_ng::to_string(spec).map_err(|e| format!("Erreur sérialisation YAML WFL : {}", e))
+}

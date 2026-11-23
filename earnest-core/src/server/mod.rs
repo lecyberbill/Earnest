@@ -212,6 +212,30 @@ fn handle_request(mut req: tiny_http::Request) {
             return;
         }
 
+        if path == "/api/workflows/detail" {
+            let ws = discover_wf_workspace();
+            let name = query.get("name").map(|s| s.as_str()).unwrap_or("");
+            let resp = match wf_core::WfStore::open(&ws.join(".wf").join("wf.db")) {
+                Ok(store) => match store.get_workflow(name) {
+                    Ok(Some(rec)) => {
+                        let spec = wf_core::parse_workflow_yaml(&rec.yaml_source).ok();
+                        let runs = store.list_runs(Some(name), 15).unwrap_or_default();
+                        Response::from_string(serde_json::json!({
+                            "status": "ok",
+                            "workflow": rec,
+                            "spec": spec,
+                            "runs": runs
+                        }).to_string())
+                    }
+                    Ok(None) => Response::from_string(serde_json::json!({"status": "error", "error": format!("Workflow '{}' introuvable", name)}).to_string()).with_status_code(404),
+                    Err(e) => Response::from_string(serde_json::json!({"status": "error", "error": e}).to_string()).with_status_code(500),
+                },
+                Err(e) => Response::from_string(serde_json::json!({"status": "error", "error": e}).to_string()).with_status_code(500),
+            };
+            req.respond(resp.with_header(json_header).with_header(cors_header)).ok();
+            return;
+        }
+
         if path == "/api/tools" {
             let mut tools = Vec::new();
             // Primitives système
@@ -835,6 +859,81 @@ fn handle_request(mut req: tiny_http::Request) {
                     }
                 }
                 Err(e) => Response::from_string(serde_json::json!({"status": "error", "error": e}).to_string()).with_status_code(500),
+            };
+            req.respond(resp.with_header(json_header).with_header(cors_header)).ok();
+            return;
+        }
+
+        if path == "/api/workflows/validate" {
+            let parsed_spec: Result<wf_core::WorkflowSpec, String> = if let Some(y) = body["yaml"].as_str() {
+                wf_core::parse_workflow_yaml(y)
+            } else {
+                serde_json::from_value::<wf_core::WorkflowSpec>(body["spec"].clone())
+                    .map_err(|e| format!("Schéma WFL invalide : {}", e))
+            };
+            let resp = match parsed_spec {
+                Ok(spec) => {
+                    let report = wf_core::validate_workflow(&spec);
+                    let yaml_str = wf_core::serialize_workflow_yaml(&spec).unwrap_or_default();
+                    Response::from_string(serde_json::json!({
+                        "status": "ok",
+                        "report": report,
+                        "spec": spec,
+                        "yaml": yaml_str
+                    }).to_string())
+                }
+                Err(e) => Response::from_string(serde_json::json!({
+                    "status": "error",
+                    "error": e
+                }).to_string()).with_status_code(400),
+            };
+            req.respond(resp.with_header(json_header).with_header(cors_header)).ok();
+            return;
+        }
+
+        if path == "/api/workflows/save" {
+            let ws = discover_wf_workspace();
+            let parsed_spec: Result<wf_core::WorkflowSpec, String> = if let Some(y) = body["yaml"].as_str() {
+                wf_core::parse_workflow_yaml(y)
+            } else {
+                serde_json::from_value::<wf_core::WorkflowSpec>(body["spec"].clone())
+                    .map_err(|e| format!("Schéma WFL invalide : {}", e))
+            };
+            let resp = match parsed_spec {
+                Ok(spec) => {
+                    let report = wf_core::validate_workflow(&spec);
+                    if !report.valid {
+                        let msg = report.errors.iter().map(|e| format!("{}: {}", e.path, e.message)).collect::<Vec<_>>().join(" | ");
+                        Response::from_string(serde_json::json!({
+                            "status": "error",
+                            "error": msg,
+                            "report": report
+                        }).to_string()).with_status_code(400)
+                    } else {
+                        let wf_dir = ws.join("workflows");
+                        let _ = std::fs::create_dir_all(&wf_dir);
+                        let safe_name: String = spec.name.chars().map(|c| if c.is_ascii_alphanumeric() || c == '-' || c == '_' { c } else { '_' }).collect();
+                        let file_path = wf_dir.join(format!("{}.wf.yaml", if safe_name.is_empty() { "workflow" } else { &safe_name }));
+                        match wf_core::WfStore::open(&ws.join(".wf").join("wf.db")) {
+                            Ok(store) => match store.save_draft(&spec, &file_path) {
+                                Ok(rec) => {
+                                    if let Some(folder) = body["folder"].as_str() {
+                                        let _ = store.set_workflow_folder(&spec.name, folder);
+                                    }
+                                    Response::from_string(serde_json::json!({
+                                        "status": "ok",
+                                        "workflow": rec,
+                                        "spec": spec,
+                                        "report": report
+                                    }).to_string())
+                                }
+                                Err(e) => Response::from_string(serde_json::json!({"status": "error", "error": e}).to_string()).with_status_code(400),
+                            },
+                            Err(e) => Response::from_string(serde_json::json!({"status": "error", "error": e}).to_string()).with_status_code(500),
+                        }
+                    }
+                }
+                Err(e) => Response::from_string(serde_json::json!({"status": "error", "error": e}).to_string()).with_status_code(400),
             };
             req.respond(resp.with_header(json_header).with_header(cors_header)).ok();
             return;

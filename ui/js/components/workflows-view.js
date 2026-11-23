@@ -1,9 +1,12 @@
+import { WorkflowStudio, createEmptyWorkflow } from './workflow-studio.js';
+
 export class WorkflowsView extends HTMLElement {
     constructor() {
         super();
         this.workflows = [];
         this.runs = [];
         this.folderFilter = 'ALL';
+        this.studio = null;
     }
 
     connectedCallback() {
@@ -25,6 +28,7 @@ export class WorkflowsView extends HTMLElement {
                             <select id="wf-folder-filter" style="background: rgba(15, 23, 42, 0.9); border: 1px solid var(--border-subtle); color: var(--accent-cyan); border-radius: var(--radius-sm); height: 34px; padding: 0 0.7rem; font-family: var(--font-mono); font-size: 0.8rem;">
                                 <option value="ALL">ALL</option>
                             </select>
+                            <button class="btn-primary" id="btn-new-wf-studio" style="padding: 0.35rem 0.85rem; font-size: 0.8rem; background: #10b981; border-color: #059669;">+ Nouveau Flux</button>
                             <button class="btn-primary" id="btn-refresh-wf" style="padding: 0.35rem 0.85rem; font-size: 0.8rem;" data-i18n="art.refresh">Rafraîchir</button>
                         </div>
                     </div>
@@ -46,6 +50,13 @@ export class WorkflowsView extends HTMLElement {
                     </table>
                 </div>
 
+                <div class="card" id="wf-studio-card" style="margin-bottom: 0;">
+                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.65rem;">
+                        <h2 style="margin: 0; font-size: 0.95rem; color: var(--accent-cyan);">🧩 Studio Visuel WFL (Fortra Automate Mode)</h2>
+                    </div>
+                    <div id="wf-studio-mount"></div>
+                </div>
+
                 <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1.25rem;">
                     <div class="card" style="margin-bottom: 0;">
                         <h2 data-i18n="wf.runs_title" style="margin-bottom: 0.65rem;">Historique des Runs WFL</h2>
@@ -60,6 +71,21 @@ export class WorkflowsView extends HTMLElement {
         `;
 
         if (window.applyI18n) window.applyI18n(this);
+        this.studio = new WorkflowStudio(this.querySelector('#wf-studio-mount'), {
+            onSaved: () => this.loadData(),
+            onStatus: (data, ok) => {
+                const inspector = this.querySelector('#wf-run-inspector');
+                if (inspector) {
+                    inspector.style.color = ok ? 'var(--accent-emerald)' : 'var(--accent-rose)';
+                    inspector.textContent = JSON.stringify(data, null, 2);
+                }
+            }
+        });
+        this.querySelector('#btn-new-wf-studio').addEventListener('click', () => {
+            const n = `flux_${Math.floor(Date.now() / 1000).toString().slice(-4)}`;
+            this.studio.loadWorkflow({ spec: createEmptyWorkflow(n), folder: 'General', status: 'draft' });
+            this.querySelector('#wf-studio-card').scrollIntoView({ behavior: 'smooth', block: 'start' });
+        });
         this.querySelector('#btn-refresh-wf').addEventListener('click', () => this.loadData());
         this.querySelector('#wf-folder-filter').addEventListener('change', (e) => {
             this.folderFilter = e.target.value;
@@ -135,11 +161,13 @@ export class WorkflowsView extends HTMLElement {
                 <td><button class="btn-bubble-action" data-act="toggle" style="cursor: pointer;">${enBadge}</button></td>
                 <td><button class="btn-bubble-action" data-act="cron" style="cursor: pointer; font-family: var(--font-mono); font-size: 0.75rem;">${w.cron_expr || 'Manual'}</button></td>
                 <td style="display: flex; gap: 0.35rem; flex-wrap: wrap;">
+                    <button class="btn-bubble-action" data-act="edit" style="cursor: pointer; border-color: rgba(56,189,248,0.5); color: #38bdf8;">✏️ Éditer</button>
                     <button class="btn-bubble-action" data-act="dry_run" style="cursor: pointer;">Dry-Run</button>
                     <button class="btn-bubble-action" data-act="seal" style="cursor: pointer;">Seal</button>
                     <button class="btn-primary" data-act="run" style="padding: 0.25rem 0.6rem; font-size: 0.75rem;">Run</button>
                 </td>
             `;
+            tr.querySelector('[data-act="edit"]').addEventListener('click', () => this.openInStudio(w));
             tr.querySelector('[data-act="dry_run"]').addEventListener('click', () => this.callAction({ action: 'dry_run', name: w.name }));
             tr.querySelector('[data-act="seal"]').addEventListener('click', () => this.callAction({ action: 'seal', name: w.name }));
             tr.querySelector('[data-act="run"]').addEventListener('click', () => this.callAction({ action: 'run', name: w.name }));
@@ -154,6 +182,26 @@ export class WorkflowsView extends HTMLElement {
             });
             tbody.appendChild(tr);
         });
+    }
+
+    async openInStudio(w) {
+        const inspector = this.querySelector('#wf-run-inspector');
+        try {
+            const res = await fetch(`/api/workflows/detail?name=${encodeURIComponent(w.name)}`);
+            const data = await res.json();
+            if (!res.ok || !data.spec) throw new Error(data.error || 'Workflow spec introuvable');
+            this.studio.loadWorkflow({
+                spec: data.spec,
+                folder: data.workflow?.folder || w.folder || 'General',
+                status: data.workflow?.status || w.status || 'draft'
+            });
+            this.querySelector('#wf-studio-card').scrollIntoView({ behavior: 'smooth', block: 'start' });
+        } catch (e) {
+            if (inspector) {
+                inspector.style.color = 'var(--accent-rose)';
+                inspector.textContent = e.message;
+            }
+        }
     }
 
     renderRuns() {

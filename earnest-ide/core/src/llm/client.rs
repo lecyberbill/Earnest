@@ -180,6 +180,7 @@ impl LLMClient {
         }
 
         let reader = BufReader::new(resp);
+        let mut cleaner = stream_cleaner::StreamCleaner::new();
         let mut content = String::new();
         let mut tool_calls = Vec::new();
         let mut prompt_tokens = 0usize;
@@ -206,10 +207,14 @@ impl LLMClient {
                 }
             }
             if let Some(chunk) = msg["content"].as_str() {
-                if !chunk.is_empty() {
-                    on_token("content", chunk);
+                let out = cleaner.push(chunk);
+                if !out.thought.is_empty() {
+                    on_token("thinking", &out.thought);
                 }
-                content.push_str(chunk);
+                if !out.visible.is_empty() {
+                    on_token("content", &out.visible);
+                    content.push_str(&out.visible);
+                }
             }
             if let Some(arr) = msg["tool_calls"].as_array() {
                 for call in arr {
@@ -292,6 +297,7 @@ impl LLMClient {
         }
 
         let reader = BufReader::new(resp);
+        let mut cleaner = stream_cleaner::StreamCleaner::new();
         let mut content = String::new();
         let mut reasoning = String::new();
         let mut finish_reason = String::new();
@@ -335,9 +341,14 @@ impl LLMClient {
                 }
             }
             if let Some(c) = delta["content"].as_str() {
-                if !c.is_empty() {
-                    on_token("content", c);
-                    content.push_str(c);
+                let out = cleaner.push(c);
+                if !out.thought.is_empty() {
+                    on_token("thinking", &out.thought);
+                    reasoning.push_str(&out.thought);
+                }
+                if !out.visible.is_empty() {
+                    on_token("content", &out.visible);
+                    content.push_str(&out.visible);
                 }
             }
             if let Some(arr) = delta["tool_calls"].as_array() {

@@ -1,7 +1,14 @@
 import { KbView } from './components/kb-view.js';
 import { initLspSettings } from './features/lsp-settings.js';
-import { registerLspProviders } from './features/monaco-lsp.js';
+import { registerLspProviders, refreshLspDiagnostics } from './features/monaco-lsp.js';
 import { startFileWatcher } from './features/file-watcher.js';
+
+function renderSafeMarkdown(rawText) {
+    const text = String(rawText || '');
+    const escaped = text.replace(/<\/?(?:think|thought)>/gi, (m) => `&lt;${m.slice(1, -1)}&gt;`);
+    if (typeof marked !== 'undefined') return marked.parse(escaped);
+    return escaped.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+}
 
 document.addEventListener('DOMContentLoaded', () => {
     // ====================================================
@@ -736,6 +743,7 @@ document.addEventListener('DOMContentLoaded', () => {
             statusLang.textContent = getMonacoLanguage(tab.path).toUpperCase();
             if (state.isDiffMode) updateDiffModels();
             checkLspForLanguage(getMonacoLanguage(tab.path));
+            setTimeout(() => refreshLspDiagnostics(editorInstance, tab, state.currentRoot), 600);
         }
         renderTabs();
     }
@@ -2376,7 +2384,7 @@ document.addEventListener('DOMContentLoaded', () => {
                             const rawThought = `💭 ${payload.payload || ''}`;
                             const contentEl = document.createElement('div');
                             contentEl.className = 'markdown-body';
-                            contentEl.innerHTML = typeof marked !== 'undefined' ? marked.parse(rawThought) : escapeHtml(rawThought);
+                            contentEl.innerHTML = renderSafeMarkdown(rawThought);
                             thoughtDiv.appendChild(contentEl);
 
                             if (rawThought.split('\n').length > 10 || rawThought.length > 600) {
@@ -2459,7 +2467,7 @@ document.addEventListener('DOMContentLoaded', () => {
                                 state.copilotHistoryByRoot[projKey].push({ role: 'assistant', text: ansText });
                                 state.copilotHistoryByRoot[projKey] = state.copilotHistoryByRoot[projKey].slice(-8);
                             }
-                            finalAnswer.innerHTML = typeof marked !== 'undefined' ? marked.parse(ansText) : escapeHtml(ansText);
+                            finalAnswer.innerHTML = renderSafeMarkdown(ansText);
                             assistantBubble.appendChild(finalAnswer);
 
                             const metaDiv = document.createElement('div');

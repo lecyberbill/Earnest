@@ -1,8 +1,58 @@
 /**
+ * Demande les diagnostics LSP en direct et applique les marqueurs Monaco.
+ */
+export async function refreshLspDiagnostics(editor, tab, rootPath) {
+    if (!editor || !tab || !window.monaco) return;
+    const model = tab.monacoModel || editor.getModel();
+    if (!model) return;
+    const lang = model.getLanguageId ? model.getLanguageId() : 'plaintext';
+    if (!lang || lang === 'plaintext') return;
+    try {
+        const res = await fetch('/api/ide/lsp/diagnostics', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                language: lang,
+                root: rootPath || '.',
+                path: tab.path,
+                code: model.getValue()
+            })
+        });
+        if (!res.ok) return;
+        const data = await res.json();
+        const diags = Array.isArray(data.diagnostics) ? data.diagnostics : [];
+        const markers = diags.map(d => ({
+            startLineNumber: d.start_line || 1,
+            startColumn: d.start_col || 1,
+            endLineNumber: d.end_line || d.start_line || 1,
+            endColumn: d.end_col || (d.start_col ? d.start_col + 1 : 2),
+            message: d.message || '',
+            severity: d.severity === 1
+                ? monaco.MarkerSeverity.Error
+                : d.severity === 2
+                    ? monaco.MarkerSeverity.Warning
+                    : monaco.MarkerSeverity.Info
+        }));
+        monaco.editor.setModelMarkers(model, 'earnest-lsp', markers);
+    } catch (e) { }
+}
+
+/**
  * Enregistre les providers LSP Monaco (complétion, survol, définition, signatures)
  * reliés au backend générique JSON-RPC 2.0 /api/ide/lsp/*.
  */
 export function registerLspProviders({ state, getActiveTab, openFile, getEditor }) {
+    let diagTimer = null;
+    const editor = getEditor ? getEditor() : null;
+    if (editor && editor.onDidChangeModelContent) {
+        editor.onDidChangeModelContent(() => {
+            clearTimeout(diagTimer);
+            diagTimer = setTimeout(() => {
+                const tab = getActiveTab();
+                if (tab) refreshLspDiagnostics(getEditor(), tab, state.currentRoot);
+            }, 700);
+        });
+    }
     const supportedLangs = [
         'python', 'rust', 'go', 'c', 'cpp',
         'html', 'css', 'json', 'yaml', 'ini',

@@ -601,6 +601,9 @@ export class KbView {
                             ${t('kb.btn_validate_seal')}
                         </button>
                     `}
+                    <button id="kb-btn-delete-entry" class="icon-btn" style="border: 1px solid rgba(244, 63, 94, 0.35); padding: 3px 9px; font-size: 0.7rem; border-radius: 4px; color: #fb7185;" title="${t('kb.btn_delete')}">
+                        🗑️ ${t('kb.btn_delete')}
+                    </button>
                 </div>
             </div>
 
@@ -646,6 +649,33 @@ export class KbView {
         `;
 
         // Événements du panneau de détail
+        const btnDelete = detailPane.querySelector('#kb-btn-delete-entry');
+        if (btnDelete) {
+            btnDelete.addEventListener('click', async () => {
+                const confirmMsg = (window.t ? window.t('kb.confirm_delete') : 'Delete entry #{id}?').replace('{id}', item.entry_id);
+                if (!confirm(confirmMsg)) return;
+                btnDelete.disabled = true;
+                try {
+                    const res = await fetch('/api/ide/kb/delete', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ entry_id: item.entry_id })
+                    });
+                    const data = await res.json();
+                    if (data.status === 'DELETED') {
+                        this.selectedEntryId = null;
+                        await this.loadEntries();
+                    } else {
+                        alert(data.error || 'Delete failed');
+                    }
+                } catch (err) {
+                    alert(err.message);
+                } finally {
+                    btnDelete.disabled = false;
+                }
+            });
+        }
+
         const btnValidate = detailPane.querySelector('#kb-btn-validate-seal');
         if (btnValidate) {
             btnValidate.addEventListener('click', async () => {

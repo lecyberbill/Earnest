@@ -1498,6 +1498,19 @@ Garde l'indentation appropriée.";
             return;
         }
 
+        if path == "/api/ide/lsp/diagnostics" {
+            let lang = payload["language"].as_str().unwrap_or("plaintext");
+            let root = payload["root"].as_str().unwrap_or(".");
+            let file_path = payload["path"].as_str().unwrap_or("unknown");
+            let code = payload["code"].as_str().unwrap_or("");
+            let diags = crate::lsp::client::LspManager::global().diagnostics_for(lang, root, file_path, code);
+            let resp = Response::from_string(serde_json::json!({ "diagnostics": diags }).to_string())
+                .with_header(json_header)
+                .with_header(cors_header);
+            req.respond(resp).ok();
+            return;
+        }
+
         if path == "/api/ide/lsp/signatures" {
             let lang = payload["language"].as_str().unwrap_or("plaintext");
             let code = payload["code"].as_str().unwrap_or("");
@@ -2286,6 +2299,44 @@ Garde l'indentation appropriée.";
                                 "current_version": current_version
                             }
                         }).to_string()).with_header(json_header).with_header(cors_header);
+                        req.respond(resp).ok();
+                        return;
+                    }
+                    Err(e) => {
+                        let resp = Response::from_string(serde_json::json!({"status": "error", "error": format!("{}", e)}).to_string())
+                            .with_status_code(500).with_header(json_header).with_header(cors_header);
+                        req.respond(resp).ok();
+                        return;
+                    }
+                }
+            }
+            let resp = Response::from_string(serde_json::json!({"status": "error", "error": "Impossible d'ouvrir kb.db"}).to_string())
+                .with_status_code(500).with_header(json_header).with_header(cors_header);
+            req.respond(resp).ok();
+            return;
+        }
+
+        // --- BASE DE CONNAISSANCES D'EXPÉRIENCE (BCPE) : SUPPRESSION D'UNE ENTRÉE ---
+        if path == "/api/ide/kb/delete" {
+            let entry_id = payload["entry_id"].as_i64().unwrap_or(0);
+            if entry_id <= 0 {
+                let resp = Response::from_string(serde_json::json!({"status": "error", "error": "entry_id invalide"}).to_string())
+                    .with_status_code(400).with_header(json_header).with_header(cors_header);
+                req.respond(resp).ok();
+                return;
+            }
+            let kb_path = resolve_kb_db_path();
+            if let Ok(conn) = rusqlite::Connection::open(&kb_path) {
+                match conn.execute("DELETE FROM entries WHERE entry_id = ?", rusqlite::params![entry_id]) {
+                    Ok(n) if n > 0 => {
+                        let resp = Response::from_string(serde_json::json!({"status": "DELETED", "entry_id": entry_id}).to_string())
+                            .with_header(json_header).with_header(cors_header);
+                        req.respond(resp).ok();
+                        return;
+                    }
+                    Ok(_) => {
+                        let resp = Response::from_string(serde_json::json!({"status": "error", "error": "Entrée introuvable"}).to_string())
+                            .with_status_code(404).with_header(json_header).with_header(cors_header);
                         req.respond(resp).ok();
                         return;
                     }

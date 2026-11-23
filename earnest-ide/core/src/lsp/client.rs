@@ -472,6 +472,40 @@ impl LspManager {
         })])
     }
 
+    pub fn diagnostics_for(&self, lang: &str, root: &str, path: &str, code: &str) -> Vec<Value> {
+        let Ok(client) = self.get_or_start(lang, root) else {
+            return Vec::new();
+        };
+        let uri = path_to_uri(path);
+        client.sync_document(&uri, lang, code);
+        let Ok(map) = client.diagnostics.lock() else {
+            return Vec::new();
+        };
+        let Some(diags) = map.get(&uri) else {
+            return Vec::new();
+        };
+        diags
+            .iter()
+            .filter_map(|d| {
+                let msg = d["message"].as_str()?;
+                let r = &d["range"];
+                let start_line = r["start"]["line"].as_u64().unwrap_or(0) + 1;
+                let start_col = r["start"]["character"].as_u64().unwrap_or(0) + 1;
+                let end_line = r["end"]["line"].as_u64().unwrap_or(start_line - 1) + 1;
+                let end_col = r["end"]["character"].as_u64().unwrap_or(start_col) + 1;
+                let severity = d["severity"].as_u64().unwrap_or(1);
+                Some(json!({
+                    "start_line": start_line,
+                    "start_col": start_col,
+                    "end_line": end_line,
+                    "end_col": end_col,
+                    "severity": severity,
+                    "message": msg
+                }))
+            })
+            .collect()
+    }
+
     pub fn status_list(&self) -> Vec<Value> {
         let guard = self.clients.lock().ok();
         LSP_CATALOG

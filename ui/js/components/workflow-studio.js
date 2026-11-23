@@ -503,6 +503,8 @@ export class WorkflowStudio {
                 <button id="wfs-add-var" class="btn-bubble-action" style="font-size:0.68rem;padding:2px 6px;cursor:pointer;">+ Variable</button>
             </div>
             <div id="wfs-var-editor" style="display:none;width:100%;background:rgba(15,23,42,0.9);border:1px solid var(--accent-cyan);border-radius:6px;padding:0.5rem;gap:0.4rem;align-items:center;flex-wrap:wrap;"></div>
+            <div id="wfs-trig-editor" style="display:none;width:100%;background:rgba(15,23,42,0.9);border:1px solid var(--accent-cyan);border-radius:6px;padding:0.5rem;gap:0.4rem;align-items:center;flex-wrap:wrap;"></div>
+            <div id="wfs-conn-editor" style="display:none;width:100%;background:rgba(15,23,42,0.9);border:1px solid var(--accent-cyan);border-radius:6px;padding:0.5rem;gap:0.4rem;align-items:center;flex-wrap:wrap;"></div>
         `;
         const openVarEditor = (editName = '', editVal = true) => {
             const box = meta.querySelector('#wfs-var-editor');
@@ -563,19 +565,72 @@ export class WorkflowStudio {
             this.renderCanvas();
         }));
         meta.querySelector('#wfs-add-trig').addEventListener('click', () => {
-            const expr = prompt('Expression cron (laisser vide pour manual) :', '0 */5 * * *');
-            if (expr === null) return;
-            this.spec.triggers.push(expr.trim() ? { type: 'cron', expr: expr.trim(), timezone: 'UTC' } : { type: 'manual' });
-            this.renderCanvas();
+            const box = meta.querySelector('#wfs-trig-editor');
+            if (!box) return;
+            box.style.display = 'flex';
+            box.innerHTML = `
+                <select id="wfs-te-type" style="background:#0b1326;border:1px solid var(--border-subtle);color:var(--accent-cyan);padding:4px 6px;border-radius:4px;font-family:var(--font-mono);font-size:0.74rem;">
+                    <option value="manual">manual</option>
+                    <option value="cron">cron</option>
+                    <option value="vfs_watch">vfs_watch</option>
+                    <option value="mail_watch">mail_watch</option>
+                </select>
+                <input id="wfs-te-arg1" type="text" placeholder="0 */5 * * *" style="flex:1;min-width:120px;background:#0b1326;border:1px solid var(--border-subtle);color:#fff;padding:4px 6px;border-radius:4px;font-family:var(--font-mono);font-size:0.74rem;display:none;">
+                <input id="wfs-te-arg2" type="text" placeholder="conn (ex: local)" style="width:110px;background:#0b1326;border:1px solid var(--border-subtle);color:#fff;padding:4px 6px;border-radius:4px;font-family:var(--font-mono);font-size:0.74rem;display:none;">
+                <button id="wfs-te-ok" class="btn-primary" style="padding:4px 10px;font-size:0.72rem;">OK</button>
+                <button id="wfs-te-cancel" class="btn-bubble-action" style="padding:4px 8px;font-size:0.72rem;">✕</button>
+            `;
+            const tSel = box.querySelector('#wfs-te-type');
+            const a1 = box.querySelector('#wfs-te-arg1');
+            const a2 = box.querySelector('#wfs-te-arg2');
+            tSel.addEventListener('change', () => {
+                const v = tSel.value;
+                a1.style.display = v === 'manual' ? 'none' : 'block';
+                a2.style.display = (v === 'vfs_watch' || v === 'mail_watch') ? 'block' : 'none';
+                a1.placeholder = v === 'cron' ? '0 */5 * * *' : v === 'vfs_watch' ? 'chemin (ex: ./in)' : 'dossier (INBOX)';
+            });
+            box.querySelector('#wfs-te-ok').addEventListener('click', () => {
+                const v = tSel.value;
+                if (v === 'manual') this.spec.triggers.push({ type: 'manual' });
+                else if (v === 'cron') this.spec.triggers.push({ type: 'cron', expr: a1.value.trim() || '0 */5 * * *', timezone: 'UTC' });
+                else if (v === 'vfs_watch') this.spec.triggers.push({ type: 'vfs_watch', conn: a2.value.trim() || 'local', path: a1.value.trim() || '.' });
+                else this.spec.triggers.push({ type: 'mail_watch', conn: a2.value.trim() || 'imap', folder: a1.value.trim() || 'INBOX' });
+                this.renderCanvas();
+            });
+            box.querySelector('#wfs-te-cancel').addEventListener('click', () => { box.style.display = 'none'; });
         });
         meta.querySelector('#wfs-add-conn').addEventListener('click', () => {
-            const cname = prompt('Nom de connexion (ex: s3_prod, smtp, local) :', 'sftp_in');
-            if (!cname || !cname.trim()) return;
-            const driver = prompt('Driver (local, sftp, ftp, s3, smtp, imap, http) :', 'local') || 'local';
-            if (driver === 'local') this.spec.connections[cname.trim()] = { driver: 'local', root: '.' };
-            else if (driver === 'http') this.spec.connections[cname.trim()] = { driver: 'http', base_url: 'https://api.example.com' };
-            else this.spec.connections[cname.trim()] = { driver, host: 'localhost', user: 'user', password: '' };
-            this.renderCanvasAndInspector();
+            const box = meta.querySelector('#wfs-conn-editor');
+            if (!box) return;
+            box.style.display = 'flex';
+            box.innerHTML = `
+                <input id="wfs-ce-name" type="text" placeholder="nom (ex: sftp_in)" style="width:120px;background:#0b1326;border:1px solid var(--border-subtle);color:#fff;padding:4px 6px;border-radius:4px;font-family:var(--font-mono);font-size:0.74rem;">
+                <select id="wfs-ce-driver" style="background:#0b1326;border:1px solid var(--border-subtle);color:var(--accent-cyan);padding:4px 6px;border-radius:4px;font-family:var(--font-mono);font-size:0.74rem;">
+                    <option value="local">local</option>
+                    <option value="sftp">sftp</option>
+                    <option value="ftp">ftp</option>
+                    <option value="s3">s3</option>
+                    <option value="smtp">smtp</option>
+                    <option value="imap">imap</option>
+                    <option value="http">http</option>
+                </select>
+                <input id="wfs-ce-target" type="text" placeholder="root / host / base_url" value="." style="flex:1;min-width:120px;background:#0b1326;border:1px solid var(--border-subtle);color:#fff;padding:4px 6px;border-radius:4px;font-family:var(--font-mono);font-size:0.74rem;">
+                <button id="wfs-ce-ok" class="btn-primary" style="padding:4px 10px;font-size:0.72rem;">OK</button>
+                <button id="wfs-ce-cancel" class="btn-bubble-action" style="padding:4px 8px;font-size:0.72rem;">✕</button>
+            `;
+            box.querySelector('#wfs-ce-ok').addEventListener('click', () => {
+                const cname = box.querySelector('#wfs-ce-name').value.trim();
+                if (!cname) return;
+                const driver = box.querySelector('#wfs-ce-driver').value;
+                const tgt = box.querySelector('#wfs-ce-target').value.trim();
+                if (driver === 'local') this.spec.connections[cname] = { driver: 'local', root: tgt || '.' };
+                else if (driver === 'http') this.spec.connections[cname] = { driver: 'http', base_url: tgt || 'https://api.example.com' };
+                else if (driver === 's3') this.spec.connections[cname] = { driver: 's3', bucket: tgt || 'my-bucket', region: 'eu-west-1', access_key: '', secret_key: '' };
+                else this.spec.connections[cname] = { driver, host: tgt || 'localhost', user: 'user', password: '' };
+                this.renderCanvasAndInspector();
+            });
+            box.querySelector('#wfs-ce-cancel').addEventListener('click', () => { box.style.display = 'none'; });
+            box.querySelector('#wfs-ce-name').focus();
         });
         canvas.appendChild(meta);
 
@@ -711,6 +766,27 @@ export class WorkflowStudio {
                     <input id="wfi-output" type="text" value="${step.output || ''}" placeholder="ex: res_http" style="width:100%;box-sizing:border-box;background:#0b1326;border:1px solid var(--border-subtle);color:#fff;padding:5px;border-radius:4px;font-family:var(--font-mono);">
                 </div>
                 <div id="wfi-specific"></div>
+                <div style="border-top:1px dashed var(--border-subtle);padding-top:0.45rem;">
+                    <div style="font-size:0.68rem;color:var(--accent-amber,#fbbf24);font-weight:700;margin-bottom:4px;">🛡️ Résilience &amp; Gestion d'erreur</div>
+                    <div style="display:grid;grid-template-columns:1fr 1fr;gap:0.4rem;">
+                        <div>
+                            <label style="display:block;color:var(--text-muted);font-size:0.68rem;">Timeout (ms)</label>
+                            <input id="wfi-timeout" type="number" min="0" step="500" value="${step.timeout_ms || ''}" placeholder="défaut" style="width:100%;box-sizing:border-box;background:#0b1326;border:1px solid var(--border-subtle);color:#fff;padding:4px;border-radius:4px;font-family:var(--font-mono);font-size:0.72rem;">
+                        </div>
+                        <div>
+                            <label style="display:block;color:var(--text-muted);font-size:0.68rem;">Retry max</label>
+                            <input id="wfi-retry-max" type="number" min="1" step="1" value="${step.retry?.max_attempts || ''}" placeholder="1 (off)" style="width:100%;box-sizing:border-box;background:#0b1326;border:1px solid var(--border-subtle);color:#fff;padding:4px;border-radius:4px;font-family:var(--font-mono);font-size:0.72rem;">
+                        </div>
+                        <div>
+                            <label style="display:block;color:var(--text-muted);font-size:0.68rem;">Backoff (ms)</label>
+                            <input id="wfi-retry-backoff" type="number" min="0" step="100" value="${step.retry?.backoff_ms ?? ''}" placeholder="500" style="width:100%;box-sizing:border-box;background:#0b1326;border:1px solid var(--border-subtle);color:#fff;padding:4px;border-radius:4px;font-family:var(--font-mono);font-size:0.72rem;">
+                        </div>
+                        <label style="display:flex;align-items:center;gap:5px;color:var(--text-secondary);font-size:0.7rem;padding-top:14px;cursor:pointer;">
+                            <input id="wfi-retry-exp" type="checkbox" ${step.retry?.exponential !== false ? 'checked' : ''}>
+                            <span>Exponentiel</span>
+                        </label>
+                    </div>
+                </div>
                 <div id="wfi-vars-helper" style="background:rgba(251,191,36,0.06);border:1px solid rgba(251,191,36,0.25);border-radius:4px;padding:5px 7px;">
                     <div style="font-size:0.66rem;color:#fbbf24;margin-bottom:3px;">Variables disponibles (clic = insérer) :</div>
                     <div id="wfi-vars-chips" style="display:flex;flex-wrap:wrap;gap:3px;"></div>
@@ -726,6 +802,28 @@ export class WorkflowStudio {
         insp.querySelector('#wfi-name').addEventListener('input', (e) => { step.name = e.target.value; this.renderCanvas(); });
         insp.querySelector('#wfi-output').addEventListener('input', (e) => { step.output = e.target.value.trim() || undefined; });
 
+        const syncRetry = () => {
+            const maxA = parseInt(insp.querySelector('#wfi-retry-max').value, 10);
+            if (!Number.isFinite(maxA) || maxA <= 1) {
+                delete step.retry;
+            } else {
+                const bo = parseInt(insp.querySelector('#wfi-retry-backoff').value, 10);
+                step.retry = {
+                    max_attempts: maxA,
+                    backoff_ms: Number.isFinite(bo) && bo >= 0 ? bo : 500,
+                    exponential: insp.querySelector('#wfi-retry-exp').checked
+                };
+            }
+        };
+        insp.querySelector('#wfi-timeout').addEventListener('input', (e) => {
+            const v = parseInt(e.target.value, 10);
+            if (Number.isFinite(v) && v > 0) step.timeout_ms = v;
+            else delete step.timeout_ms;
+        });
+        insp.querySelector('#wfi-retry-max').addEventListener('input', syncRetry);
+        insp.querySelector('#wfi-retry-backoff').addEventListener('input', syncRetry);
+        insp.querySelector('#wfi-retry-exp').addEventListener('change', syncRetry);
+
         const specBox = insp.querySelector('#wfi-specific');
         if (step.action === 'flow.if') {
             specBox.innerHTML = `<label style="display:block;color:#fbbf24;margin-bottom:2px;">Condition</label><input id="wfi-cond" type="text" value="${step.condition || ''}" style="width:100%;box-sizing:border-box;background:#0b1326;border:1px solid var(--border-subtle);color:#fff;padding:5px;border-radius:4px;font-family:var(--font-mono);">`;
@@ -739,6 +837,37 @@ export class WorkflowStudio {
             `;
             specBox.querySelector('#wfi-items').addEventListener('input', (e) => { step.items = e.target.value; this.renderCanvas(); });
             specBox.querySelector('#wfi-as').addEventListener('input', (e) => { step.as = e.target.value; this.renderCanvas(); });
+        } else if (step.action === 'vfs.transfer' && step.params) {
+            const src = step.params.src || (step.params.src = { conn: 'local', path: '' });
+            const dst = step.params.dst || (step.params.dst = { conn: 'local', path: '' });
+            const mkLoc = (title, obj) => {
+                const wrap = document.createElement('div');
+                wrap.style.cssText = 'border:1px solid var(--border-subtle);border-radius:4px;padding:6px;margin-bottom:5px;background:rgba(255,255,255,0.02);';
+                wrap.innerHTML = `<div style="font-size:0.68rem;color:var(--accent-cyan);font-weight:700;margin-bottom:4px;">${title}</div>`;
+                const sel = document.createElement('select');
+                sel.style.cssText = 'width:100%;margin-bottom:4px;background:#0b1326;border:1px solid var(--border-subtle);color:#fff;padding:4px;border-radius:4px;font-family:var(--font-mono);';
+                [...new Set([obj.conn, ...connNames])].filter(Boolean).forEach(cn => {
+                    const o = document.createElement('option');
+                    o.value = cn; o.textContent = `conn: ${cn}`;
+                    if (cn === obj.conn) o.selected = true;
+                    sel.appendChild(o);
+                });
+                sel.addEventListener('change', () => { obj.conn = sel.value; syncJson(); this.renderCanvas(); });
+                const pInp = document.createElement('input');
+                pInp.type = 'text'; pInp.value = obj.path || ''; pInp.placeholder = 'chemin';
+                pInp.style.cssText = 'width:100%;box-sizing:border-box;background:#0b1326;border:1px solid var(--border-subtle);color:#fff;padding:4px;border-radius:4px;font-family:var(--font-mono);';
+                pInp.addEventListener('input', () => { obj.path = pInp.value; syncJson(); this.renderCanvas(); });
+                wrap.appendChild(sel);
+                wrap.appendChild(pInp);
+                return wrap;
+            };
+            specBox.appendChild(mkLoc('Source (src)', src));
+            specBox.appendChild(mkLoc('Destination (dst)', dst));
+            const ovLbl = document.createElement('label');
+            ovLbl.style.cssText = 'display:flex;align-items:center;gap:6px;color:var(--text-secondary);font-size:0.72rem;cursor:pointer;';
+            ovLbl.innerHTML = `<input type="checkbox" ${step.params.overwrite !== false ? 'checked' : ''}> <span>Écraser si existant (overwrite)</span>`;
+            ovLbl.querySelector('input').addEventListener('change', (e) => { step.params.overwrite = e.target.checked; syncJson(); });
+            specBox.appendChild(ovLbl);
         } else if (step.params && typeof step.params === 'object') {
             const quickFields = Object.entries(step.params).filter(([, v]) => typeof v !== 'object' || Array.isArray(v));
             quickFields.forEach(([k, v]) => {

@@ -421,6 +421,7 @@ export class WorkflowStudio {
             return `<span class="badge badge-primary" style="display:inline-flex;align-items:center;gap:4px;">${label} <button data-del-trig="${idx}" style="background:none;border:none;color:#fda4af;cursor:pointer;padding:0;font-size:0.7rem;">✕</button></span>`;
         }).join('');
         const connList = Object.entries(this.spec.connections || {}).map(([k, c]) => `<span class="badge" style="background:rgba(52,211,153,0.12);color:#34d399;">🔌 ${k} (${c.driver})</span>`).join('');
+        const varsList = Object.entries(this.spec.vars || {}).map(([k, v]) => `<span class="badge" style="background:rgba(251,191,36,0.12);color:#fbbf24;display:inline-flex;align-items:center;gap:4px;">📌 ${k}=${JSON.stringify(v)} <button data-del-var="${k}" style="background:none;border:none;color:#fda4af;cursor:pointer;padding:0;font-size:0.7rem;">✕</button></span>`).join('');
         meta.innerHTML = `
             <div style="display:flex;align-items:center;gap:4px;flex-wrap:wrap;">
                 <span style="color:var(--text-muted);font-family:var(--font-mono);">TRIGGERS:</span> ${trigList}
@@ -430,7 +431,24 @@ export class WorkflowStudio {
                 <span style="color:var(--text-muted);font-family:var(--font-mono);">CONNEXIONS:</span> ${connList}
                 <button id="wfs-add-conn" class="btn-bubble-action" style="font-size:0.68rem;padding:2px 6px;cursor:pointer;">+ Connexion</button>
             </div>
+            <div style="display:flex;align-items:center;gap:4px;flex-wrap:wrap;">
+                <span style="color:var(--text-muted);font-family:var(--font-mono);">VARS:</span> ${varsList}
+                <button id="wfs-add-var" class="btn-bubble-action" style="font-size:0.68rem;padding:2px 6px;cursor:pointer;">+ Variable</button>
+            </div>
         `;
+        meta.querySelectorAll('[data-del-var]').forEach(b => b.addEventListener('click', () => {
+            delete this.spec.vars[b.getAttribute('data-del-var')];
+            this.renderCanvas();
+        }));
+        meta.querySelector('#wfs-add-var').addEventListener('click', () => {
+            const vname = prompt('Nom de la variable :', 'ok');
+            if (!vname || !vname.trim()) return;
+            const rawVal = prompt(`Valeur initiale pour '${vname.trim()}' (true, 42, "texte", ["a","b"]) :`, 'true');
+            if (rawVal === null) return;
+            if (!this.spec.vars) this.spec.vars = {};
+            try { this.spec.vars[vname.trim()] = JSON.parse(rawVal); } catch (_) { this.spec.vars[vname.trim()] = rawVal; }
+            this.renderCanvas();
+        });
         meta.querySelectorAll('[data-del-trig]').forEach(b => b.addEventListener('click', () => {
             this.spec.triggers.splice(parseInt(b.getAttribute('data-del-trig'), 10), 1);
             if (this.spec.triggers.length === 0) this.spec.triggers.push({ type: 'manual' });
@@ -610,15 +628,26 @@ export class WorkflowStudio {
             specBox.querySelector('#wfi-items').addEventListener('input', (e) => { step.items = e.target.value; this.renderCanvas(); });
             specBox.querySelector('#wfi-as').addEventListener('input', (e) => { step.as = e.target.value; this.renderCanvas(); });
         } else if (step.params && typeof step.params === 'object') {
-            const quickFields = Object.entries(step.params).filter(([, v]) => typeof v !== 'object');
+            const quickFields = Object.entries(step.params).filter(([, v]) => typeof v !== 'object' || Array.isArray(v));
             quickFields.forEach(([k, v]) => {
                 const row = document.createElement('div');
                 row.style.marginBottom = '4px';
                 const lbl = document.createElement('label');
                 lbl.style.cssText = 'display:block;color:var(--text-muted);margin-bottom:2px;';
-                lbl.textContent = k;
+                lbl.textContent = Array.isArray(v) ? `${k} (1 par ligne)` : k;
                 row.appendChild(lbl);
-                if (k === 'conn' && connNames.length > 0) {
+                if (Array.isArray(v)) {
+                    const ta = document.createElement('textarea');
+                    ta.rows = Math.min(5, Math.max(2, v.length));
+                    ta.value = v.join('\n');
+                    ta.style.cssText = 'width:100%;box-sizing:border-box;background:#0b1326;border:1px solid var(--border-subtle);color:#fff;padding:5px;border-radius:4px;font-family:var(--font-mono);font-size:0.72rem;';
+                    ta.addEventListener('input', () => {
+                        step.params[k] = ta.value.split(/\r?\n/).filter(line => line.length > 0);
+                        syncJson();
+                        this.renderCanvas();
+                    });
+                    row.appendChild(ta);
+                } else if (k === 'conn' && connNames.length > 0) {
                     const sel = document.createElement('select');
                     sel.style.cssText = 'width:100%;background:#0b1326;border:1px solid var(--border-subtle);color:#fff;padding:5px;border-radius:4px;font-family:var(--font-mono);';
                     [...new Set([v, ...connNames])].filter(Boolean).forEach(cn => {
@@ -637,10 +666,15 @@ export class WorkflowStudio {
                 } else {
                     const inp = document.createElement('input');
                     inp.type = typeof v === 'number' ? 'number' : 'text';
-                    inp.value = v ?? '';
+                    inp.value = (step.action === 'flow.set' && k === 'value' && typeof v !== 'string') ? JSON.stringify(v) : (v ?? '');
                     inp.style.cssText = 'width:100%;box-sizing:border-box;background:#0b1326;border:1px solid var(--border-subtle);color:#fff;padding:5px;border-radius:4px;font-family:var(--font-mono);';
                     inp.addEventListener('input', () => {
-                        step.params[k] = typeof v === 'number' ? Number(inp.value) : inp.value;
+                        if (step.action === 'flow.set' && k === 'value') {
+                            const raw = inp.value.trim();
+                            try { step.params[k] = JSON.parse(raw); } catch (_) { step.params[k] = inp.value; }
+                        } else {
+                            step.params[k] = typeof v === 'number' ? Number(inp.value) : inp.value;
+                        }
                         syncJson();
                         this.renderCanvas();
                     });

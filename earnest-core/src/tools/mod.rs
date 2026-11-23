@@ -1,5 +1,6 @@
 pub mod terminal;
 pub mod artifacts;
+pub mod fs;
 pub mod web;
 
 use serde_json::Value;
@@ -101,6 +102,69 @@ pub fn get_primitive_tools_schemas() -> Vec<Value> {
                         "key": { "type": "string", "description": "Clé de la mémoire à retrouver" }
                     },
                     "required": ["key"]
+                }
+            }
+        }),
+        serde_json::json!({
+            "type": "function",
+            "function": {
+                "name": "read_file",
+                "description": "Lit le contenu numéroté d'un fichier texte sur disque (avec plage de lignes optionnelle start_line..end_line, max 400 lignes par appel).",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "path": { "type": "string", "description": "Chemin du fichier à lire" },
+                        "start_line": { "type": "integer", "description": "Première ligne (1-based, optionnel)" },
+                        "end_line": { "type": "integer", "description": "Dernière ligne (1-based inclus, optionnel)" }
+                    },
+                    "required": ["path"]
+                }
+            }
+        }),
+        serde_json::json!({
+            "type": "function",
+            "function": {
+                "name": "edit_file",
+                "description": "Modifie précisément un fichier existant par patch atomique (remplace un bloc `target` unique par `replacement`).",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "path": { "type": "string", "description": "Chemin du fichier à modifier" },
+                        "target": { "type": "string", "description": "Bloc de texte exact existant à remplacer" },
+                        "replacement": { "type": "string", "description": "Nouveau texte de remplacement" }
+                    },
+                    "required": ["path", "target", "replacement"]
+                }
+            }
+        }),
+        serde_json::json!({
+            "type": "function",
+            "function": {
+                "name": "list_dir",
+                "description": "Liste les fichiers et sous-dossiers d'un répertoire (hors .git, target, node_modules).",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "path": { "type": "string", "description": "Répertoire à lister (défaut: '.')" },
+                        "max_entries": { "type": "integer", "description": "Nombre max d'entrées (défaut: 80)" }
+                    }
+                }
+            }
+        }),
+        serde_json::json!({
+            "type": "function",
+            "function": {
+                "name": "grep_search",
+                "description": "Recherche un motif texte dans les fichiers d'un répertoire ou fichier et retourne fichier, numéro de ligne et extrait.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "query": { "type": "string", "description": "Texte recherché" },
+                        "path": { "type": "string", "description": "Répertoire ou fichier cible (défaut: '.')" },
+                        "max_results": { "type": "integer", "description": "Nombre max de résultats (défaut: 30)" },
+                        "case_sensitive": { "type": "boolean", "description": "Sensible à la casse (défaut: false)" }
+                    },
+                    "required": ["query"]
                 }
             }
         }),

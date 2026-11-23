@@ -159,6 +159,42 @@ impl<'a> ReActEngine<'a> {
                     Err(e) => serde_json::json!({"status": "error", "error": e}).to_string(),
                 }
             }
+            "read_file" => {
+                let path = args["path"].as_str().or_else(|| args["file_path"].as_str()).unwrap_or("");
+                let start = args["start_line"].as_u64().map(|n| n as usize);
+                let end = args["end_line"].as_u64().map(|n| n as usize);
+                match crate::tools::fs::read_file_tool(path, start, end) {
+                    Ok(res) => res.to_string(),
+                    Err(e) => serde_json::json!({"status": "error", "error": e}).to_string(),
+                }
+            }
+            "edit_file" => {
+                let path = args["path"].as_str().or_else(|| args["file_path"].as_str()).unwrap_or("");
+                let target = args["target"].as_str().unwrap_or("");
+                let replacement = args["replacement"].as_str().unwrap_or("");
+                match crate::tools::fs::edit_file_tool(path, target, replacement) {
+                    Ok(res) => res.to_string(),
+                    Err(e) => serde_json::json!({"status": "error", "error": e}).to_string(),
+                }
+            }
+            "list_dir" => {
+                let path = args["path"].as_str().unwrap_or(".");
+                let max_entries = args["max_entries"].as_u64().unwrap_or(80) as usize;
+                match crate::tools::fs::list_dir_tool(path, max_entries) {
+                    Ok(res) => res.to_string(),
+                    Err(e) => serde_json::json!({"status": "error", "error": e}).to_string(),
+                }
+            }
+            "grep_search" => {
+                let query = args["query"].as_str().unwrap_or("");
+                let path = args["path"].as_str().unwrap_or(".");
+                let max_results = args["max_results"].as_u64().unwrap_or(30) as usize;
+                let case_sensitive = args["case_sensitive"].as_bool().unwrap_or(false);
+                match crate::tools::fs::grep_search_tool(query, path, max_results, case_sensitive) {
+                    Ok(res) => res.to_string(),
+                    Err(e) => serde_json::json!({"status": "error", "error": e}).to_string(),
+                }
+            }
             "symbol_search" => {
                 let query = args["query"].as_str().unwrap_or("");
                 let root_str = args["path"].as_str()
@@ -317,7 +353,7 @@ impl<'a> ReActEngine<'a> {
         let system_prompt = format!(
             "Tu es Earnest, un système agentique autonome propulsé par un moteur Rust natif ultra-robuste. \
 Tu résous la tâche pas à pas (ReAct). Tu disposes d'un accès complet à Internet et au web via 'web_search' et 'web_fetch'. \
-Utilise également les autres outils mis à disposition (terminal_exec, create_artifact, store_memory, recall_memory) quand nécessaire. \
+Utilise également les autres outils mis à disposition (read_file, edit_file, list_dir, grep_search, workspace_map, symbol_search, terminal_exec, create_artifact, store_memory, recall_memory) quand nécessaire. \
 Environnement réel capturé : {}. \
 Adapte tes commandes au shell et à l'OS indiqués ci-dessus. \
 En cours de mission, n'émets pas de phrase d'annonce sans appel d'outil : appelle directement l'outil suivant. \
@@ -459,7 +495,7 @@ Quand ta mission est entièrement accomplie et vérifiée sur disque, fournis di
                     last_tool_sig = sig;
                     repeat_tool_count = 1;
                 }
-                let is_cacheable_read = matches!(fn_name.as_str(), "recall_memory" | "read_file" | "list_files" | "web_fetch" | "symbol_search" | "workspace_map");
+                let is_cacheable_read = matches!(fn_name.as_str(), "recall_memory" | "read_file" | "list_dir" | "list_files" | "grep_search" | "web_fetch" | "symbol_search" | "workspace_map");
                 let raw_output = if is_cacheable_read {
                     let hit = cache_mutex.lock().ok().and_then(|mut c| c.get(fn_name, &args_key).map(|s| s.to_string()));
                     if let Some(cached) = hit {
@@ -480,7 +516,7 @@ Quand ta mission est entièrement accomplie et vérifiée sur disque, fournis di
                     if let Ok(mut c) = cache_mutex.lock() {
                         c.insert(fn_name, &args_key, tool_output.clone(), path_hint);
                     }
-                } else if matches!(fn_name.as_str(), "store_memory" | "create_artifact" | "sandbox_exec" | "execute_terminal") {
+                } else if matches!(fn_name.as_str(), "store_memory" | "create_artifact" | "edit_file" | "sandbox_exec" | "terminal_exec" | "execute_terminal") {
                     loop_detector.reset_progress();
                     if let Some(hint) = fn_args["path"].as_str().or_else(|| fn_args["key"].as_str()) {
                         if let Ok(mut c) = cache_mutex.lock() {

@@ -99,7 +99,11 @@ impl<'a> RuntimeCtx<'a> {
             }
             "vars" => {
                 let k = parts.next()?;
-                self.vars.get(k)?.clone()
+                self.vars.get(k).or_else(|| self.outputs.get(k))?.clone()
+            }
+            "outputs" => {
+                let k = parts.next()?;
+                self.outputs.get(k)?.clone()
             }
             "env" => {
                 let k = parts.next()?;
@@ -562,12 +566,12 @@ fn exec_action(ctx: &mut RuntimeCtx<'_>, step: &StepSpec) -> Result<Option<Value
                 let p = entry.path();
                 if p.is_file() {
                     let name = entry.file_name().to_string_lossy().to_string();
-                    if let Some(ref glob) = params.glob {
+                    if let Some(glob) = params.glob.as_deref().map(str::trim).filter(|g| !g.is_empty()) {
                         if let Some(suffix) = glob.strip_prefix('*') {
                             if !name.ends_with(suffix) {
                                 continue;
                             }
-                        } else if &name != glob {
+                        } else if name != glob {
                             continue;
                         }
                     }

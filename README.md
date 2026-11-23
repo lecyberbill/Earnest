@@ -232,8 +232,25 @@ Dual-licensed under either of:
 at your option.
 
 
-## Benchmarks & Stress-Tests (Qwen 3.8 Local)
-- [Context Trimmer](docs/BENCHMARK_QWEN38_CONTEXT_TRIMMER.md) — Bounded tool-output truncation & history trimming
-- [Tool Output Cache](docs/BENCHMARK_QWEN38_TOOL_OUTPUT_CACHE.md) — Zero-dependency LRU cache with path invalidation
-- [Retry Budget](docs/BENCHMARK_QWEN38_RETRY_BUDGET.md) — Sliding-window retry budget & circuit-breaker
-- [Stream Cleaner](docs/BENCHMARK_QWEN38_STREAM_CLEANER.md) — Streaming `<thought>` / `<think>` tag separator state machine (`crates/stream-cleaner`)
+## Benchmarks, Stress-Tests & Reports (`docs/`)
+
+### Governed Rust Crates & Engines
+- [`kv-wal-engine`](docs/STRESS_TEST_KV_WAL_ENGINE.md) — Crash-safe CRC32 WAL + MVCC Snapshot Isolation + atomic compaction
+- [`json-repair`](docs/BENCHMARK_JSON_REPAIR.md) — Surgical RFC 8259 JSON repair for truncated LLM payloads
+- [`loop-detector`](docs/BENCHMARK_LOOP_DETECTOR.md) — Exact-repeat, stagnation & alternation-cycle detection
+- [`tool-guard`](docs/BENCHMARK_TOOL_GUARD.md) — Tool-call validation & safety guardrails
+- [`token-compactor`](docs/BENCHMARK_TOKEN_COMPACTOR.md) — History & prompt token compaction
+- [`agent-scheduler`](docs/BENCHMARK_AGENT_SCHEDULER.md) — Multi-agent DAG task scheduler
+- [`context-trimmer`](docs/BENCHMARK_QWEN38_CONTEXT_TRIMMER.md) — Bounded tool-output truncation & history trimming
+- [`tool-output-cache`](docs/BENCHMARK_QWEN38_TOOL_OUTPUT_CACHE.md) — Zero-dependency LRU cache with path invalidation
+- [`retry-budget`](docs/BENCHMARK_QWEN38_RETRY_BUDGET.md) — Sliding-window retry budget & circuit-breaker
+- [`stream-cleaner`](docs/BENCHMARK_QWEN38_STREAM_CLEANER.md) — Streaming `<thought>` / `<think>` tag separator state machine
+
+### Model & Autonomous Run Benchmarks
+- [`earnest-core` MCP Autonomous Run](docs/BENCHMARK_EARNEST_CORE_MCP_AUTONOMOUS.md) — End-to-end MCP autonomous execution benchmark
+- [LFM-3 Patch Guard](docs/BENCHMARK_LFM3_PATCH_GUARD.md) — Local LFM-3 patch & governance evaluation
+- [Python Rate Limiter](docs/BENCHMARK_PYTHON_RATE_LIMITER.md) — Local model benchmark on Python rate limiting
+- [TransRust Flux3 Stress-Test](docs/STRESS_TEST_TRANSRUST_FLUX3.md) — Complex multi-module Rust stress-test
+
+### Architecture & Specs
+- [Technical Report](docs/TECHNICAL_REPORT.md) · [Architecture Spec](docs/spe.md) · [Atlas](ATLAS.md)

@@ -1,0 +1,12 @@
+[package]
+name = "lockfree_ring"
+version = "0.1.0"
+edition = "2021"
+description = "Lock-free MPMC ring buffer with inline storage (zero allocation on critical path)"
+license = "MIT"
+
+[lib]
+name = "lockfree_ring"
+path = "src/lib.rs"
+
+[dependencies]

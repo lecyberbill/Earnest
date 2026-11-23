@@ -352,7 +352,7 @@ impl ShadowRunner {
                 let shared_target = self.workspace_root.join(".ide").join("shadow_target");
                 cmd.env("CARGO_TARGET_DIR", &shared_target);
 
-                match cmd.output() {
+                match run_command_with_timeout(&mut cmd, 60, &cmd_str) {
                     Ok(out) => {
                         let expected_code = probe.expect.get("exit_code").and_then(|v| v.as_i64()).unwrap_or(0) as i32;
                         let actual_code = out.status.code().unwrap_or(-1);
@@ -663,7 +663,7 @@ impl ShadowRunner {
             cmd.current_dir(&self.shadow_path);
             cmd.env("CARGO_TARGET_DIR", &shared_target);
 
-            match cmd.output() {
+            match run_command_with_timeout(&mut cmd, 90, &cmd_str) {
                 Ok(out) => {
                     let stdout = String::from_utf8_lossy(&out.stdout);
                     let stderr = String::from_utf8_lossy(&out.stderr);
@@ -779,7 +779,7 @@ impl ShadowRunner {
         }
 
         let cmd_display = format!("{} {}", program, args_owned.join(" "));
-        let out = cmd.output().map_err(|e| format!("Échec exécution '{}': {}", cmd_display, e))?;
+        let out = run_command_with_timeout(&mut cmd, 60, &cmd_display)?;
         let exit_code = out.status.code().unwrap_or(-1);
         let stdout: String = String::from_utf8_lossy(&out.stdout).chars().take(8_000).collect();
         let stderr: String = String::from_utf8_lossy(&out.stderr).chars().take(8_000).collect();
@@ -791,6 +791,77 @@ impl ShadowRunner {
             "stdout": stdout,
             "stderr": stderr,
         }))
+    }
+}
+
+fn run_command_with_timeout(
+    cmd: &mut std::process::Command,
+    timeout_secs: u64,
+    label: &str,
+) -> Result<std::process::Output, String> {
+    use std::io::Read;
+    use std::process::Stdio;
+    use std::time::{Duration, Instant};
+
+    cmd.stdout(Stdio::piped()).stderr(Stdio::piped());
+    let mut child = cmd
+        .spawn()
+        .map_err(|e| format!("Échec lancement '{}': {}", label, e))?;
+
+    let stdout_pipe = child.stdout.take();
+    let stderr_pipe = child.stderr.take();
+    let t_out = std::thread::spawn(move || {
+        let mut buf = Vec::new();
+        if let Some(mut p) = stdout_pipe {
+            let _ = p.read_to_end(&mut buf);
+        }
+        buf
+    });
+    let t_err = std::thread::spawn(move || {
+        let mut buf = Vec::new();
+        if let Some(mut p) = stderr_pipe {
+            let _ = p.read_to_end(&mut buf);
+        }
+        buf
+    });
+
+    let deadline = Instant::now() + Duration::from_secs(timeout_secs);
+    loop {
+        match child.try_wait() {
+            Ok(Some(status)) => {
+                let stdout = t_out.join().unwrap_or_default();
+                let stderr = t_err.join().unwrap_or_default();
+                return Ok(std::process::Output {
+                    status,
+                    stdout,
+                    stderr,
+                });
+            }
+            Ok(None) => {
+                if Instant::now() >= deadline {
+                    #[cfg(target_os = "windows")]
+                    {
+                        let pid = child.id().to_string();
+                        let _ = crate::hidden_command("taskkill")
+                            .args(["/T", "/F", "/PID", &pid])
+                            .output();
+                    }
+                    let _ = child.kill();
+                    let _ = child.wait();
+                    let _ = t_out.join();
+                    let _ = t_err.join();
+                    return Err(format!(
+                        "Timeout ({}s) sur '{}' — arbre de processus terminé pour éviter tout verrou LNK1104.",
+                        timeout_secs, label
+                    ));
+                }
+                std::thread::sleep(Duration::from_millis(50));
+            }
+            Err(e) => {
+                let _ = child.kill();
+                return Err(format!("Erreur attente '{}': {}", label, e));
+            }
+        }
     }
 }
 

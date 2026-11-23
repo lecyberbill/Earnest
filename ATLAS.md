@@ -17,11 +17,11 @@
   - `src/db/` : Schéma SQLite, gestion des connexions WAL, persistance des sessions et mémoires.
   - `src/tools/` : Primitives fondamentales (`store_memory`, `recall_memory`, `sandbox_exec`, `register_tool`, `web_search` via Bing RSS + Wikipedia, `create_artifact` avec `mirrored_path`).
   - `src/mcp/` : Serveur **MCP JSON-RPC 2.0 stdio** (`--mcp`) exposant `earnest_run`, `earnest_probe_models`, `earnest_store_memory`, `earnest_recall_memory`, `earnest_list_runs`.
-  - `src/engine/` : Boucle ReAct run-to-completion (`--max-steps 24` + recrédit `+8`, `[ANTI-STALL]`, compaction `60 000` chars, `detect_runtime_environment()` dynamique, cache `OnceLock` persistant).
-  - `src/llm/` : Client HTTP (timeout 300 s, `"think": false` sur Ollama, `parse_tool_args_with_repair` via `json-repair`) et routeur multi-modèles avec `--provider`.
-  - `src/server/` : Serveur HTTP minimaliste servant le Cockpit UI et l'API REST.
+  - `src/engine/` : Boucle ReAct run-to-completion (`--max-steps 24` + recrédit `+8`, `[ANTI-STALL]`, compaction `60 000` chars, `detect_runtime_environment()` dynamique, cache `OnceLock` persistant, intégration BCPE `kb_list_products`/`kb_search`/`kb_propose` via `resolve_kb_db_path()`).
+  - `src/llm/` : Client HTTP (timeout 300 s, `"think": false` sur Ollama, `stream-cleaner` pour séparer `<thought>`/`<think>`, `parse_tool_args_with_repair` via `json-repair`) et routeur multi-modèles avec `--provider`.
+  - `src/server/` : Serveur HTTP minimaliste servant le Cockpit UI, l'API REST et les endpoints WFL (`/api/workflows`, `/detail`, `/validate`, `/save`, `/action`).
 - `ui/` : Interface Web Cockpit Vanilla (HTML5/CSS3/ES6 sans npm ni bundler)
-  - Composants : Console d'exécution en flux SSE, grille de mémoires, planificateur OS, tableau de bord de santé machine.
+  - Composants : Console d'exécution en flux SSE, grille de mémoires, planificateur OS, tableau de bord de santé machine, **Studio Visuel WFL 3 panneaux** (`workflow-studio.js` + `workflows-view.js`, style Fortra Automate, 17 actions, branches `Then/Else` & `For Each`, bascule Visuel ↔ YAML), et rendu Markdown sécurisé (`markdown.js`).
 
 ### B. Earnest IDE (`earnest-ide/`)
 - `earnest-ide/core/` : Cœur serveur Rust natif (`earnest-ide-core.exe`, port 8090)
@@ -33,11 +33,11 @@
     - `git` : Contrôle de source Git intégré (status, diff, commit).
     - `diagnostics` : Analyse statique et linter en temps réel (`cargo check`).
     - `memories` : Mémoire de projet RAG et injection automatique dans le prompt ReAct.
-  - `src/lsp/client.rs` : Client **LSP générique JSON-RPC 2.0** (stdio `Content-Length`) avec catalogue intégré de 12 langages (`rust`, `python`, `typescript`, `javascript`, `go`, `c`, `cpp`, `toml`, `yaml`, `json`, `html`, `css`), détection dans le `PATH` et installation en un clic (`/api/ide/lsp/catalog`, `/api/ide/lsp/status`, `/api/ide/lsp/install`).
+  - `src/lsp/client.rs` : Client **LSP générique JSON-RPC 2.0** (stdio `Content-Length`) avec catalogue intégré de 12 langages (`rust`, `python`, `typescript`, `javascript`, `go`, `c`, `cpp`, `toml`, `yaml`, `json`, `html`, `css`), détection dans le `PATH`, installation en un clic et diagnostics temps réel (`/api/ide/lsp/catalog`, `/status`, `/install`, `/diagnostics`).
 - `earnest-ide/ui/` : Interface IDE professionnelle Zéro-Build (ES Modules natifs)
   - **Monaco Editor** : Bibliothèque Monaco complète officielle AMD intégrée en statique avec prise en charge Web Worker par Blob URL.
   - **Monaco Diff Editor** : Comparateur de code côte à côte.
-  - **Modules JS** : `js/app.js` (orchestrateur), `js/components/kb-view.js` (BCPE), `js/features/monaco-lsp.js` (providers LSP Monaco), `js/features/lsp-settings.js` (catalogue LSP & bannière auto-install), `js/features/file-watcher.js`.
+  - **Modules JS** : `js/app.js` (orchestrateur + `renderSafeMarkdown`), `js/components/kb-view.js` (BCPE avec création produits, filtres et suppression), `js/features/monaco-lsp.js` (providers LSP + marqueurs `setModelMarkers`), `js/features/lsp-settings.js` (catalogue LSP & bannière auto-install), `js/features/file-watcher.js`, `js/i18n.js` (couverture EN/FR complète).
   - **Panneaux & Vues** : Explorateur dynamique avec dossiers extensibles/repliables, recherche globale (`Ctrl+Shift+F`), palette de commandes (`Ctrl+P`), édition IA inline (`Ctrl+K`), panneau de préférences, catalogue LSP et gestionnaire de modèles CRUD.
 - `earnest-ide/src-tauri/` : Wrapper application de bureau native ultra-légère (Rust + Webview2).
 

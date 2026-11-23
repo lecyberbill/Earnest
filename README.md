@@ -172,7 +172,7 @@ Add EARNEST to your MCP client configuration (`claude_desktop_config.json` or `m
 
 ```text
 Ernest/
-├── crates/                     # Pure-Rust zero-dep crates (atomic-patch, symbol-index, loop-detector, tool-guard, token-compactor, agent-scheduler, log-sanitizer, context-trimmer, tool-output-cache, retry-budget, json-repair, kv-wal-engine)
+├── crates/                     # Pure-Rust zero-dep crates (atomic-patch, symbol-index, loop-detector, tool-guard, token-compactor, agent-scheduler, log-sanitizer, context-trimmer, tool-output-cache, retry-budget, json-repair, kv-wal-engine, stream-cleaner)
 ├── earnest/                    # Python Core: Agent runtime, tools, DB & telemetry
 ├── earnest-core/               # Rust Native Engine: High performance ReAct loop, SSE streaming & server
 ├── earnest-ide/                # Governance IDE
@@ -188,10 +188,10 @@ Ernest/
 ### 🎛️ Operation Center (Cockpit) Highlights
 - **Real-Time SSE Streaming & Cancel**: Live ReAct step/tool/final events over `GET /api/runs/{id}/stream` with immediate cooperative cancellation (`POST /api/runs/{id}/cancel`).
 - **Dynamic Models & Context Window**: Auto-discovers loaded models from local/cloud providers (`/api/providers/models`), displays active context length, and honors `max_steps=0` (unlimited) with anti-loop protection.
-- **Multi-Agent Pipeline & Live Logs**: Orchestrates Architect → Dev → QA pipelines, streams live structured logs in the **Logs** tab, and supports sandboxed HTML artifact preview.
-- **Interactive Chat & TTS**: Markdown rendering, animated assistant status, and **Read / Stop** voice synthesis toggle.
-- **IDE Governance & Safety**: Polyglot `project-integrity-gate` (`cargo test` + `cargo clippy -D warnings` for Rust) before Shadow Worktree merge, sandbox iteration tools (`shadow_check`, `shadow_copy`, `shadow_validate_and_merge`, shadow-aware `read_file`), flat `add_invariant` schema for local models, `loop-detector` (exact-repeat, stagnation & alternation-cycle detection), per-run Git **Time-Travel** checkpoints (`/api/ide/checkpoint/restore`), live **Logs IDE** tab, `symbol_search` + `workspace_map` (`symbol-index`), `atomic-patch` (LCS diff + indentation-tolerant `apply_patch`), automatic secret redaction (`log-sanitizer`), configurable Ollama `num_ctx` (`EARNEST_OLLAMA_NUM_CTX`), and a generic **JSON-RPC 2.0 LSP client** with a 12-language auto-install catalog (`/api/ide/lsp/*`).
-- **BCPE MCP Protocol (`earnest-bcpe`)**: 11 agent tools including `kb_list_products`, `kb_create_product`, `kb_retract`, non-blocking `unknown_product` handling on `kb_search`/`kb_check`, plus `kb ingest` (auto-lexicon), `kb stats`, and `kb export`.
+- **Multi-Agent Pipeline, WFL Studio & Live Logs**: Orchestrates Architect → Dev → QA pipelines, includes a **Fortra Automate-style 3-pane Visual WFL Studio** (`workflow-studio.js` with 17 actions, `Then/Else` & `For Each` branches, bidirectional Visual ↔ YAML sync, `/api/workflows/detail|validate|save`), streams live structured logs in the **Logs** tab, and supports sandboxed HTML artifact preview.
+- **Interactive Chat & Stream Cleaning**: Safe Markdown rendering (`stream-cleaner` separating `<thought>`/`<think>` blocks), animated assistant status, and **Read / Stop** voice synthesis toggle.
+- **IDE Governance & Safety**: Polyglot `project-integrity-gate` (`cargo test` + `cargo clippy -D warnings` for Rust) before Shadow Worktree merge, sandbox iteration tools (`shadow_check`, `shadow_copy`, `shadow_validate_and_merge`, shadow-aware `read_file`), flat `add_invariant` schema for local models, `loop-detector` (exact-repeat, stagnation & alternation-cycle detection), per-run Git **Time-Travel** checkpoints (`/api/ide/checkpoint/restore`), live **Logs IDE** tab, `symbol_search` + `workspace_map` (`symbol-index`), `atomic-patch` (LCS diff + indentation-tolerant `apply_patch`), automatic secret redaction (`log-sanitizer`), configurable Ollama `num_ctx` (`EARNEST_OLLAMA_NUM_CTX`), and a generic **JSON-RPC 2.0 LSP client** with live diagnostics (`setModelMarkers`) and a 12-language auto-install catalog (`/api/ide/lsp/*`).
+- **BCPE MCP Protocol (`earnest-bcpe`)**: Integrated across both `earnest-ide` and `earnest-core` (`kb_list_products`, `kb_search`, `kb_propose` with unified `resolve_kb_db_path()`), plus manual product creation, filtering, and entry deletion in the Experience Base UI (`/api/ide/kb/*`).
 
 ---
 

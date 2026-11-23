@@ -23,6 +23,10 @@ build/
 
 # Local testing and scratch environments
 projects_test/
+selftest/
+workflows/
+earnest-ide/.ide/
+crates/*/Cargo.lock
 *.log
 **/*.log
 

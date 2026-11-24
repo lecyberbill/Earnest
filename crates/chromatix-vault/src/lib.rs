@@ -26,7 +26,9 @@ use std::path::{Path, PathBuf};
 type HmacSha256 = Hmac<Sha256>;
 
 /// Host environment variable holding the machine's master secret key.
-pub const HOST_KEY_ENV: &str = "EARNEST_VAULT_KEY";
+pub const HOST_KEY_ENV: &str = "SECRET_VAULT_KEY";
+/// Legacy/alternative host key environment variable.
+pub const ALT_HOST_KEY_ENV: &str = "EARNEST_VAULT_KEY";
 /// Optional override for the directory holding `.vault.png` files.
 pub const VAULTS_DIR_ENV: &str = "EARNEST_VAULTS_DIR";
 
@@ -77,14 +79,18 @@ impl TenantVault {
         })
     }
 
-    /// Creates a `TenantVault` reading the host master key from `EARNEST_VAULT_KEY`.
+    /// Creates a `TenantVault` reading the host master key from `SECRET_VAULT_KEY` (or `EARNEST_VAULT_KEY`).
     pub fn from_env(vaults_dir: impl AsRef<Path>) -> Result<Self, String> {
-        let hk = std::env::var(HOST_KEY_ENV).map_err(|_| {
-            format!(
-                "Variable d'environnement '{}' absente sur cette machine : déchiffrement impossible",
-                HOST_KEY_ENV
-            )
-        })?;
+        let hk = std::env::var(HOST_KEY_ENV)
+            .ok()
+            .filter(|s| !s.trim().is_empty())
+            .or_else(|| std::env::var(ALT_HOST_KEY_ENV).ok().filter(|s| !s.trim().is_empty()))
+            .ok_or_else(|| {
+                format!(
+                    "Variable d'environnement '{}' absente sur cette machine : déchiffrement impossible",
+                    HOST_KEY_ENV
+                )
+            })?;
         Self::new(vaults_dir, hk)
     }
 

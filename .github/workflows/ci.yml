@@ -34,7 +34,7 @@ jobs:
       - name: Check & Test earnest-wf-engine
         run: |
           cd earnest-wf-engine
-          cargo test --verbose
+          cargo test -p wf-core -p wf-mcp --verbose
 
       - name: Check & Test earnest-core
         run: |

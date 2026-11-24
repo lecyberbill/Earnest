@@ -254,7 +254,8 @@ pub fn tool_definitions() -> Vec<Value> {
                 "properties": {
                     "root_path": { "type": "string", "description": "Répertoire racine du projet" },
                     "filter": { "type": "string", "description": "Filtre de test optionnel" },
-                    "check_only": { "type": "boolean", "description": "Si true (Rust), exécute uniquement cargo check --all-targets" }
+                    "check_only": { "type": "boolean", "description": "Si true (Rust), exécute uniquement cargo check --all-targets" },
+                    "clippy": { "type": "boolean", "description": "Si true (Rust), exécute cargo clippy --all-targets -- -D warnings" }
                 }
             }
         }),
@@ -505,7 +506,11 @@ impl McpServer {
                 let pm = PolicyManager::new(&r);
                 let policy = pm.load_or_init(None).unwrap_or_default();
                 let runner = ShadowRunner::new(&r, &policy.shadow_env.path, policy.shadow_env.timeout_ms);
-                runner.run_shadow_check(args["filter"].as_str(), args["check_only"].as_bool().unwrap_or(false))
+                runner.run_shadow_check(
+                    args["filter"].as_str(),
+                    args["check_only"].as_bool().unwrap_or(false),
+                    args["clippy"].as_bool().unwrap_or(false),
+                )
             }
             "ide_shadow_validate_and_merge" => {
                 let r = args["root_path"].as_str().map(|s| self.resolve_path(s)).unwrap_or_else(|| self.workspace_root.clone());

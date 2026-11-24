@@ -33,5 +33,6 @@ tool-guard = { path = "../../crates/tool-guard" }
 token-compactor = { path = "../../crates/token-compactor" }
 react-resilience = { path = "../../crates/react-resilience" }
 stream-cleaner = { path = "../../crates/stream-cleaner" }
+web-reader = { path = "../../crates/web-reader" }
 
 

@@ -394,7 +394,7 @@ pub fn get_governance_tools_schemas() -> Vec<Value> {
                         "statement": { "type": "string", "description": "Exigence précise et vérifiable du contrat" },
                         "target_file": { "type": "string", "description": "Fichier cible concerné (ex: limiter.py, src/lib.rs)" },
                         "test_query": { "type": "string", "description": "Nom ou motif du test vérifiant ce contrat" },
-                        "runner": { "type": "string", "description": "Runner de sonde : 'cargo_test' (auto-détecte Rust/Python/Node) ou 'static'" },
+                        "runner": { "type": "string", "description": "Runner de sonde : 'cargo_test' (recommandé : exécute les tests unitaires/d'intégration Rust/Python/Node filtrés par test_query) ou 'static' (vérifie la présence littérale des symboles/identifiants de test_query dans target_file, ou zero_dep sur Cargo.toml)" },
                         "criticality": { "type": "string", "description": "Criticité : high, medium, low (défaut: high)" }
                     },
                     "required": ["id", "title", "statement", "target_file", "test_query"]
@@ -508,12 +508,13 @@ pub fn get_governance_tools_schemas() -> Vec<Value> {
             "type": "function",
             "function": {
                 "name": "shadow_check",
-                "description": "Exécute rapidement `cargo check` / `cargo test` / `pytest` dans `.ide/shadow_worktree` sans fusionner ni consommer le budget d'échecs des sondes. Idéal pour itérer sur la compilation ou un test ciblé après `write_code(..., stage_only: true)`.",
+                "description": "Exécute rapidement `cargo check` / `cargo clippy` / `cargo test` / `node --test` / `pytest` dans `.ide/shadow_worktree` sans fusionner ni consommer le budget d'échecs des sondes. Idéal pour vérifier compilation, lints clippy et tests après `write_code(..., stage_only: true)` avant `shadow_validate_and_merge`.",
                 "parameters": {
                     "type": "object",
                     "properties": {
                         "filter": { "type": "string", "description": "Nom de test ou fichier optionnel à filtrer" },
-                        "check_only": { "type": "boolean", "description": "Si true (Rust), exécute uniquement `cargo check --all-targets` sans lancer les tests (défaut: false)" }
+                        "check_only": { "type": "boolean", "description": "Si true (Rust), exécute uniquement `cargo check --all-targets` sans lancer les tests (défaut: false)" },
+                        "clippy": { "type": "boolean", "description": "Si true (Rust), exécute `cargo clippy --all-targets -- -D warnings` dans shadow_worktree sans pénalité (défaut: false)" }
                     }
                 }
             }

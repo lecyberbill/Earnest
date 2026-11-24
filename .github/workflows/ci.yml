@@ -31,6 +31,10 @@ jobs:
       - name: Rust Cache
         uses: Swatinem/rust-cache@v2
 
+      - name: Check & Test web-reader
+        run: |
+          cargo test --manifest-path crates/web-reader/Cargo.toml --verbose
+
       - name: Check & Test earnest-wf-engine
         run: |
           cd earnest-wf-engine

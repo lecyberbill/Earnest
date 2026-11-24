@@ -1,0 +1,9 @@
+[package]
+name = "web-reader"
+version = "0.1.0"
+edition = "2021"
+description = "Pure-Rust HTML to clean, structured Markdown for LLM agents (no network, no external DOM parser)"
+
+[lib]
+name = "web_reader"
+path = "src/lib.rs"

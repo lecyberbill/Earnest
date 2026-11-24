@@ -193,25 +193,14 @@ pub fn fetch_web_page(url: &str, max_chars: usize) -> Result<Value, String> {
     let status = resp.status().as_u16();
     let text = resp.text().map_err(|e| format!("Erreur lecture contenu: {}", e))?;
 
-    // Nettoyage rapide des balises HTML
-    let re_scripts = Regex::new(r"(?is)<script[^>]*>.*?</script>|<style[^>]*>.*?</style>").unwrap();
-    let no_scripts = re_scripts.replace_all(&text, " ");
-    let re_tags = Regex::new(r"<[^>]+>").unwrap();
-    let clean_text = re_tags.replace_all(&no_scripts, " ").split_whitespace().collect::<Vec<_>>().join(" ");
-
-    let char_count = clean_text.chars().count();
-    let truncated = char_count > max_chars;
-    let final_content = if truncated {
-        let prefix: String = clean_text.chars().take(max_chars).collect();
-        format!("{}... [Tronqué à {} caractères]", prefix, max_chars)
-    } else {
-        clean_text
-    };
+    let extracted = web_reader::extract_markdown(&text, max_chars);
 
     Ok(serde_json::json!({
         "status_code": status,
-        "truncated": truncated,
-        "content": final_content
+        "title": extracted.metadata.title,
+        "description": extracted.metadata.description,
+        "truncated": extracted.truncated,
+        "content": extracted.markdown
     }))
 }
 

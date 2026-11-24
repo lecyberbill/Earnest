@@ -731,8 +731,9 @@ impl<'a> ReActEngine<'a> {
             "shadow_check" => {
                 let filter = args["filter"].as_str();
                 let check_only = args["check_only"].as_bool().unwrap_or(false);
+                let clippy = args["clippy"].as_bool().unwrap_or(false);
                 let runner = ShadowRunner::new(&self.workspace_root, &policy.shadow_env.path, policy.shadow_env.timeout_ms);
-                match runner.run_shadow_check(filter, check_only) {
+                match runner.run_shadow_check(filter, check_only, clippy) {
                     Ok(res) => (res.to_string(), None),
                     Err(e) => (serde_json::json!({"status": "error", "error": e}).to_string(), None),
                 }

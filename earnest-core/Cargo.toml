@@ -30,3 +30,4 @@ agent-scheduler = { path = "../crates/agent-scheduler" }
 stream-cleaner = { path = "../crates/stream-cleaner" }
 wf-core = { path = "../earnest-wf-engine/crates/wf-core" }
 chromatix-vault = { path = "../crates/chromatix-vault" }
+web-reader = { path = "../crates/web-reader" }

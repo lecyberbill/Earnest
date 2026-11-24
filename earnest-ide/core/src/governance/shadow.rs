@@ -735,9 +735,9 @@ impl ShadowRunner {
             .collect()
     }
 
-    /// Exécute une vérification rapide (compile/test ciblé) dans `.ide/shadow_worktree`
+    /// Exécute une vérification rapide (compile/clippy/test ciblé) dans `.ide/shadow_worktree`
     /// sans fusionner ni compter comme un échec de sonde scellée.
-    pub fn run_shadow_check(&self, filter: Option<&str>, check_only: bool) -> Result<serde_json::Value, String> {
+    pub fn run_shadow_check(&self, filter: Option<&str>, check_only: bool, clippy: bool) -> Result<serde_json::Value, String> {
         self.prepare_shadow_worktree()?;
 
         let clean_filter = filter
@@ -746,7 +746,15 @@ impl ShadowRunner {
 
         let mut args_owned: Vec<String> = Vec::new();
         let program: &str = if self.shadow_path.join("Cargo.toml").is_file() {
-            if check_only {
+            if clippy {
+                args_owned.extend([
+                    "clippy".to_string(),
+                    "--all-targets".to_string(),
+                    "--".to_string(),
+                    "-D".to_string(),
+                    "warnings".to_string(),
+                ]);
+            } else if check_only {
                 args_owned.extend(["check".to_string(), "--all-targets".to_string()]);
             } else {
                 args_owned.extend(["test".to_string(), "--all-targets".to_string()]);
@@ -755,6 +763,12 @@ impl ShadowRunner {
                 }
             }
             "cargo"
+        } else if self.shadow_path.join("package.json").is_file() {
+            args_owned.push("--test".to_string());
+            if let Some(f) = clean_filter {
+                args_owned.push(f.to_string());
+            }
+            "node"
         } else if self.shadow_path.join("pyproject.toml").is_file()
             || self.shadow_path.join("pytest.ini").is_file()
             || self.shadow_path.join("tests").is_dir()
@@ -768,7 +782,7 @@ impl ShadowRunner {
             args_owned.extend(["test".to_string(), "./...".to_string()]);
             "go"
         } else {
-            return Err("Aucun projet Rust, Python ou Go détecté dans shadow_worktree.".to_string());
+            return Err("Aucun projet Rust, Node.js, Python ou Go détecté dans shadow_worktree.".to_string());
         };
 
         let mut cmd = crate::hidden_command(program);

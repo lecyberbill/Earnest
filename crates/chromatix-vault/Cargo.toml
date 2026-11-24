@@ -1,0 +1,14 @@
+[package]
+name = "chromatix-vault"
+version = "0.1.0"
+edition = "2021"
+description = "Pure Rust Chromatix Pixel Standard (.vault.png) encrypted per-tenant secret vault"
+
+[dependencies]
+flate2 = "1.0"
+hmac = "0.12"
+rand = "0.8"
+rand_chacha = "0.3"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+sha2 = "0.10"

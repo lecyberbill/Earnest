@@ -5,6 +5,7 @@ edition = "2021"
 description = "WFL (Workflow Language) AST, YAML parser, JSON schema generator and semantic validator"
 
 [dependencies]
+chromatix-vault = { path = "../../../crates/chromatix-vault" }
 chrono = "0.4"
 log-sanitizer = { path = "../../../crates/log-sanitizer" }
 regex = "1.10"

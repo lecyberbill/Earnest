@@ -354,12 +354,23 @@ pub fn execute_workflow(spec: &WorkflowSpec, opts: ExecutionOptions) -> Result<R
         }
     }
 
+    let mut secrets = opts.secrets;
+    if let Ok(vault) = chromatix_vault::TenantVault::from_env(chromatix_vault::resolve_vaults_dir()) {
+        for tenant in ["default", spec.name.as_str()] {
+            if let Ok(loaded) = vault.load_all(tenant) {
+                for (k, v) in loaded {
+                    secrets.entry(k).or_insert(v);
+                }
+            }
+        }
+    }
+
     let mut ctx = RuntimeCtx {
         spec,
         inputs,
         vars: spec.vars.clone(),
         outputs: HashMap::new(),
-        secrets: opts.secrets,
+        secrets,
         dry_run: opts.dry_run,
         dry_vfs_files: HashMap::new(),
         dry_vfs_deleted: HashSet::new(),

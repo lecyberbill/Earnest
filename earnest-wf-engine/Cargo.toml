@@ -1,3 +1,4 @@
 [workspace]
 resolver = "2"
-members = ["crates/wf-core", "crates/wf-mcp", "crates/wf-ui"]
+members = ["crates/wf-core", "crates/wf-mcp"]
+exclude = ["crates/wf-ui"]

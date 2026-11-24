@@ -265,16 +265,16 @@ at your option.
 
 ---
 
-## ⚙️ Configuration, `EARNEST.md` & Skills (Philosophie des 3 Modes)
+## ⚙️ Configuration, `EARNEST.md` & Skills (3-Mode Philosophy)
 
-### 1. `EARNEST.md` (Global & Projet)
-- **Global** : `%APPDATA%\Earnest\EARNEST.md` (Windows) ou `~/.earnest/EARNEST.md` (Linux/macOS), surchargeable via `EARNEST_HOME`.
-- **Projet** : `EARNEST.md` à la racine du projet (ou `.earnest/EARNEST.md`).
-- **Chargement dans `earnest-core` (Desktop / CLI)** : toujours injecté au démarrage du run (le niveau projet complète le niveau global).
-- **Chargement dans `earnest-ide` (Gouvernance 3 modes)** :
-  - **Mode 1 (`Normal`)** : `EARNEST.md` (global + projet) **est chargé** — l'utilisateur travaille librement avec ses propres règles.
-  - **Mode 2 (`Constrained`) & Mode 3 (`Architecture`)** : `EARNEST.md` **n'est volontairement pas chargé** afin de préserver intégralement la gouvernance par invariants cryptographiques (`.ide/invariants.json`), `policy.json` et le `shadow_worktree` sans interférence.
+### 1. `EARNEST.md` (Global & Project)
+- **Global**: `%APPDATA%\Earnest\EARNEST.md` (Windows) or `~/.earnest/EARNEST.md` (Linux/macOS), overridable via `EARNEST_HOME`.
+- **Project**: `EARNEST.md` at the project root (or `.earnest/EARNEST.md`).
+- **`earnest-core` (Desktop / CLI)**: always injected at run startup (project-level complements global-level).
+- **`earnest-ide` (3-Mode Governance)**:
+  - **Mode 1 (`Normal`)**: `EARNEST.md` (global + project) **is loaded** — users work freely with their own rules.
+  - **Mode 2 (`Constrained`) & Mode 3 (`Architecture`)**: `EARNEST.md` **is intentionally not loaded**, preserving strict cryptographic invariant governance (`.ide/invariants.json`), `policy.json`, and `shadow_worktree` without interference.
 
 ### 2. Skills (`list_skills` / `read_skill`)
-- La skill WFL ([`earnest-wfl`](.gemini/skills/earnest-wfl/SKILL.md)) est embarquée nativement dans `earnest-core`.
-- Des skills supplémentaires peuvent être ajoutés dans `.gemini/skills/<nom>/SKILL.md` ou `.earnest/skills/<nom>/SKILL.md` sans affecter la gouvernance `.ide/`.
+- The WFL skill ([`earnest-wfl`](.gemini/skills/earnest-wfl/SKILL.md)) is natively embedded in `earnest-core`.
+- Additional skills can be placed in `.gemini/skills/<name>/SKILL.md` or `.earnest/skills/<name>/SKILL.md` without affecting `.ide/` governance.

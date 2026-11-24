@@ -1,54 +1,54 @@
 ---
 name: earnest-wfl
-description: Concevoir, valider, sceller et exécuter des workflows déterministes WFL v1.0 via le serveur MCP `wfl` (`wf-mcp.exe`) dans Earnest.
+description: Design, validate, seal, and execute deterministic WFL v1.0 workflows via the `wfl` MCP server (`wf-mcp.exe`) in Earnest.
 ---
 
 # Earnest WFL (`earnest-wf-engine`)
 
-Langage de workflow YAML déterministe pour orchestrer fichiers, boucles, conditions, scripts, API HTTP et données.
+Deterministic YAML workflow language for orchestrating files, loops, conditions, scripts, HTTP APIs, and structured data.
 
-## Outils MCP disponibles (`wfl`)
+## Available MCP Tools (`wfl`)
 
-- `mcp__wfl__wfl_get_grammar` : schéma JSON WFL + liste des workflows.
-- `mcp__wfl__wfl_validate` : validation YAML stricte + sémantique (DAG, connexions, `sha256`).
-- `mcp__wfl__wfl_save_draft` : enregistre en statut `draft` dans `.wf/` et SQLite WAL.
-- `mcp__wfl__wfl_run` : exécute (`dry_run: true` tant que `draft`, `dry_run: false` après scellement).
-- `mcp__wfl__wfl_seal` : scelle via SHA-256 pour autoriser l'exécution réelle.
-- `mcp__wfl__wfl_inspect_run` / `mcp__wfl__wfl_list_workflows` : suivi et gouvernance.
+- `mcp__wfl__wfl_get_grammar`: returns the WFL JSON schema and registered workflows.
+- `mcp__wfl__wfl_validate`: validates strict YAML syntax and semantics (DAG, connections, `sha256`).
+- `mcp__wfl__wfl_save_draft`: saves a valid workflow as `draft` in `.wf/` and SQLite WAL.
+- `mcp__wfl__wfl_run`: executes a workflow (`dry_run: true` while `draft`; `dry_run: false` allowed after sealing).
+- `mcp__wfl__wfl_seal`: seals a `draft` workflow with its SHA-256 hash to allow real execution.
+- `mcp__wfl__wfl_inspect_run` / `mcp__wfl__wfl_list_workflows`: run inspection and governance.
 
-## Protocole obligatoire pour les agents
+## Mandatory Agent Protocol
 
-1. Rédiger le YAML WFL et le vérifier avec `wfl_validate`.
-2. Sauvegarder avec `wfl_save_draft`.
-3. Simuler avec `wfl_run` (`dry_run: true`), puis sceller avec `wfl_seal` avant `dry_run: false`.
-4. Ne jamais modifier le `.wf.yaml` sur disque après scellement sans repasser par `wfl_save_draft` + `wfl_seal`.
+1. Draft the WFL YAML and check it with `wfl_validate`.
+2. Save it with `wfl_save_draft`.
+3. Simulate with `wfl_run` (`dry_run: true`), then seal with `wfl_seal` before `dry_run: false`.
+4. Never edit a `.wf.yaml` file on disk after sealing without running `wfl_save_draft` + `wfl_seal` again.
 
-## Variables, Expressions & Pipes (`${...}` ou `{{...}}`)
+## Variables, Expressions & Pipes (`${...}` or `{{...}}`)
 
-- Syntaxes équivalentes : `${vars.nom}` ou `{{ vars.nom }}` (aussi `inputs.<nom>`, `outputs.<nom>`, `env.<VAR>`, `keyring.<secret>`).
-- **Variables globales `vars:`** : évaluées au démarrage (ex. `date_jour: "${now('%Y-%m-%d')}"`, `out: "${vars.base}/export"`).
-- **Incrément / Arithmétique** dans `flow.set` : `value: "${vars.compteur} + 1"` (`+`, `-`, `*`, `/`).
-- **Pipes intégrés** :
-  - Chemins/texte : `| stem` (nom sans extension), `| ext`, `| basename`, `| dirname`, `| upper`, `| lower`, `| trim`, `| replace('a','b')`, `| split(',')`
-  - Tableaux : `| length`, `| first`, `| last`, `| join('\n')`, `| map('stem')`, `| sort`, `| unique`
-  - Date : `${now('%Y-%m-%d')}` ou `${now('%Y%m%d_%H%M%S')}`
+- Equivalent syntaxes: `${vars.name}` or `{{ vars.name }}` (also `inputs.<name>`, `outputs.<name>`, `env.<VAR>`, `keyring.<secret>`).
+- **Global `vars:`**: evaluated at startup (e.g., `today: "${now('%Y-%m-%d')}"`, `out: "${vars.base}/export"`).
+- **Increment / Arithmetic** in `flow.set`: `value: "${vars.counter} + 1"` (`+`, `-`, `*`, `/`).
+- **Built-in pipes**:
+  - Paths / strings: `| stem` (filename without extension), `| ext`, `| basename`, `| dirname`, `| upper`, `| lower`, `| trim`, `| replace('a','b')`, `| split(',')`
+  - Arrays: `| length`, `| first`, `| last`, `| join('\n')`, `| map('stem')`, `| sort`, `| unique`
+  - Dates: `${now('%Y-%m-%d')}` or `${now('%Y%m%d_%H%M%S')}`
 
-## Actions disponibles
+## Available Actions
 
-### VFS / Fichiers
-- `vfs.list` (`conn`, `path`, `glob`, `recursive`, `include_dirs`) → retourne `{ data, names, stems, paths, full_paths, count }`. Chaque élément de `data` contient `{ name, stem, ext, path, full_path, dir, is_dir, size }`.
-- `vfs.read` (`conn`, `path`, `encoding: utf8|base64`) → `{ content }`.
+### VFS / Files
+- `vfs.list` (`conn`, `path`, `glob`, `recursive`, `include_dirs`) -> returns `{ data, names, stems, paths, full_paths, count }`. Each item in `data` has `{ name, stem, ext, path, full_path, dir, is_dir, size }`.
+- `vfs.read` (`conn`, `path`, `encoding: utf8|base64`) -> `{ content }`.
 - `vfs.write` (`conn`, `path`, `content`, `create_dirs`)
 - `vfs.append` (`conn`, `path`, `content`, `newline: true`, `create_dirs: true`)
 - `vfs.mkdir` (`conn`, `path`)
-- `vfs.exists` (`conn`, `path`) → `{ exists }`
+- `vfs.exists` (`conn`, `path`) -> `{ exists }`
 - `vfs.transfer` / `vfs.move` (`src: {conn, path}`, `dst: {conn, path}`, `overwrite`)
-- `vfs.stat` (`conn`, `path`, `compute_sha256`) → `{ size, is_file, sha256 }`
+- `vfs.stat` (`conn`, `path`, `compute_sha256`) -> `{ size, is_file, sha256 }`
 - `vfs.delete` (`conn`, `path`)
 
-### Contrôle de flux
-- `flow.if` (`condition`, `then: [...]`, `else: [...]`) — opérateurs : `==`, `!=`, `>`, `<`, `>=`, `<=`, `&&`, `||`, `!`, `contains`, `starts_with`, `ends_with`, `matches`, `in`.
-- `flow.each` (`items`, `as: item`, `steps: [...]`) — expose `${loop.index}`, `${loop.index1}`, `${loop.count}`, `${loop.first}`, `${loop.last}`.
+### Control Flow
+- `flow.if` (`condition`, `then: [...]`, `else: [...]`) — operators: `==`, `!=`, `>`, `<`, `>=`, `<=`, `&&`, `||`, `!`, `contains`, `starts_with`, `ends_with`, `matches`, `in`.
+- `flow.each` (`items`, `as: item`, `steps: [...]`) — exposes `${loop.index}`, `${loop.index1}`, `${loop.count}`, `${loop.first}`, `${loop.last}`.
 - `flow.while` (`condition`, `max_iterations: 1000`, `steps: [...]`)
 - `flow.switch` (`value`, `cases: { val: [...] }`, `default: [...]`)
 - `flow.break` / `flow.continue`
@@ -56,10 +56,10 @@ Langage de workflow YAML déterministe pour orchestrer fichiers, boucles, condit
 - `flow.call` (`params: { workflow_path, inputs }`)
 - `flow.sleep` (`params: { duration_ms }`) / `flow.fail` (`params: { code, message }`)
 
-### Données & Système
+### Data & System
 - `data.parse_json` (`params: { text }`)
-- `data.parse_csv` (`params: { text, delimiter: ",", headers: true }`) → `{ rows, count }`
-- `data.regex` (`params: { text, pattern }`) → `{ matches, count, first }`
-- `sys.exec` (`params: { program, args, cwd, env, allow_non_zero }`, `timeout_ms`) → `{ exit_code, stdout, stderr }`
-- `sys.http` (`params: { conn, method, url, headers, query, body, parse_json }`, `timeout_ms`) → `{ status, body }`
+- `data.parse_csv` (`params: { text, delimiter: ",", headers: true }`) -> `{ rows, count }`
+- `data.regex` (`params: { text, pattern }`) -> `{ matches, count, first }`
+- `sys.exec` (`params: { program, args, cwd, env, allow_non_zero }`, `timeout_ms`) -> `{ exit_code, stdout, stderr }`
+- `sys.http` (`params: { conn, method, url, headers, query, body, parse_json }`, `timeout_ms`) -> `{ status, body }`
 - `sys.log` (`params: { level: info|warn|error|debug, message }`)

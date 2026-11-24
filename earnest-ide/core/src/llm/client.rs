@@ -110,7 +110,7 @@ impl LLMClient {
             }
         };
         if has_tiers {
-            let tier = if effort == "on" || effort == "true" { "medium" } else { effort };
+            let tier = if effort == "on" || effort == "true" { "low" } else { effort };
             serde_json::json!(tier)
         } else {
             serde_json::json!(true)
@@ -153,13 +153,18 @@ impl LLMClient {
             .and_then(|v| v.parse::<u64>().ok())
             .filter(|&v| v >= 2048)
             .unwrap_or(65536);
+        let num_predict: u64 = std::env::var("EARNEST_OLLAMA_NUM_PREDICT")
+            .ok()
+            .and_then(|v| v.parse::<u64>().ok())
+            .filter(|&v| v >= 1024)
+            .unwrap_or(16384);
         let mut body = serde_json::json!({
             "model": self.model,
             "messages": messages,
             "stream": true,
             "think": think_val,
             "options": {
-                "num_predict": 32768,
+                "num_predict": num_predict,
                 "num_ctx": num_ctx
             }
         });
@@ -269,6 +274,11 @@ impl LLMClient {
 
         let url_low = self.base_url.to_lowercase();
         let model_low = self.model.to_lowercase();
+        let normalized_effort = match think_effort {
+            "low" | "medium" | "high" => Some(think_effort),
+            "on" | "true" => Some("low"),
+            _ => None,
+        };
         if url_low.contains("deepseek") || model_low.contains("deepseek") {
             if think_effort == "off" || think_effort == "none" || think_effort == "false" {
                 body["thinking"] = serde_json::json!({ "type": "disabled" });
@@ -276,8 +286,18 @@ impl LLMClient {
                 body["thinking"] = serde_json::json!({ "type": "enabled" });
                 body.as_object_mut().map(|o| o.remove("temperature"));
             }
-        } else if think_effort != "off" && (model_low.starts_with("o1") || model_low.starts_with("o3")) {
-            body["reasoning_effort"] = serde_json::json!(think_effort);
+        } else if let Some(eff) = normalized_effort {
+            if model_low.starts_with("o1")
+                || model_low.starts_with("o3")
+                || model_low.starts_with("o4")
+                || model_low.starts_with("gpt-5")
+                || model_low.contains("grok-3-mini")
+                || url_low.contains("generativelanguage.googleapis.com")
+            {
+                body["reasoning_effort"] = serde_json::json!(eff);
+            } else if url_low.contains("openrouter.ai") {
+                body["reasoning"] = serde_json::json!({ "effort": eff });
+            }
         }
 
         if let Some(t) = tools {

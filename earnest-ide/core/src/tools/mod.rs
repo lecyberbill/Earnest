@@ -204,6 +204,40 @@ pub fn get_ide_tools_schemas() -> Vec<Value> {
         serde_json::json!({
             "type": "function",
             "function": {
+                "name": "web_fetch",
+                "description": "Télécharge et extrait le texte propre d'une page web HTTP/HTTPS (documentation, spécification, article).",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "url": { "type": "string", "description": "URL complète HTTP ou HTTPS à lire" },
+                        "max_chars": { "type": "integer", "description": "Limite de caractères retournés (défaut: 6000)" }
+                    },
+                    "required": ["url"]
+                }
+            }
+        }),
+        serde_json::json!({
+            "type": "function",
+            "function": {
+                "name": "ask_user_question",
+                "description": "Pose une question courte et directe à l'utilisateur uniquement lorsque la demande présente une ambiguïté fonctionnelle majeure empêchant d'implémenter sans deviner, puis interrompt proprement le run en attendant sa réponse.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "question": { "type": "string", "description": "Question concise et ciblée posée à l'utilisateur" },
+                        "options": {
+                            "type": "array",
+                            "items": { "type": "string" },
+                            "description": "Choix courts proposés à l'utilisateur (optionnel, 2 à 4 options)"
+                        }
+                    },
+                    "required": ["question"]
+                }
+            }
+        }),
+        serde_json::json!({
+            "type": "function",
+            "function": {
                 "name": "store_memory",
                 "description": "Enregistre une information pérenne dans la mémoire du projet (décision d'architecture, règle, préférence, bug récurrent).",
                 "parameters": {

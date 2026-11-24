@@ -52,7 +52,7 @@ use rusqlite::{params, Connection};
 use serde_json::Value;
 
 use crate::db::memories::MemoryService;
-use crate::llm::client::ChatMessage;
+use crate::llm::client::{ChatMessage, ToolCallItem};
 use crate::llm::router::LLMRouter;
 use crate::tools::fs::{read_file, write_file, edit_file};
 use crate::tools::search::{grep_search, list_files};
@@ -665,6 +665,30 @@ impl<'a> ReActEngine<'a> {
             }
 
             // === OUTILS STANDARDS ===
+            "ask_user_question" => {
+                let question = args["question"].as_str().unwrap_or("").trim();
+                if question.is_empty() {
+                    return (
+                        serde_json::json!({"status": "error", "error": "Paramètre 'question' vide"}).to_string(),
+                        None,
+                    );
+                }
+                let mut md = format!("❓ **Clarification souhaitée**\n\n{}", question);
+                if let Some(opts) = args["options"].as_array() {
+                    let valid_opts: Vec<&str> = opts
+                        .iter()
+                        .filter_map(|v| v.as_str().map(str::trim))
+                        .filter(|s| !s.is_empty())
+                        .collect();
+                    if !valid_opts.is_empty() {
+                        md.push_str("\n\n");
+                        for (idx, opt) in valid_opts.iter().enumerate() {
+                            md.push_str(&format!("{}. {}\n", idx + 1, opt));
+                        }
+                    }
+                }
+                (md.trim_end().to_string(), Some("user_question".to_string()))
+            }
             "web_search" => {
                 let query = args["query"].as_str().unwrap_or("");
                 let max = args["max_results"].as_u64().unwrap_or(5) as usize;
@@ -790,68 +814,8 @@ impl<'a> ReActEngine<'a> {
                     }).to_string(), None)
                 }
             }
-            "read_file" => {
-                let path = args["path"].as_str()
-                    .or_else(|| args["file_path"].as_str())
-                    .or_else(|| args["target_file"].as_str())
-                    .unwrap_or("")
-                    .trim();
-                if path.is_empty() {
-                    let err = tool_guard::error::GuardError::EmptyPath;
-                    return (serde_json::json!({"status": "error", "error": err.to_string()}).to_string(), None);
-                }
-                let raw_p = Path::new(path);
-                if tool_guard::path::has_traversal(raw_p) {
-                    let err = tool_guard::error::GuardError::PathTraversal {
-                        requested: path.to_string(),
-                        allowed_root: self.workspace_root.display().to_string(),
-                    };
-                    return (serde_json::json!({"status": "error", "error": err.to_string()}).to_string(), None);
-                }
-                if tool_guard::path::is_system_sensitive(raw_p) {
-                    let err = tool_guard::error::GuardError::SystemPath { requested: path.to_string() };
-                    return (serde_json::json!({"status": "error", "error": err.to_string()}).to_string(), None);
-                }
-                let rel_for_shadow = if raw_p.is_absolute() {
-                    raw_p.strip_prefix(&self.workspace_root).ok()
-                } else {
-                    Some(raw_p)
-                };
-                let resolved = if let Some(rel) = rel_for_shadow {
-                    let shadow_candidate = self.workspace_root.join(&policy.shadow_env.path).join(rel);
-                    if policy.mode == GovernanceMode::Constrained && shadow_candidate.is_file() {
-                        shadow_candidate
-                    } else if raw_p.is_absolute() {
-                        PathBuf::from(path)
-                    } else {
-                        self.workspace_root.join(rel)
-                    }
-                } else {
-                    PathBuf::from(path)
-                };
-                if let Ok(meta) = std::fs::metadata(&resolved) {
-                    if let Err(err) = tool_guard::file::enforce_size_bound(meta.len()) {
-                        return (serde_json::json!({"status": "error", "error": err.to_string()}).to_string(), None);
-                    }
-                    if meta.is_file() {
-                        if let Ok(mut f) = std::fs::File::open(&resolved) {
-                            use std::io::Read;
-                            let mut buf = [0u8; 4096];
-                            if let Ok(n) = f.read(&mut buf) {
-                                if tool_guard::file::is_binary(&buf[..n]) {
-                                    let err = tool_guard::error::GuardError::BinaryFile { path: path.to_string() };
-                                    return (serde_json::json!({"status": "error", "error": err.to_string()}).to_string(), None);
-                                }
-                            }
-                        }
-                    }
-                }
-                let start_line = args["start_line"].as_u64().map(|v| v as usize);
-                let end_line = args["end_line"].as_u64().map(|v| v as usize);
-                match read_file(resolved.to_str().unwrap_or(path), start_line, end_line) {
-                    Ok(res) => (res.to_string(), None),
-                    Err(e) => (serde_json::json!({"status": "error", "error": e}).to_string(), None),
-                }
+            "read_file" | "grep_search" | "list_files" => {
+                (Self::exec_readonly_tool(&self.workspace_root, name, args, policy), None)
             }
             "edit_file" => {
                 if policy.mode == GovernanceMode::Architecture {
@@ -899,35 +863,6 @@ impl<'a> ReActEngine<'a> {
                     content.to_string()
                 };
                 match write_file(resolved.to_str().unwrap_or(path), &final_content) {
-                    Ok(res) => (res.to_string(), None),
-                    Err(e) => (serde_json::json!({"status": "error", "error": e}).to_string(), None),
-                }
-            }
-            "grep_search" => {
-                let query = args["query"].as_str().unwrap_or("");
-                let raw_root = args["root_path"].as_str().unwrap_or(".");
-                let resolved_root = if Path::new(raw_root).is_absolute() {
-                    PathBuf::from(raw_root)
-                } else {
-                    self.workspace_root.join(raw_root)
-                };
-                let root = resolved_root.to_str().unwrap_or(raw_root);
-                let max = args["max_results"].as_u64().map(|v| v as usize);
-                match grep_search(root, query, max) {
-                    Ok(res) => (res.to_string(), None),
-                    Err(e) => (serde_json::json!({"status": "error", "error": e}).to_string(), None),
-                }
-            }
-            "list_files" => {
-                let raw_root = args["root_path"].as_str().unwrap_or(".");
-                let resolved_root = if Path::new(raw_root).is_absolute() {
-                    PathBuf::from(raw_root)
-                } else {
-                    self.workspace_root.join(raw_root)
-                };
-                let root = resolved_root.to_str().unwrap_or(raw_root);
-                let depth = args["max_depth"].as_u64().map(|v| v as usize);
-                match list_files(root, depth) {
                     Ok(res) => (res.to_string(), None),
                     Err(e) => (serde_json::json!({"status": "error", "error": e}).to_string(), None),
                 }
@@ -1166,6 +1101,105 @@ impl<'a> ReActEngine<'a> {
         }
     }
 
+    fn exec_readonly_tool(workspace_root: &Path, name: &str, args: &Value, policy: &PolicyConfig) -> String {
+        match name {
+            "read_file" => {
+                let path = args["path"]
+                    .as_str()
+                    .or_else(|| args["file_path"].as_str())
+                    .or_else(|| args["target_file"].as_str())
+                    .unwrap_or("")
+                    .trim();
+                if path.is_empty() {
+                    let err = tool_guard::error::GuardError::EmptyPath;
+                    return serde_json::json!({"status": "error", "error": err.to_string()}).to_string();
+                }
+                let raw_p = Path::new(path);
+                if tool_guard::path::has_traversal(raw_p) {
+                    let err = tool_guard::error::GuardError::PathTraversal {
+                        requested: path.to_string(),
+                        allowed_root: workspace_root.display().to_string(),
+                    };
+                    return serde_json::json!({"status": "error", "error": err.to_string()}).to_string();
+                }
+                if tool_guard::path::is_system_sensitive(raw_p) {
+                    let err = tool_guard::error::GuardError::SystemPath { requested: path.to_string() };
+                    return serde_json::json!({"status": "error", "error": err.to_string()}).to_string();
+                }
+                let rel_for_shadow = if raw_p.is_absolute() {
+                    raw_p.strip_prefix(workspace_root).ok()
+                } else {
+                    Some(raw_p)
+                };
+                let resolved = if let Some(rel) = rel_for_shadow {
+                    let shadow_candidate = workspace_root.join(&policy.shadow_env.path).join(rel);
+                    if policy.mode == GovernanceMode::Constrained && shadow_candidate.is_file() {
+                        shadow_candidate
+                    } else if raw_p.is_absolute() {
+                        PathBuf::from(path)
+                    } else {
+                        workspace_root.join(rel)
+                    }
+                } else {
+                    PathBuf::from(path)
+                };
+                if let Ok(meta) = std::fs::metadata(&resolved) {
+                    if let Err(err) = tool_guard::file::enforce_size_bound(meta.len()) {
+                        return serde_json::json!({"status": "error", "error": err.to_string()}).to_string();
+                    }
+                    if meta.is_file() {
+                        if let Ok(mut f) = std::fs::File::open(&resolved) {
+                            use std::io::Read;
+                            let mut buf = [0u8; 4096];
+                            if let Ok(n) = f.read(&mut buf) {
+                                if tool_guard::file::is_binary(&buf[..n]) {
+                                    let err = tool_guard::error::GuardError::BinaryFile { path: path.to_string() };
+                                    return serde_json::json!({"status": "error", "error": err.to_string()}).to_string();
+                                }
+                            }
+                        }
+                    }
+                }
+                let start_line = args["start_line"].as_u64().map(|v| v as usize);
+                let end_line = args["end_line"].as_u64().map(|v| v as usize);
+                match read_file(resolved.to_str().unwrap_or(path), start_line, end_line) {
+                    Ok(res) => res.to_string(),
+                    Err(e) => serde_json::json!({"status": "error", "error": e}).to_string(),
+                }
+            }
+            "grep_search" => {
+                let query = args["query"].as_str().unwrap_or("");
+                let raw_root = args["root_path"].as_str().unwrap_or(".");
+                let resolved_root = if Path::new(raw_root).is_absolute() {
+                    PathBuf::from(raw_root)
+                } else {
+                    workspace_root.join(raw_root)
+                };
+                let root = resolved_root.to_str().unwrap_or(raw_root);
+                let max = args["max_results"].as_u64().map(|v| v as usize);
+                match grep_search(root, query, max) {
+                    Ok(res) => res.to_string(),
+                    Err(e) => serde_json::json!({"status": "error", "error": e}).to_string(),
+                }
+            }
+            "list_files" => {
+                let raw_root = args["root_path"].as_str().unwrap_or(".");
+                let resolved_root = if Path::new(raw_root).is_absolute() {
+                    PathBuf::from(raw_root)
+                } else {
+                    workspace_root.join(raw_root)
+                };
+                let root = resolved_root.to_str().unwrap_or(raw_root);
+                let depth = args["max_depth"].as_u64().map(|v| v as usize);
+                match list_files(root, depth) {
+                    Ok(res) => res.to_string(),
+                    Err(e) => serde_json::json!({"status": "error", "error": e}).to_string(),
+                }
+            }
+            _ => serde_json::json!({"status": "error", "error": format!("Outil inconnu : {}", name)}).to_string(),
+        }
+    }
+
     /// Filtrage strict des outils exposés au LLM selon la Machine à États (Section 2 du CDC)
     pub fn get_tools_for_policy(&self, policy: &PolicyConfig) -> Vec<Value> {
         let std_tools = get_ide_tools_schemas();
@@ -1178,7 +1212,7 @@ impl<'a> ReActEngine<'a> {
             // Mode 3 (Architecture / Spec-First) : STRICTEMENT AUCUN write_file / edit_file / terminal_exec
             // Contrainte 2 : kb_search et consultation autorisés
             GovernanceMode::Architecture => {
-                let allowed_std = ["read_file", "list_files", "grep_search", "workspace_map", "web_search", "web_fetch", "store_memory", "recall_memory", "recall_recent_runs", "kb_list_products", "kb_search"];
+                let allowed_std = ["read_file", "list_files", "grep_search", "workspace_map", "web_search", "web_fetch", "ask_user_question", "store_memory", "recall_memory", "recall_recent_runs", "kb_list_products", "kb_search"];
                 let allowed_gov = ["add_invariant", "submit_invariants", "request_architecture_review", "symbol_search"];
 
                 let mut tools: Vec<Value> = std_tools.into_iter()
@@ -1195,7 +1229,7 @@ impl<'a> ReActEngine<'a> {
 
             // Mode 2 (Contraint / Invariants & Shadow Sandbox)
             GovernanceMode::Constrained => {
-                let allowed_std = ["read_file", "list_files", "grep_search", "workspace_map", "web_search", "web_fetch", "store_memory", "recall_memory", "recall_recent_runs", "kb_list_products", "kb_search", "kb_propose"];
+                let allowed_std = ["read_file", "list_files", "grep_search", "workspace_map", "web_search", "web_fetch", "ask_user_question", "store_memory", "recall_memory", "recall_recent_runs", "kb_list_products", "kb_search", "kb_propose"];
                 let allowed_gov = ["write_code", "shadow_check", "shadow_copy", "shadow_validate_and_merge", "query_invariants", "request_contract_mutation", "report_checkpoint_status", "symbol_search"];
 
                 let mut tools: Vec<Value> = std_tools.into_iter()
@@ -1213,7 +1247,7 @@ impl<'a> ReActEngine<'a> {
     }
 
     pub fn set_think_effort(effort: &str) {
-        let lock = THINK_EFFORT.get_or_init(|| std::sync::Mutex::new("medium".to_string()));
+        let lock = THINK_EFFORT.get_or_init(|| std::sync::Mutex::new("low".to_string()));
         if let Ok(mut guard) = lock.lock() {
             *guard = effort.to_string();
         }
@@ -1356,7 +1390,8 @@ impl<'a> ReActEngine<'a> {
             2. Examine scrupuleusement le code existant avec 'read_file' et 'list_files'.\n\
             3. En cas de bug, découverte ou piège résolu, transmets-le dans la base d'expérience via 'kb_propose'.\n\
             4. Respecte strictement les règles du mode de gouvernance actif.\n\
-            5. Mémoire projet : consulte '.ide/atlas.md' avec 'read_file' s'il existe (en Mode 1 Normal, tu peux le mettre à jour aux jalons ; en Mode 2 Contraint, utilise plutôt 'store_memory' sans détourner 'write_code' pour de la documentation hors contrat).{}{}{}{}\n",
+            5. Mémoire projet : consulte '.ide/atlas.md' avec 'read_file' s'il existe (en Mode 1 Normal, tu peux le mettre à jour aux jalons ; en Mode 2 Contraint, utilise plutôt 'store_memory' sans détourner 'write_code' pour de la documentation hors contrat).\n\
+            6. En cas d'ambiguïté fonctionnelle majeure dans la demande utilisateur (plusieurs interprétations contradictoires possibles), ne boucle pas dans ta réflexion pour deviner : appelle 'ask_user_question' avec une question courte et directe.{}{}{}{}\n",
             mode_desc,
             memory_context,
             workspace_map_context,
@@ -1423,6 +1458,7 @@ impl<'a> ReActEngine<'a> {
         );
         let mut empty_tool_nudges: usize = 0;
         let mut merged_successfully = false;
+        let mut staged_in_run = false;
 
         for _ in 0..self.max_steps {
             if CANCEL_RUN.load(Ordering::SeqCst) {
@@ -1437,10 +1473,10 @@ impl<'a> ReActEngine<'a> {
             }
             compact_messages_if_needed(&mut messages, context_budget_chars);
             let think_effort = THINK_EFFORT
-                .get_or_init(|| std::sync::Mutex::new("medium".to_string()))
+                .get_or_init(|| std::sync::Mutex::new("low".to_string()))
                 .lock()
                 .map(|g| g.clone())
-                .unwrap_or_else(|_| "medium".to_string());
+                .unwrap_or_else(|_| "low".to_string());
             let mut stream_cb = |kind: &str, chunk: &str| {
                 on_trace(&run_id, step_order, "token", Some(kind), chunk, &active_backend_name);
             };
@@ -1470,39 +1506,40 @@ impl<'a> ReActEngine<'a> {
                 }
             }
 
+            let truncated_in_thought = chat_res.content.trim().is_empty()
+                && chat_res.reasoning_content.as_deref().map(|r| !r.trim().is_empty()).unwrap_or(false);
+            let has_code_fence = chat_res.content.contains("```");
             let normal_stalled = chat_res.tool_calls.is_empty()
                 && policy.mode == GovernanceMode::Normal
                 && empty_tool_nudges < 2
-                && (chat_res.content.matches("```").count() % 2 == 1
-                    || (chat_res.content.trim().is_empty()
-                        && chat_res.reasoning_content.as_deref().map(|r| !r.trim().is_empty()).unwrap_or(false)));
+                && (chat_res.content.matches("```").count() % 2 == 1 || truncated_in_thought);
             let arch_stalled = chat_res.tool_calls.is_empty()
                 && policy.mode == GovernanceMode::Architecture
                 && empty_tool_nudges < 3;
             let constrained_stalled = chat_res.tool_calls.is_empty()
                 && policy.mode == GovernanceMode::Constrained
                 && !merged_successfully
-                && empty_tool_nudges < 3;
+                && empty_tool_nudges < 2
+                && (truncated_in_thought || has_code_fence || staged_in_run);
             let is_final_answer = chat_res.tool_calls.is_empty()
                 && !normal_stalled
                 && !arch_stalled
                 && !constrained_stalled;
 
-            if !chat_res.content.is_empty() {
-                if !is_final_answer {
-                    self.record_trace(&run_id, step_order, "thought", None, &chat_res.content);
-                    on_trace(&run_id, step_order, "thought", None, &chat_res.content, &active_backend_name);
-                    step_order += 1;
-                }
-                messages.push(ChatMessage { role: "assistant".to_string(), content: chat_res.content.clone(), images: None });
+            if !chat_res.content.is_empty() && !is_final_answer {
+                self.record_trace(&run_id, step_order, "thought", None, &chat_res.content);
+                on_trace(&run_id, step_order, "thought", None, &chat_res.content, &active_backend_name);
+                step_order += 1;
+            }
+            if !chat_res.content.is_empty() || !chat_res.tool_calls.is_empty() {
+                let assistant_hist = build_assistant_turn_history(&chat_res.content, &chat_res.tool_calls);
+                messages.push(ChatMessage { role: "assistant".to_string(), content: assistant_hist, images: None });
             }
 
-            // S'il n'y a aucun appel d'outil, conclusion (sauf si Mode 2/3, ou Mode 1 tronqué en plein code)
+            // S'il n'y a aucun appel d'outil, conclusion (sauf si Mode 2/3 en cours, ou Mode 1 tronqué en plein code)
             if chat_res.tool_calls.is_empty() {
                 if policy.mode == GovernanceMode::Normal && empty_tool_nudges < 2 {
                     let has_unclosed_fence = chat_res.content.matches("```").count() % 2 == 1;
-                    let truncated_in_thought = chat_res.content.trim().is_empty()
-                        && chat_res.reasoning_content.as_deref().map(|r| !r.trim().is_empty()).unwrap_or(false);
                     if has_unclosed_fence || truncated_in_thought {
                         empty_tool_nudges += 1;
                         println!("  🔄 [ANTI-STALL] Réponse tronquée en Mode 1 ({}/2 consécutifs), relance automatique...", empty_tool_nudges);
@@ -1520,7 +1557,7 @@ impl<'a> ReActEngine<'a> {
                     let msg = if chat_res.content.is_empty() {
                         "Ta réflexion a été tronquée avant d'appeler un outil. Sois très concis (n'écris aucun code dans ta pensée) et appelle immédiatement `add_invariant` pour le premier contrat, puis `request_architecture_review`."
                     } else {
-                        "En Mode 3 Architecture, n'écris pas le code en texte libre : appelle immédiatement `add_invariant` pour formaliser chaque contrat (id, title, statement, target_file, test_query), puis appelle `request_architecture_review` pour soumettre l'architecture à validation."
+                        "En Mode 3 Architecture, n'écris pas le code en texte libre : appelle immédiatement `add_invariant` pour formaliser chaque contrat (id, title, statement, target_file, test_query), puis appelle `request_architecture_review` pour soumettre l'architecture à validation (ou `ask_user_question` si la consigne est ambiguë)."
                     };
                     messages.push(ChatMessage {
                         role: "user".to_string(),
@@ -1529,12 +1566,12 @@ impl<'a> ReActEngine<'a> {
                     });
                     continue;
                 }
-                if policy.mode == GovernanceMode::Constrained && !merged_successfully && empty_tool_nudges < 3 {
+                if constrained_stalled {
                     empty_tool_nudges += 1;
-                    println!("  🔄 [ANTI-STALL] Texte seul en Mode 2 ({}/3 consécutifs), relance automatique...", empty_tool_nudges);
+                    println!("  🔄 [ANTI-STALL] Texte seul en Mode 2 ({}/2 consécutifs), relance automatique...", empty_tool_nudges);
                     messages.push(ChatMessage {
                         role: "user".to_string(),
-                        content: "Continue : si la tâche n'est pas encore terminée et validée, sois bref et appelle immédiatement un seul outil ciblé (`shadow_check` pour compiler/tester dans la sandbox, `shadow_copy` pour dupliquer un fichier sans le réécrire, `write_code` avec `target`/`replacement` ou `stage_only: true` sur un fichier, puis `stage_only: false` pour la validation finale). Si la tâche est vraiment terminée et validée, donne ta réponse finale.".to_string(),
+                        content: "Ta réponse précédente n'a pas appelé d'outil alors que des modifications sont en attente ou que du code a été écrit en texte libre : appelle immédiatement `write_code` (ou `shadow_validate_and_merge` si les fichiers sont déjà stagés dans le shadow worktree, ou `ask_user_question` en cas d'ambiguïté).".to_string(),
                         images: None,
                     });
                     continue;
@@ -1546,7 +1583,7 @@ impl<'a> ReActEngine<'a> {
             }
             empty_tool_nudges = 0;
 
-            // Exécution des outils demandés (parallèle si plusieurs appels read-only non-cachés)
+            // Exécution des outils demandés (parallèle si plusieurs appels read-only)
             let all_readonly_batch = chat_res.tool_calls.len() > 1
                 && chat_res.tool_calls.iter().all(|c| matches!(c.name.as_str(), "read_file" | "list_files" | "grep_search"));
 
@@ -1554,55 +1591,23 @@ impl<'a> ReActEngine<'a> {
                 let mut results: Vec<Option<(String, Option<String>)>> = vec![None; chat_res.tool_calls.len()];
                 let mut misses: Vec<(usize, &str, &Value)> = Vec::new();
                 for (idx, call) in chat_res.tool_calls.iter().enumerate() {
-                    let args_key = call.arguments.to_string();
-                    if let Some(cached) = tool_cache.get(&call.name, &args_key) {
-                        println!("  ♻️ [TOOL CACHE] HIT {} {}", call.name, args_key);
-                        results[idx] = Some((cached.to_string(), None));
-                    } else {
-                        misses.push((idx, call.name.as_str(), &call.arguments));
+                    if call.name == "read_file" {
+                        let args_key = normalize_cache_args_key(&self.workspace_root, &call.arguments);
+                        if let Some(cached) = tool_cache.get(&call.name, &args_key) {
+                            println!("  ♻️ [TOOL CACHE] HIT {} {}", call.name, args_key);
+                            results[idx] = Some((cached.to_string(), None));
+                            continue;
+                        }
                     }
+                    misses.push((idx, call.name.as_str(), &call.arguments));
                 }
                 if !misses.is_empty() {
                     let computed: Vec<(usize, (String, Option<String>))> = std::thread::scope(|s| {
-                        let ws_root = &self.workspace_root;
+                        let ws_root = self.workspace_root.as_path();
+                        let policy_ref = &policy;
                         let handles: Vec<_> = misses.into_iter().map(|(idx, name, args)| {
                             s.spawn(move || {
-                                let resolve_ws = |raw: &str| -> String {
-                                    if Path::new(raw).is_absolute() {
-                                        raw.to_string()
-                                    } else {
-                                        ws_root.join(raw).to_string_lossy().to_string()
-                                    }
-                                };
-                                let out = match name {
-                                    "read_file" => {
-                                        let path = resolve_ws(args["path"].as_str().unwrap_or(""));
-                                        let start_line = args["start_line"].as_u64().map(|v| v as usize);
-                                        let end_line = args["end_line"].as_u64().map(|v| v as usize);
-                                        match read_file(&path, start_line, end_line) {
-                                            Ok(res) => res.to_string(),
-                                            Err(e) => serde_json::json!({"status": "error", "error": e}).to_string(),
-                                        }
-                                    }
-                                    "grep_search" => {
-                                        let query = args["query"].as_str().unwrap_or("");
-                                        let root = resolve_ws(args["root_path"].as_str().unwrap_or("."));
-                                        let max = args["max_results"].as_u64().map(|v| v as usize);
-                                        match grep_search(&root, query, max) {
-                                            Ok(res) => res.to_string(),
-                                            Err(e) => serde_json::json!({"status": "error", "error": e}).to_string(),
-                                        }
-                                    }
-                                    "list_files" => {
-                                        let root = resolve_ws(args["root_path"].as_str().unwrap_or("."));
-                                        let depth = args["max_depth"].as_u64().map(|v| v as usize);
-                                        match list_files(&root, depth) {
-                                            Ok(res) => res.to_string(),
-                                            Err(e) => serde_json::json!({"status": "error", "error": e}).to_string(),
-                                        }
-                                    }
-                                    _ => String::new(),
-                                };
+                                let out = Self::exec_readonly_tool(ws_root, name, args, policy_ref);
                                 (idx, (out, None))
                             })
                         }).collect();
@@ -1675,8 +1680,12 @@ impl<'a> ReActEngine<'a> {
                     tool_cache.insert(fn_name, &args_key, tool_output.clone(), path_hint);
                 } else if matches!(fn_name.as_str(), "write_code" | "edit_file" | "write_file" | "shadow_copy" | "shadow_validate_and_merge") {
                     loop_detector.reset_progress();
-                    if matches!(fn_name.as_str(), "write_code" | "shadow_validate_and_merge") {
-                        merged_successfully = raw_output.contains("\"merged_to_workspace\":true");
+                    if matches!(fn_name.as_str(), "write_code" | "shadow_copy") && raw_output.contains("\"status\":\"STAGED\"") {
+                        staged_in_run = true;
+                    }
+                    if matches!(fn_name.as_str(), "write_code" | "shadow_validate_and_merge") && raw_output.contains("\"merged_to_workspace\":true") {
+                        merged_successfully = true;
+                        staged_in_run = false;
                     }
                     if let Some(path) = fn_args["path"].as_str().or_else(|| fn_args["target_file"].as_str()) {
                         tool_cache.invalidate_path(path);
@@ -1688,6 +1697,13 @@ impl<'a> ReActEngine<'a> {
                             }
                         }
                     }
+                }
+
+                if interrupt_action.as_deref() == Some("user_question") {
+                    final_answer = raw_output;
+                    self.record_trace(&run_id, step_order, "answer", None, &final_answer);
+                    on_trace(&run_id, step_order, "answer", None, &final_answer, &active_backend_name);
+                    break;
                 }
 
                 self.record_trace(&run_id, step_order, "tool_output", Some(fn_name), &tool_output);
@@ -1921,7 +1937,7 @@ impl<'a> SubAgentRunner<'a> {
         let sub_tools: Vec<Value> = all_tools.into_iter()
             .filter(|t| {
                 let n = t["function"]["name"].as_str().unwrap_or("");
-                n != "invoke_subagent" && (!self.readonly || (n != "edit_file" && n != "write_file" && n != "terminal_exec"))
+                n != "invoke_subagent" && n != "ask_user_question" && (!self.readonly || (n != "edit_file" && n != "write_file" && n != "terminal_exec"))
             })
             .collect();
 
@@ -1934,6 +1950,12 @@ impl<'a> SubAgentRunner<'a> {
                 final_report = chat_res.content;
                 break;
             }
+
+            messages.push(ChatMessage {
+                role: "assistant".to_string(),
+                content: build_assistant_turn_history(&chat_res.content, &chat_res.tool_calls),
+                images: None,
+            });
 
             for call in chat_res.tool_calls {
                 let fn_name = &call.name;
@@ -1959,6 +1981,22 @@ impl<'a> SubAgentRunner<'a> {
 
         Ok(final_report)
     }
+}
+
+fn build_assistant_turn_history(content: &str, tool_calls: &[ToolCallItem]) -> String {
+    if tool_calls.is_empty() {
+        return content.to_string();
+    }
+    let mut lines: Vec<String> = Vec::with_capacity(tool_calls.len() + 1);
+    let trimmed = content.trim();
+    if !trimmed.is_empty() {
+        lines.push(trimmed.to_string());
+    }
+    for call in tool_calls {
+        let args_preview = context_trimmer::truncate_tool_output(&call.arguments.to_string(), 1_200);
+        lines.push(format!("[Appel outil: {}({})]", call.name, args_preview));
+    }
+    lines.join("\n")
 }
 
 fn normalize_cache_args_key(workspace_root: &Path, args: &Value) -> String {
@@ -2016,4 +2054,64 @@ fn kb_mcp_client() -> crate::mcp::McpClient {
             kb_db.to_string_lossy().to_string(),
         ],
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn build_assistant_turn_history_includes_tool_call_and_args() {
+        let calls = vec![ToolCallItem {
+            id: "c1".to_string(),
+            name: "write_code".to_string(),
+            arguments: serde_json::json!({
+                "target_contract_id": "C3",
+                "target_file": "src/engine.js",
+                "target": "old_block",
+                "replacement": "new_block"
+            }),
+        }];
+        let out = build_assistant_turn_history("Application du correctif.", &calls);
+        assert!(out.contains("Application du correctif."));
+        assert!(out.contains("[Appel outil: write_code("));
+        assert!(out.contains("src/engine.js"));
+        assert!(out.contains("new_block"));
+    }
+
+    #[test]
+    fn exec_readonly_tool_prefers_shadow_worktree_in_constrained_mode() {
+        let tmp = std::env::temp_dir().join(format!("earnest_ide_shadow_batch_{}", uuid::Uuid::new_v4()));
+        let shadow_dir = tmp.join(".ide/shadow_worktree");
+        std::fs::create_dir_all(&shadow_dir).unwrap();
+        std::fs::write(tmp.join("package.json"), "{\"version\":\"1.0.0\"}").unwrap();
+        std::fs::write(shadow_dir.join("package.json"), "{\"version\":\"2.0.0-shadow\"}").unwrap();
+
+        let mut policy = PolicyConfig::default();
+        policy.mode = GovernanceMode::Constrained;
+
+        let abs_args = serde_json::json!({ "path": tmp.join("package.json").to_string_lossy() });
+        let out = ReActEngine::exec_readonly_tool(&tmp, "read_file", &abs_args, &policy);
+        assert!(out.contains("2.0.0-shadow"), "Expected shadow content, got: {}", out);
+
+        let _ = std::fs::remove_dir_all(&tmp);
+    }
+
+    #[test]
+    fn ask_user_question_formats_clean_interrupt() {
+        let conn = rusqlite::Connection::open_in_memory().unwrap();
+        let router = LLMRouter::from_db(&conn);
+        let engine = ReActEngine::new(&conn, &router, "test_proj");
+        let policy = PolicyConfig::default();
+        let mut failures = HashMap::new();
+
+        let args = serde_json::json!({
+            "question": "Le rocher immobile au-dessus du joueur doit-il tomber dès que le joueur quitte la case ?",
+            "options": ["Oui, dès le tick suivant", "Non, il reste bloqué"]
+        });
+        let (msg, interrupt) = engine.dispatch_tool("ask_user_question", &args, &policy, &mut failures);
+        assert_eq!(interrupt.as_deref(), Some("user_question"));
+        assert!(msg.contains("Clarification souhaitée"));
+        assert!(msg.contains("1. Oui, dès le tick suivant"));
+    }
 }

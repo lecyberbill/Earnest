@@ -10,59 +10,172 @@ pub fn search_web(query: &str, max_results: usize) -> Result<Value, String> {
         .build()
         .map_err(|e| format!("Erreur initialisation client HTTP: {}", e))?;
 
-    // On utilise l'endpoint lite.duckduckgo.com/lite/ ultra stable et sans Javascript/Cloudflare
-    let form_params = [("q", query)];
-    let resp = client.post("https://lite.duckduckgo.com/lite/")
-        .form(&form_params)
-        .header("Accept-Language", "fr-FR,fr;q=0.9,en;q=0.8")
-        .send()
-        .map_err(|e| format!("Erreur recherche DuckDuckGo: {}", e))?;
-
-    let html = resp.text().map_err(|e| format!("Erreur lecture réponse: {}", e))?;
-
-    let re_links = Regex::new(r#"(?s)<a[^>]*class="result-link"[^>]*href="([^"]+)"[^>]*>(.*?)</a>"#).unwrap();
-    let re_snippets = Regex::new(r#"(?s)<td[^>]*class="result-snippet"[^>]*>(.*?)</td>"#).unwrap();
-    let re_tags = Regex::new(r"<[^>]+>").unwrap();
-
-    let titles: Vec<(String, String)> = re_links
-        .captures_iter(&html)
-        .map(|c| {
-            let mut link = c[1].to_string();
-            if let Some(pos) = link.find("uddg=") {
-                let encoded = &link[pos + 5..];
-                let clean = encoded.split('&').next().unwrap_or(encoded);
-                if let Ok(decoded) = urlencoding::decode(clean) {
-                    link = decoded.into_owned();
+    // 1. DuckDuckGo HTML (résultats pertinents sans CAPTCHA JS ni flux RSS pollué)
+    let encoded_q = urlencoding::encode(query);
+    let ddg_url = format!("https://html.duckduckgo.com/html/?q={}", encoded_q);
+    if let Ok(resp) = client.get(&ddg_url).send() {
+        if resp.status().is_success() {
+            if let Ok(html) = resp.text() {
+                let results = parse_ddg_html(&html, max_results);
+                if !results.is_empty() {
+                    return Ok(serde_json::json!({
+                        "status": "success",
+                        "engine": "duckduckgo_html",
+                        "query": query,
+                        "count": results.len(),
+                        "results": results
+                    }));
                 }
             }
-            let text = re_tags.replace_all(&c[2], "").trim().to_string();
-            (link, text)
-        })
-        .collect();
+        }
+    }
 
-    let snippets: Vec<String> = re_snippets
-        .captures_iter(&html)
-        .map(|c| re_tags.replace_all(&c[1], "").trim().to_string())
-        .collect();
+    // 2. Fallback Bing RSS (XML structuré)
+    let rss_url = format!("https://www.bing.com/search?q={}&format=rss&mkt=fr-FR", encoded_q);
+    if let Ok(resp) = client.get(&rss_url).send() {
+        if resp.status().is_success() {
+            if let Ok(xml) = resp.text() {
+                let results = parse_bing_rss(&xml, max_results);
+                if !results.is_empty() {
+                    return Ok(serde_json::json!({
+                        "status": "success",
+                        "engine": "bing_rss",
+                        "query": query,
+                        "count": results.len(),
+                        "results": results
+                    }));
+                }
+            }
+        }
+    }
 
+    // 3. Fallback Wikipedia OpenSearch API (JSON)
+    let wiki_url = format!(
+        "https://en.wikipedia.org/w/api.php?action=query&list=search&format=json&srlimit={}&srsearch={}",
+        max_results.max(1),
+        encoded_q
+    );
     let mut results = Vec::new();
-    let limit = titles.len().min(max_results);
-
-    for i in 0..limit {
-        let snippet = if i < snippets.len() { snippets[i].clone() } else { String::new() };
-        results.push(serde_json::json!({
-            "title": if titles[i].1.is_empty() { format!("Résultat {}", i + 1) } else { titles[i].1.clone() },
-            "url": titles[i].0,
-            "snippet": snippet
-        }));
+    if let Ok(resp) = client.get(&wiki_url).send() {
+        if let Ok(data) = resp.json::<Value>() {
+            let re_tags = Regex::new(r"<[^>]+>").unwrap();
+            if let Some(arr) = data["query"]["search"].as_array() {
+                for item in arr.iter().take(max_results) {
+                    let title = item["title"].as_str().unwrap_or("").to_string();
+                    let snippet = re_tags.replace_all(item["snippet"].as_str().unwrap_or(""), "").trim().to_string();
+                    let url = format!("https://en.wikipedia.org/wiki/{}", title.replace(' ', "_"));
+                    results.push(serde_json::json!({
+                        "title": title,
+                        "url": url,
+                        "snippet": snippet
+                    }));
+                }
+            }
+        }
     }
 
     Ok(serde_json::json!({
         "status": "success",
+        "engine": "wikipedia_fallback",
         "query": query,
         "count": results.len(),
         "results": results
     }))
+}
+
+fn clean_html_entities(s: &str) -> String {
+    s.replace("&amp;", "&")
+        .replace("&lt;", "<")
+        .replace("&gt;", ">")
+        .replace("&quot;", "\"")
+        .replace("&#39;", "'")
+        .replace("&#x27;", "'")
+        .replace("&nbsp;", " ")
+        .trim()
+        .to_string()
+}
+
+fn decode_ddg_href(raw_href: &str) -> String {
+    let href = clean_html_entities(raw_href);
+    if let Some(pos) = href.find("uddg=") {
+        let rest = &href[pos + 5..];
+        let encoded = rest.split('&').next().unwrap_or(rest);
+        if let Ok(decoded) = urlencoding::decode(encoded) {
+            return decoded.into_owned();
+        }
+    }
+    if href.starts_with("//") {
+        return format!("https:{}", href);
+    }
+    href
+}
+
+fn parse_ddg_html(html: &str, max_results: usize) -> Vec<Value> {
+    let re_link = Regex::new(r#"(?is)<a[^>]*class="[^"]*result__a[^"]*"[^>]*href="([^"]+)"[^>]*>(.*?)</a>"#).unwrap();
+    let re_snip = Regex::new(r#"(?is)class="[^"]*result__snippet[^"]*"[^>]*>(.*?)</(?:a|div|span)>"#).unwrap();
+    let re_tags = Regex::new(r"<[^>]+>").unwrap();
+
+    let links: Vec<(String, String)> = re_link
+        .captures_iter(html)
+        .take(max_results)
+        .map(|c| {
+            let url = decode_ddg_href(&c[1]);
+            let title = clean_html_entities(&re_tags.replace_all(&c[2], ""));
+            (title, url)
+        })
+        .collect();
+
+    let snips: Vec<String> = re_snip
+        .captures_iter(html)
+        .take(max_results)
+        .map(|c| clean_html_entities(&re_tags.replace_all(&c[1], "")))
+        .collect();
+
+    links
+        .into_iter()
+        .enumerate()
+        .filter(|(_, (t, u))| !t.is_empty() && u.starts_with("http"))
+        .map(|(i, (title, url))| {
+            let snippet = snips.get(i).cloned().unwrap_or_default();
+            serde_json::json!({
+                "title": title,
+                "url": url,
+                "snippet": snippet
+            })
+        })
+        .collect()
+}
+
+fn parse_bing_rss(xml: &str, max_results: usize) -> Vec<Value> {
+    let re_item = Regex::new(r"(?s)<item>(.*?)</item>").unwrap();
+    let re_title = Regex::new(r"(?s)<title>(.*?)</title>").unwrap();
+    let re_link = Regex::new(r"(?s)<link>(.*?)</link>").unwrap();
+    let re_desc = Regex::new(r"(?s)<description>(.*?)</description>").unwrap();
+    let unescape_xml = |s: &str| -> String {
+        s.replace("&amp;", "&")
+            .replace("&lt;", "<")
+            .replace("&gt;", ">")
+            .replace("&quot;", "\"")
+            .replace("&#39;", "'")
+            .trim()
+            .to_string()
+    };
+
+    let mut results = Vec::new();
+    for cap in re_item.captures_iter(xml).take(max_results) {
+        let block = &cap[1];
+        let title = re_title.captures(block).map(|c| unescape_xml(&c[1])).unwrap_or_default();
+        let url = re_link.captures(block).map(|c| unescape_xml(&c[1])).unwrap_or_default();
+        let snippet = re_desc.captures(block).map(|c| unescape_xml(&c[1])).unwrap_or_default();
+        if !title.is_empty() || !url.is_empty() {
+            results.push(serde_json::json!({
+                "title": title,
+                "url": url,
+                "snippet": snippet
+            }));
+        }
+    }
+    results
 }
 
 pub fn fetch_web_page(url: &str, max_chars: usize) -> Result<Value, String> {
@@ -86,9 +199,11 @@ pub fn fetch_web_page(url: &str, max_chars: usize) -> Result<Value, String> {
     let re_tags = Regex::new(r"<[^>]+>").unwrap();
     let clean_text = re_tags.replace_all(&no_scripts, " ").split_whitespace().collect::<Vec<_>>().join(" ");
 
-    let truncated = clean_text.len() > max_chars;
+    let char_count = clean_text.chars().count();
+    let truncated = char_count > max_chars;
     let final_content = if truncated {
-        format!("{}... [Tronqué à {} caractères]", &clean_text[..max_chars], max_chars)
+        let prefix: String = clean_text.chars().take(max_chars).collect();
+        format!("{}... [Tronqué à {} caractères]", prefix, max_chars)
     } else {
         clean_text
     };
@@ -98,4 +213,28 @@ pub fn fetch_web_page(url: &str, max_chars: usize) -> Result<Value, String> {
         "truncated": truncated,
         "content": final_content
     }))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{parse_bing_rss, parse_ddg_html};
+
+    #[test]
+    fn parse_ddg_html_extracts_clean_results() {
+        let html = r###"<div class="result"><a class="result__a" href="//duckduckgo.com/l/?uddg=https%3A%2F%2Fwww.allocine.fr%2Ffilm%2Faucinema%2F&amp;rut=1">Sorties Cinéma</a><a class="result__snippet" href="#">Les prochains films en salle</a></div>"###;
+        let items = parse_ddg_html(html, 5);
+        assert_eq!(items.len(), 1);
+        assert_eq!(items[0]["title"], "Sorties Cinéma");
+        assert_eq!(items[0]["url"], "https://www.allocine.fr/film%2Faucinema/".replace("%2F", "/"));
+        assert_eq!(items[0]["snippet"], "Les prochains films en salle");
+    }
+
+    #[test]
+    fn parse_bing_rss_extracts_items() {
+        let xml = r#"<rss><channel><item><title>FLUX.2 &amp; Dev</title><link>https://bfl.ai/flux2</link><description>32B flow matching model</description></item></channel></rss>"#;
+        let items = parse_bing_rss(xml, 5);
+        assert_eq!(items.len(), 1);
+        assert_eq!(items[0]["title"], "FLUX.2 & Dev");
+        assert_eq!(items[0]["url"], "https://bfl.ai/flux2");
+    }
 }

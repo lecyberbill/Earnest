@@ -468,7 +468,7 @@ Quand ta mission est entièrement accomplie et vérifiée sur disque, fournis di
                 if empty_tool_nudges < 3 && looks_like_unfinished_thought(&chat_res.content) {
                     empty_tool_nudges += 1;
                     push_live_log("WARN", &format!("🔄 [ANTI-STALL] Annonce sans outil ({}/3), relance automatique", empty_tool_nudges));
-                    println!("  🔄 [ANTI-STALL] Annonce sans outil ({}/3), relance automatique...", empty_tool_nudges);
+                    eprintln!("  🔄 [ANTI-STALL] Annonce sans outil ({}/3), relance automatique...", empty_tool_nudges);
                     messages.push(ChatMessage {
                         role: "user".to_string(),
                         content: "Continue : n'annonce pas ton action en texte seul, appelle immédiatement l'outil nécessaire (ou fournis ta réponse finale complète si toute la mission est terminée et vérifiée).".to_string(),
@@ -495,7 +495,7 @@ Quand ta mission est entièrement accomplie et vérifiée sur disque, fournis di
                 step_order += 1;
 
                 push_live_log("TOOL", &format!("⚡ {} {}", fn_name, context_trimmer::truncate_tool_output(&fn_args.to_string(), 220)));
-                println!("  ⚡ [OUTIL RUST] {} {:?}", fn_name, fn_args);
+                eprintln!("  ⚡ [OUTIL RUST] {} {:?}", fn_name, fn_args);
                 let args_key = fn_args.to_string();
                 let mut hasher = std::collections::hash_map::DefaultHasher::new();
                 std::hash::Hash::hash(&args_key, &mut hasher);
@@ -513,7 +513,7 @@ Quand ta mission est entièrement accomplie et vérifiée sur disque, fournis di
                     let hit = cache_mutex.lock().ok().and_then(|mut c| c.get(fn_name, &args_key).map(|s| s.to_string()));
                     if let Some(cached) = hit {
                         push_live_log("CACHE", &format!("♻️ HIT {}", fn_name));
-                        println!("  ♻️ [TOOL CACHE] HIT {} {}", fn_name, args_key);
+                        eprintln!("  ♻️ [TOOL CACHE] HIT {} {}", fn_name, args_key);
                         cached
                     } else {
                         self.dispatch_tool(fn_name, fn_args, &run_id)

@@ -345,7 +345,7 @@ pub fn parse_tool_args_with_repair(name: &str, raw_args: &str) -> Value {
     let repaired = json_repair::repair(trimmed);
     if let Ok(v) = serde_json::from_str::<Value>(&repaired) {
         if v.is_object() {
-            println!(
+            eprintln!(
                 "  🩹 [JSON-REPAIR] Arguments réparés pour '{}' ({} -> {} chars)",
                 name,
                 raw_args.len(),
@@ -354,7 +354,7 @@ pub fn parse_tool_args_with_repair(name: &str, raw_args: &str) -> Value {
             return v;
         }
     }
-    println!(
+    eprintln!(
         "  ⚠️ [LLM] Tool '{}' arguments irréparables ({} chars), repli sur {{}}",
         name,
         raw_args.len()

@@ -30,7 +30,7 @@ pub const LSP_CATALOG: &[LspCatalogEntry] = &[
         display_name: "Python (pylsp)",
         binary: "pylsp",
         args: &[],
-        install_cmd: "pip install python-lsp-server",
+        install_cmd: "python -m pip install python-lsp-server",
     },
     LspCatalogEntry {
         language: "typescript",
@@ -109,6 +109,43 @@ pub fn catalog_for(lang: &str) -> Option<&'static LspCatalogEntry> {
     LSP_CATALOG.iter().find(|e| e.language == norm)
 }
 
+fn extra_user_bin_dirs() -> Vec<PathBuf> {
+    let mut dirs = Vec::new();
+    #[cfg(windows)]
+    {
+        if let Ok(appdata) = std::env::var("APPDATA") {
+            let appdata_p = PathBuf::from(&appdata);
+            dirs.push(appdata_p.join("npm"));
+            if let Ok(entries) = std::fs::read_dir(appdata_p.join("Python")) {
+                for entry in entries.flatten() {
+                    let scripts = entry.path().join("Scripts");
+                    if scripts.is_dir() {
+                        dirs.push(scripts);
+                    }
+                }
+            }
+        }
+        if let Ok(local_appdata) = std::env::var("LOCALAPPDATA") {
+            let local_p = PathBuf::from(&local_appdata);
+            if let Ok(entries) = std::fs::read_dir(local_p.join("Programs").join("Python")) {
+                for entry in entries.flatten() {
+                    let scripts = entry.path().join("Scripts");
+                    if scripts.is_dir() {
+                        dirs.push(scripts);
+                    }
+                }
+            }
+        }
+    }
+    if let Some(home) = std::env::var_os("USERPROFILE").or_else(|| std::env::var_os("HOME")) {
+        let home_p = PathBuf::from(home);
+        dirs.push(home_p.join(".cargo").join("bin"));
+        dirs.push(home_p.join("go").join("bin"));
+        dirs.push(home_p.join(".local").join("bin"));
+    }
+    dirs
+}
+
 pub fn find_binary_in_path(bin: &str) -> Option<PathBuf> {
     let candidates: Vec<String> = if cfg!(windows) {
         vec![
@@ -120,15 +157,57 @@ pub fn find_binary_in_path(bin: &str) -> Option<PathBuf> {
         vec![bin.to_string()]
     };
 
-    if let Ok(path_var) = std::env::var("PATH") {
-        for dir in std::env::split_paths(&path_var) {
-            for cand in &candidates {
-                let p = dir.join(cand);
-                if p.is_file() {
-                    return Some(p);
+    let mut search_dirs: Vec<PathBuf> = std::env::var("PATH")
+        .ok()
+        .map(|p| std::env::split_paths(&p).collect())
+        .unwrap_or_default();
+    search_dirs.extend(extra_user_bin_dirs());
+
+    for dir in search_dirs {
+        for cand in &candidates {
+            let p = dir.join(cand);
+            if p.is_file() {
+                return Some(p);
+            }
+        }
+    }
+    None
+}
+
+static PYTHON_PYLSP_CACHE: OnceLock<Mutex<Option<Option<(PathBuf, Vec<String>)>>>> = OnceLock::new();
+
+pub fn resolve_lsp_command(entry: &LspCatalogEntry) -> Option<(PathBuf, Vec<String>)> {
+    if let Some(bin) = find_binary_in_path(entry.binary) {
+        let args = entry.args.iter().map(|s| (*s).to_string()).collect();
+        return Some((bin, args));
+    }
+    if entry.language == "python" {
+        let cache = PYTHON_PYLSP_CACHE.get_or_init(|| Mutex::new(None));
+        if let Ok(guard) = cache.lock() {
+            if let Some(cached) = guard.as_ref() {
+                return cached.clone();
+            }
+        }
+        let mut detected: Option<(PathBuf, Vec<String>)> = None;
+        for py_bin in ["python", "python3", "py"] {
+            if let Some(py_path) = find_binary_in_path(py_bin) {
+                if let Ok(out) = crate::hidden_command(&py_path)
+                    .args(["-c", "import pylsp"])
+                    .stdout(Stdio::null())
+                    .stderr(Stdio::null())
+                    .status()
+                {
+                    if out.success() {
+                        detected = Some((py_path, vec!["-m".to_string(), "pylsp".to_string()]));
+                        break;
+                    }
                 }
             }
         }
+        if let Ok(mut guard) = cache.lock() {
+            *guard = Some(detected.clone());
+        }
+        return detected;
     }
     None
 }
@@ -156,7 +235,7 @@ struct LspProcess {
 }
 
 impl LspProcess {
-    fn start_arc(binary: &Path, args: &[&str], root_path: &str) -> Result<std::sync::Arc<Self>, String> {
+    fn start_arc(binary: &Path, args: &[String], root_path: &str) -> Result<std::sync::Arc<Self>, String> {
         let mut cmd = crate::hidden_command(binary);
         cmd.args(args)
             .stdin(Stdio::piped())
@@ -356,9 +435,9 @@ impl LspManager {
                 return Ok(c.clone());
             }
         }
-        let bin = find_binary_in_path(entry.binary)
+        let (bin, resolved_args) = resolve_lsp_command(entry)
             .ok_or_else(|| format!("{} introuvable dans PATH", entry.binary))?;
-        let proc_arc = LspProcess::start_arc(&bin, entry.args, root)?;
+        let proc_arc = LspProcess::start_arc(&bin, &resolved_args, root)?;
         let mut guard = self.clients.lock().map_err(|_| "LSP mutex poisoned".to_string())?;
         guard.insert(key, proc_arc.clone());
         Ok(proc_arc)
@@ -511,7 +590,7 @@ impl LspManager {
         LSP_CATALOG
             .iter()
             .map(|e| {
-                let installed = find_binary_in_path(e.binary).is_some();
+                let installed = resolve_lsp_command(e).is_some();
                 let running = guard
                     .as_ref()
                     .map(|g| g.keys().any(|(b, _)| b == e.binary))
@@ -545,6 +624,11 @@ impl LspManager {
             .map_err(|e| format!("Échec lancement installation {}: {}", entry.binary, e))?;
         let stdout = String::from_utf8_lossy(&out.stdout);
         let stderr = String::from_utf8_lossy(&out.stderr);
+        if let Some(cache) = PYTHON_PYLSP_CACHE.get() {
+            if let Ok(mut guard) = cache.lock() {
+                *guard = None;
+            }
+        }
         if out.status.success() {
             Ok(format!("{} installé avec succès.\n{}", entry.binary, stdout.trim()))
         } else {
@@ -562,5 +646,17 @@ mod tests {
         assert_eq!(catalog_for("rust").unwrap().binary, "rust-analyzer");
         assert_eq!(catalog_for("go").unwrap().binary, "gopls");
         assert!(catalog_for("unknown_xyz").is_none());
+    }
+
+    #[test]
+    fn resolve_lsp_command_detects_python_module_or_binary() {
+        let py_entry = catalog_for("python").unwrap();
+        let resolved = resolve_lsp_command(py_entry);
+        // If python + pylsp are installed on host, verify command is valid
+        if let Some((bin, args)) = resolved {
+            assert!(bin.is_file());
+            let name = bin.file_name().unwrap().to_string_lossy().to_lowercase();
+            assert!(name.contains("pylsp") || (name.contains("py") && args == vec!["-m", "pylsp"]));
+        }
     }
 }

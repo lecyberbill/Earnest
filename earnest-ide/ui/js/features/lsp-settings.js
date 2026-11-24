@@ -3,6 +3,26 @@
  */
 export function initLspSettings(state) {
     let pendingBannerLang = null;
+    const DISMISSED_STORAGE_KEY = 'earnest_lsp_dismissed_langs';
+
+    function getDismissedLangs() {
+        try {
+            const raw = localStorage.getItem(DISMISSED_STORAGE_KEY);
+            const arr = raw ? JSON.parse(raw) : [];
+            return new Set(Array.isArray(arr) ? arr : []);
+        } catch (_) {
+            return new Set();
+        }
+    }
+
+    function addDismissedLang(lang) {
+        if (!lang) return;
+        const set = getDismissedLangs();
+        set.add(lang);
+        try {
+            localStorage.setItem(DISMISSED_STORAGE_KEY, JSON.stringify([...set]));
+        } catch (_) { }
+    }
 
     async function saveLspToggleSettings() {
         const prefLspEnabled = document.getElementById('pref-lsp-enabled');
@@ -106,6 +126,7 @@ export function initLspSettings(state) {
 
     async function checkLspForLanguage(lang) {
         if (!lang || lang === 'plaintext') return;
+        if (getDismissedLangs().has(lang)) return;
         if (!state.lspCheckedLangs) state.lspCheckedLangs = new Set();
         if (state.lspCheckedLangs.has(lang)) return;
         state.lspCheckedLangs.add(lang);
@@ -141,6 +162,7 @@ export function initLspSettings(state) {
     if (btnRefreshLspCatalog) btnRefreshLspCatalog.addEventListener('click', loadLspCatalog);
     if (btnLspBannerDismiss) {
         btnLspBannerDismiss.addEventListener('click', () => {
+            if (pendingBannerLang) addDismissedLang(pendingBannerLang);
             const banner = document.getElementById('lsp-install-banner');
             if (banner) banner.style.display = 'none';
         });

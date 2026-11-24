@@ -431,7 +431,7 @@ fn handle_request(mut req: tiny_http::Request) {
             let enabled = read_bool("lsp_enabled", true);
             let auto_prompt = read_bool("lsp_auto_prompt", true);
             let out = if let Some(entry) = crate::lsp::client::catalog_for(lang) {
-                let installed = crate::lsp::client::find_binary_in_path(entry.binary).is_some();
+                let installed = crate::lsp::client::resolve_lsp_command(entry).is_some();
                 serde_json::json!({
                     "language": lang,
                     "supported": true,

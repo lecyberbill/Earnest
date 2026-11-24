@@ -939,23 +939,7 @@ pub fn detect_runtime_environment() -> String {
 }
 
 fn call_kb_mcp_tool(raw_name: &str, args: &Value) -> String {
-    let mut exe_candidates = vec![
-        std::path::PathBuf::from(r"D:\Tools\earnest-bcpe\kb.exe"),
-        std::path::PathBuf::from(r"earnest-bcpe\target\release\kb.exe"),
-        std::path::PathBuf::from(r"..\earnest-bcpe\target\release\kb.exe"),
-        std::path::PathBuf::from(r"..\..\earnest-bcpe\target\release\kb.exe"),
-        std::path::PathBuf::from(r"D:\Projet\Hernest\earnest-bcpe\target\release\kb.exe"),
-    ];
-    if let Ok(exe) = std::env::current_exe() {
-        if let Some(dir) = exe.parent() {
-            exe_candidates.push(dir.join("kb.exe"));
-            exe_candidates.push(dir.join(r"..\..\..\earnest-bcpe\target\release\kb.exe"));
-        }
-    }
-    let kb_exe = exe_candidates
-        .into_iter()
-        .find(|p| p.exists())
-        .unwrap_or_else(|| std::path::PathBuf::from(r"D:\Projet\Hernest\earnest-bcpe\target\release\kb.exe"));
+    let kb_exe = crate::tools::resolve_kb_exe_path();
     let kb_db = crate::tools::resolve_kb_db_path();
     let cfg = crate::mcp::client::McpServerConfig {
         name: "bcpe".to_string(),

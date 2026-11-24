@@ -6,23 +6,68 @@ pub mod web;
 
 use serde_json::Value;
 
-pub fn resolve_kb_db_path() -> std::path::PathBuf {
-    let mut candidates = vec![
-        std::path::PathBuf::from("earnest-bcpe/kb.db"),
-        std::path::PathBuf::from("../earnest-bcpe/kb.db"),
-        std::path::PathBuf::from("../../earnest-bcpe/kb.db"),
-        std::path::PathBuf::from("kb.db"),
-    ];
+pub fn resolve_kb_exe_path() -> std::path::PathBuf {
+    let bin_name = if cfg!(windows) { "kb.exe" } else { "kb" };
+    let mut candidates = Vec::new();
+    if let Ok(env_bin) = std::env::var("EARNEST_KB_BIN") {
+        let t = env_bin.trim();
+        if !t.is_empty() {
+            candidates.push(std::path::PathBuf::from(t));
+        }
+    }
     if let Ok(exe) = std::env::current_exe() {
         if let Some(dir) = exe.parent() {
+            candidates.push(dir.join(bin_name));
+            candidates.push(dir.join("bin").join(bin_name));
+            candidates.push(dir.join("../../../earnest-bcpe/target/release").join(bin_name));
+            candidates.push(dir.join("../../../../earnest-bcpe/target/release").join(bin_name));
+        }
+    }
+    #[cfg(windows)]
+    if let Ok(local_app) = std::env::var("LOCALAPPDATA") {
+        candidates.push(std::path::PathBuf::from(local_app).join("Earnest").join("bin").join(bin_name));
+    }
+    if let Some(home) = std::env::var_os("HOME").or_else(|| std::env::var_os("USERPROFILE")) {
+        candidates.push(std::path::PathBuf::from(home).join(".local/share/earnest/bin").join(bin_name));
+    }
+    candidates.push(std::path::PathBuf::from("earnest-bcpe/target/release").join(bin_name));
+    candidates.push(std::path::PathBuf::from("../earnest-bcpe/target/release").join(bin_name));
+    candidates.push(std::path::PathBuf::from("../../earnest-bcpe/target/release").join(bin_name));
+    candidates
+        .into_iter()
+        .find(|p| p.exists())
+        .unwrap_or_else(|| std::path::PathBuf::from(bin_name))
+}
+
+pub fn resolve_kb_db_path() -> std::path::PathBuf {
+    let mut candidates = Vec::new();
+    if let Ok(env_db) = std::env::var("EARNEST_KB_DB") {
+        let t = env_db.trim();
+        if !t.is_empty() {
+            candidates.push(std::path::PathBuf::from(t));
+        }
+    }
+    if let Ok(exe) = std::env::current_exe() {
+        if let Some(dir) = exe.parent() {
+            candidates.push(dir.join("kb.db"));
             candidates.push(dir.join("earnest-bcpe/kb.db"));
             candidates.push(dir.join("../../../earnest-bcpe/kb.db"));
             candidates.push(dir.join("../../../../earnest-bcpe/kb.db"));
         }
     }
-    if let Some(home) = std::env::var_os("USERPROFILE").or_else(|| std::env::var_os("HOME")) {
-        candidates.push(std::path::PathBuf::from(home).join(".local/share/earnest-bcpe/kb.db"));
+    #[cfg(windows)]
+    if let Ok(appdata) = std::env::var("APPDATA") {
+        candidates.push(std::path::PathBuf::from(appdata).join("Earnest/kb.db"));
     }
+    if let Some(home) = std::env::var_os("USERPROFILE").or_else(|| std::env::var_os("HOME")) {
+        let h = std::path::PathBuf::from(home);
+        candidates.push(h.join(".earnest/kb.db"));
+        candidates.push(h.join(".local/share/earnest-bcpe/kb.db"));
+    }
+    candidates.push(std::path::PathBuf::from("earnest-bcpe/kb.db"));
+    candidates.push(std::path::PathBuf::from("../earnest-bcpe/kb.db"));
+    candidates.push(std::path::PathBuf::from("../../earnest-bcpe/kb.db"));
+    candidates.push(std::path::PathBuf::from("kb.db"));
     candidates
         .into_iter()
         .find(|p| p.exists())

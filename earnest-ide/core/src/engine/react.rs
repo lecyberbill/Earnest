@@ -1999,23 +1999,7 @@ fn compact_messages_if_needed(messages: &mut Vec<ChatMessage>, max_chars: usize)
 }
 
 fn kb_mcp_client() -> crate::mcp::McpClient {
-    let mut exe_candidates = vec![
-        std::path::PathBuf::from(r"D:\Tools\earnest-bcpe\kb.exe"),
-        std::path::PathBuf::from(r"earnest-bcpe\target\release\kb.exe"),
-        std::path::PathBuf::from(r"..\earnest-bcpe\target\release\kb.exe"),
-        std::path::PathBuf::from(r"..\..\earnest-bcpe\target\release\kb.exe"),
-        std::path::PathBuf::from(r"D:\Projet\Hernest\earnest-bcpe\target\release\kb.exe"),
-    ];
-    if let Ok(exe) = std::env::current_exe() {
-        if let Some(dir) = exe.parent() {
-            exe_candidates.push(dir.join("kb.exe"));
-            exe_candidates.push(dir.join(r"..\..\..\earnest-bcpe\target\release\kb.exe"));
-        }
-    }
-    let kb_exe = exe_candidates
-        .into_iter()
-        .find(|p| p.exists())
-        .unwrap_or_else(|| std::path::PathBuf::from(r"D:\Projet\Hernest\earnest-bcpe\target\release\kb.exe"));
+    let kb_exe = crate::tools::resolve_kb_exe_path();
     let kb_db = crate::tools::resolve_kb_db_path();
     crate::mcp::McpClient::new(
         &kb_exe.to_string_lossy(),

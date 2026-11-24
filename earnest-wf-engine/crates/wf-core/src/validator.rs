@@ -29,8 +29,28 @@ pub struct ValidationReport {
 const RESERVED_NAMESPACES: &[&str] = &["inputs", "vars", "env", "keyring", "error"];
 
 /// Calcule l'empreinte SHA-256 déterministe d'un [`WorkflowSpec`] sérialisé en JSON canonique.
+fn canonicalize_json(v: serde_json::Value) -> serde_json::Value {
+    match v {
+        serde_json::Value::Object(map) => {
+            let sorted: std::collections::BTreeMap<String, serde_json::Value> = map
+                .into_iter()
+                .map(|(k, val)| (k, canonicalize_json(val)))
+                .collect();
+            let out: serde_json::Map<String, serde_json::Value> = sorted.into_iter().collect();
+            serde_json::Value::Object(out)
+        }
+        serde_json::Value::Array(arr) => {
+            serde_json::Value::Array(arr.into_iter().map(canonicalize_json).collect())
+        }
+        other => other,
+    }
+}
+
 pub fn workflow_sha256(spec: &WorkflowSpec) -> String {
-    let json = serde_json::to_string(spec).unwrap_or_default();
+    let val = serde_json::to_value(spec)
+        .map(canonicalize_json)
+        .unwrap_or(serde_json::Value::Null);
+    let json = serde_json::to_string(&val).unwrap_or_default();
     let mut hasher = Sha256::new();
     hasher.update(json.as_bytes());
     let digest = hasher.finalize();

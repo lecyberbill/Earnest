@@ -6,7 +6,7 @@ use serde::Serialize;
 use serde_json::Value;
 
 use crate::db::memories::MemoryService;
-use crate::llm::client::{ChatMessage, ToolCallItem};
+use crate::llm::client::ChatMessage;
 use crate::llm::router::LLMRouter;
 use crate::tools::terminal::execute_terminal;
 use crate::tools::artifacts::create_artifact;
@@ -453,15 +453,14 @@ Quand ta mission est entièrement accomplie et vérifiée sur disque, fournis di
             let is_final_answer = chat_res.tool_calls.is_empty()
                 && !(empty_tool_nudges < 3 && looks_like_unfinished_thought(&chat_res.content));
 
-            if !chat_res.content.is_empty() && !is_final_answer {
-                push_live_log("THOUGHT", &format!("[{}] {}", active_backend_name, context_trimmer::truncate_tool_output(&chat_res.content, 300)));
-                self.record_trace(&run_id, step_order, "thought", None, &chat_res.content);
-                on_trace(&run_id, step_order, "thought", None, &chat_res.content, &active_backend_name);
-                step_order += 1;
-            }
-            if !chat_res.content.is_empty() || !chat_res.tool_calls.is_empty() {
-                let assistant_hist = build_assistant_turn_history(&chat_res.content, &chat_res.tool_calls);
-                messages.push(ChatMessage { role: "assistant".to_string(), content: assistant_hist, images: None });
+            if !chat_res.content.is_empty() {
+                if !is_final_answer {
+                    push_live_log("THOUGHT", &format!("[{}] {}", active_backend_name, context_trimmer::truncate_tool_output(&chat_res.content, 300)));
+                    self.record_trace(&run_id, step_order, "thought", None, &chat_res.content);
+                    on_trace(&run_id, step_order, "thought", None, &chat_res.content, &active_backend_name);
+                    step_order += 1;
+                }
+                messages.push(ChatMessage { role: "assistant".to_string(), content: chat_res.content.clone(), images: None });
             }
 
             // S'il n'y a aucun appel d'outil, vérifier si le modèle s'est juste arrêté sur une annonce intermédiaire
@@ -525,7 +524,8 @@ Quand ta mission est entièrement accomplie et vérifiée sur disque, fournis di
                 let sanitized_output = log_sanitizer::sanitize_text(&raw_output);
                 let tool_output = context_trimmer::truncate_tool_output(&sanitized_output, 16_000);
                 push_live_log("OUTPUT", &format!("← {} : {}", fn_name, context_trimmer::truncate_tool_output(&tool_output, 220)));
-                if is_cacheable_read {
+                let is_tool_error = raw_output.contains("\"status\":\"error\"") || raw_output.contains("\"status\": \"error\"");
+                if is_cacheable_read && !is_tool_error {
                     let path_hint = fn_args["path"].as_str().or_else(|| fn_args["key"].as_str());
                     if let Ok(mut c) = cache_mutex.lock() {
                         c.insert(fn_name, &args_key, tool_output.clone(), path_hint);
@@ -545,7 +545,7 @@ Quand ta mission est entièrement accomplie et vérifiée sur disque, fournis di
 
                 messages.push(ChatMessage {
                     role: "user".to_string(),
-                    content: format!("Résultat de l'outil '{}' : {}", fn_name, tool_output),
+                    content: format_tool_observation(fn_name, fn_args, &tool_output),
                     images: None,
                 });
             }
@@ -1141,36 +1141,24 @@ mod tests {
     }
 
     #[test]
-    fn assistant_turn_history_preserves_tool_call_summary() {
-        let calls = vec![super::ToolCallItem {
-            id: "call_1".to_string(),
-            name: "edit_file".to_string(),
-            arguments: serde_json::json!({
-                "path": "src/main.rs",
-                "target": "old_fn()",
-                "replacement": "new_fn()"
-            }),
-        }];
-        let hist = super::build_assistant_turn_history("Je corrige l'appel.", &calls);
-        assert!(hist.contains("Je corrige l'appel."));
-        assert!(hist.contains("[Appel outil: edit_file("));
-        assert!(hist.contains("src/main.rs"));
-        assert!(hist.contains("new_fn()"));
+    fn format_tool_observation_preserves_tool_args_without_imitation() {
+        let args = serde_json::json!({
+            "path": "src/main.rs",
+            "target": "old_fn()",
+            "replacement": "new_fn()"
+        });
+        let obs = super::format_tool_observation("edit_file", &args, "{\"status\":\"ok\"}");
+        assert!(obs.contains("Résultat de l'outil 'edit_file'"));
+        assert!(obs.contains("src/main.rs"));
+        assert!(obs.contains("new_fn()"));
+        assert!(!obs.contains("[Appel outil:"));
     }
 }
 
-fn build_assistant_turn_history(content: &str, tool_calls: &[ToolCallItem]) -> String {
-    if tool_calls.is_empty() {
-        return content.to_string();
-    }
-    let mut lines: Vec<String> = Vec::with_capacity(tool_calls.len() + 1);
-    let trimmed = content.trim();
-    if !trimmed.is_empty() {
-        lines.push(trimmed.to_string());
-    }
-    for call in tool_calls {
-        let args_preview = context_trimmer::truncate_tool_output(&call.arguments.to_string(), 1_200);
-        lines.push(format!("[Appel outil: {}({})]", call.name, args_preview));
-    }
-    lines.join("\n")
+fn format_tool_observation(fn_name: &str, fn_args: &Value, tool_output: &str) -> String {
+    let args_preview = context_trimmer::truncate_tool_output(&fn_args.to_string(), 1_200);
+    format!(
+        "Résultat de l'outil '{}' (arguments soumis: {}) : {}",
+        fn_name, args_preview, tool_output
+    )
 }

@@ -52,7 +52,7 @@ use rusqlite::{params, Connection};
 use serde_json::Value;
 
 use crate::db::memories::MemoryService;
-use crate::llm::client::{ChatMessage, ToolCallItem};
+use crate::llm::client::ChatMessage;
 use crate::llm::router::LLMRouter;
 use crate::tools::fs::{read_file, write_file, edit_file};
 use crate::tools::search::{grep_search, list_files};
@@ -440,12 +440,20 @@ impl<'a> ReActEngine<'a> {
                 }
                 let total = inv_val["contracts"].as_array().map(|a| a.len()).unwrap_or(0);
                 let json_str = serde_json::to_string_pretty(&inv_val).unwrap_or_default();
-                let _ = std::fs::write(&inv_path, json_str);
+                crate::governance::invariants::set_file_readonly(&inv_path, false).ok();
+                if let Err(e) = std::fs::write(&inv_path, &json_str) {
+                    return (serde_json::json!({
+                        "status": "error",
+                        "error": format!("Écriture .ide/invariants.json échouée: {}", e)
+                    }).to_string(), None);
+                }
+                let sha256 = crate::governance::invariants::sha256_hex(json_str.as_bytes());
                 return (serde_json::json!({
                     "status": "ok",
                     "contract_id": cid,
                     "total_contracts": total,
-                    "message": "Contract added to invariants.json. Call request_architecture_review when all contracts are ready."
+                    "sha256": sha256,
+                    "message": "Contract persisted in .ide/invariants.json. Call request_architecture_review when all contracts are ready."
                 }).to_string(), None);
             }
 
@@ -585,7 +593,22 @@ impl<'a> ReActEngine<'a> {
             // 3. request_architecture_review (Interruption asynchrone pour revue humaine)
             "request_architecture_review" => {
                 let summary = args["summary"].as_str().unwrap_or("");
-                let hash = args["invariants_hash"].as_str().unwrap_or("");
+                let inv_path = self.workspace_root.join(&policy.invariants_file);
+                if !inv_path.is_file() {
+                    return (serde_json::json!({
+                        "status": "error",
+                        "error": "Aucun fichier .ide/invariants.json trouvé : appelle d'abord l'outil `add_invariant` (vrai appel d'outil JSON, pas du texte libre) avant `request_architecture_review`."
+                    }).to_string(), None);
+                }
+                let computed_hash = std::fs::read(&inv_path)
+                    .ok()
+                    .map(|bytes| crate::governance::invariants::sha256_hex(&bytes))
+                    .unwrap_or_default();
+                let hash = if !computed_hash.is_empty() {
+                    computed_hash
+                } else {
+                    args["invariants_hash"].as_str().unwrap_or("").to_string()
+                };
                 (serde_json::json!({
                     "status": "awaiting_approval",
                     "action": "architecture_review",
@@ -1526,14 +1549,13 @@ impl<'a> ReActEngine<'a> {
                 && !arch_stalled
                 && !constrained_stalled;
 
-            if !chat_res.content.is_empty() && !is_final_answer {
-                self.record_trace(&run_id, step_order, "thought", None, &chat_res.content);
-                on_trace(&run_id, step_order, "thought", None, &chat_res.content, &active_backend_name);
-                step_order += 1;
-            }
-            if !chat_res.content.is_empty() || !chat_res.tool_calls.is_empty() {
-                let assistant_hist = build_assistant_turn_history(&chat_res.content, &chat_res.tool_calls);
-                messages.push(ChatMessage { role: "assistant".to_string(), content: assistant_hist, images: None });
+            if !chat_res.content.is_empty() {
+                if !is_final_answer {
+                    self.record_trace(&run_id, step_order, "thought", None, &chat_res.content);
+                    on_trace(&run_id, step_order, "thought", None, &chat_res.content, &active_backend_name);
+                    step_order += 1;
+                }
+                messages.push(ChatMessage { role: "assistant".to_string(), content: chat_res.content.clone(), images: None });
             }
 
             // S'il n'y a aucun appel d'outil, conclusion (sauf si Mode 2/3 en cours, ou Mode 1 tronqué en plein code)
@@ -1671,13 +1693,18 @@ impl<'a> ReActEngine<'a> {
                     loop_detector.reset_progress();
                 }
 
-                if is_cacheable_read && interrupt_action.is_none() {
+                let is_tool_error = raw_output.contains("\"status\":\"error\"") || raw_output.contains("\"status\": \"error\"");
+                if is_cacheable_read && interrupt_action.is_none() && !is_tool_error {
                     let path_hint = match fn_name.as_str() {
                         "read_file" => fn_args["path"].as_str(),
                         "list_files" | "grep_search" => fn_args["root_path"].as_str().or(Some(".")),
                         _ => None,
                     };
                     tool_cache.insert(fn_name, &args_key, tool_output.clone(), path_hint);
+                } else if matches!(fn_name.as_str(), "add_invariant" | "submit_invariants") {
+                    loop_detector.reset_progress();
+                    tool_cache.invalidate_path(&policy.invariants_file);
+                    tool_cache.invalidate_path("invariants.json");
                 } else if matches!(fn_name.as_str(), "write_code" | "edit_file" | "write_file" | "shadow_copy" | "shadow_validate_and_merge") {
                     loop_detector.reset_progress();
                     if matches!(fn_name.as_str(), "write_code" | "shadow_copy") && raw_output.contains("\"status\":\"STAGED\"") {
@@ -1712,7 +1739,7 @@ impl<'a> ReActEngine<'a> {
 
                 messages.push(ChatMessage {
                     role: "user".to_string(),
-                    content: format!("Résultat de l'outil '{}' : {}", fn_name, tool_output),
+                    content: format_tool_observation(fn_name, fn_args, &tool_output),
                     images: None,
                 });
 
@@ -1951,11 +1978,13 @@ impl<'a> SubAgentRunner<'a> {
                 break;
             }
 
-            messages.push(ChatMessage {
-                role: "assistant".to_string(),
-                content: build_assistant_turn_history(&chat_res.content, &chat_res.tool_calls),
-                images: None,
-            });
+            if !chat_res.content.is_empty() {
+                messages.push(ChatMessage {
+                    role: "assistant".to_string(),
+                    content: chat_res.content,
+                    images: None,
+                });
+            }
 
             for call in chat_res.tool_calls {
                 let fn_name = &call.name;
@@ -1964,7 +1993,7 @@ impl<'a> SubAgentRunner<'a> {
                 let output = self.dispatch_sub_tool(fn_name, fn_args);
                 messages.push(ChatMessage {
                     role: "user".to_string(),
-                    content: format!("Résultat de l'outil '{}' : {}", fn_name, output),
+                    content: format_tool_observation(fn_name, fn_args, &output),
                     images: None,
                 });
             }
@@ -1983,20 +2012,12 @@ impl<'a> SubAgentRunner<'a> {
     }
 }
 
-fn build_assistant_turn_history(content: &str, tool_calls: &[ToolCallItem]) -> String {
-    if tool_calls.is_empty() {
-        return content.to_string();
-    }
-    let mut lines: Vec<String> = Vec::with_capacity(tool_calls.len() + 1);
-    let trimmed = content.trim();
-    if !trimmed.is_empty() {
-        lines.push(trimmed.to_string());
-    }
-    for call in tool_calls {
-        let args_preview = context_trimmer::truncate_tool_output(&call.arguments.to_string(), 1_200);
-        lines.push(format!("[Appel outil: {}({})]", call.name, args_preview));
-    }
-    lines.join("\n")
+fn format_tool_observation(fn_name: &str, fn_args: &Value, tool_output: &str) -> String {
+    let args_preview = context_trimmer::truncate_tool_output(&fn_args.to_string(), 1_200);
+    format!(
+        "Résultat de l'outil '{}' (arguments soumis: {}) : {}",
+        fn_name, args_preview, tool_output
+    )
 }
 
 fn normalize_cache_args_key(workspace_root: &Path, args: &Value) -> String {
@@ -2061,22 +2082,18 @@ mod tests {
     use super::*;
 
     #[test]
-    fn build_assistant_turn_history_includes_tool_call_and_args() {
-        let calls = vec![ToolCallItem {
-            id: "c1".to_string(),
-            name: "write_code".to_string(),
-            arguments: serde_json::json!({
-                "target_contract_id": "C3",
-                "target_file": "src/engine.js",
-                "target": "old_block",
-                "replacement": "new_block"
-            }),
-        }];
-        let out = build_assistant_turn_history("Application du correctif.", &calls);
-        assert!(out.contains("Application du correctif."));
-        assert!(out.contains("[Appel outil: write_code("));
+    fn format_tool_observation_includes_submitted_args_without_assistant_imitation() {
+        let args = serde_json::json!({
+            "target_contract_id": "C3",
+            "target_file": "src/engine.js",
+            "target": "old_block",
+            "replacement": "new_block"
+        });
+        let out = format_tool_observation("write_code", &args, "{\"status\":\"SUCCESS\"}");
+        assert!(out.contains("Résultat de l'outil 'write_code'"));
         assert!(out.contains("src/engine.js"));
         assert!(out.contains("new_block"));
+        assert!(!out.contains("[Appel outil:"));
     }
 
     #[test]

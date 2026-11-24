@@ -427,7 +427,7 @@ pub fn get_governance_tools_schemas() -> Vec<Value> {
                     "type": "object",
                     "properties": {
                         "summary": { "type": "string", "description": "Résumé exécutif clair de l'architecture proposée et des contrats" },
-                        "invariants_hash": { "type": "string", "description": "Hash SHA-256 calculé du fichier invariants.json proposé" }
+                        "invariants_hash": { "type": "string", "description": "Optionnel : hash SHA-256 calculé automatiquement par l'IDE à partir de .ide/invariants.json si omis" }
                     },
                     "required": ["summary"]
                 }

@@ -655,24 +655,32 @@ fn handle_request(mut req: tiny_http::Request) {
             let pm = crate::governance::PolicyManager::new(&root_path);
             let policy = pm.load_or_init(None).unwrap_or_default();
 
-            let inv_candidates = vec![
-                root_path.join(&policy.invariants_file),
-                PathBuf::from(&policy.invariants_file),
-                PathBuf::from(".ide/invariants.json"),
-                PathBuf::from("../../.ide/invariants.json"),
-                PathBuf::from("invariants.json"),
-            ];
+            let inv_candidates = if root_str == "." || root_str.is_empty() {
+                vec![
+                    root_path.join(&policy.invariants_file),
+                    PathBuf::from(&policy.invariants_file),
+                    PathBuf::from(".ide/invariants.json"),
+                    PathBuf::from("../../.ide/invariants.json"),
+                    PathBuf::from("invariants.json"),
+                ]
+            } else {
+                vec![root_path.join(&policy.invariants_file)]
+            };
 
             let inv_path = inv_candidates.into_iter().find(|p| p.exists())
                 .unwrap_or_else(|| root_path.join(&policy.invariants_file));
 
-            let lock_candidates = vec![
-                root_path.join(&policy.lock_file),
-                PathBuf::from(&policy.lock_file),
-                PathBuf::from(".ide/invariants.lock"),
-                PathBuf::from("../../.ide/invariants.lock"),
-                PathBuf::from("invariants.lock"),
-            ];
+            let lock_candidates = if root_str == "." || root_str.is_empty() {
+                vec![
+                    root_path.join(&policy.lock_file),
+                    PathBuf::from(&policy.lock_file),
+                    PathBuf::from(".ide/invariants.lock"),
+                    PathBuf::from("../../.ide/invariants.lock"),
+                    PathBuf::from("invariants.lock"),
+                ]
+            } else {
+                vec![root_path.join(&policy.lock_file)]
+            };
 
             let lock_path = lock_candidates.into_iter().find(|p| p.exists())
                 .unwrap_or_else(|| root_path.join(&policy.lock_file));
@@ -948,13 +956,17 @@ fn handle_request(mut req: tiny_http::Request) {
             let pm = crate::governance::PolicyManager::new(&root_path);
             let policy = pm.load_or_init(None).unwrap_or_default();
 
-            let inv_candidates = vec![
-                root_path.join(&policy.invariants_file),
-                PathBuf::from(&policy.invariants_file),
-                PathBuf::from(".ide/invariants.json"),
-                PathBuf::from("../../.ide/invariants.json"),
-                PathBuf::from("invariants.json"),
-            ];
+            let inv_candidates = if root_str == "." || root_str.is_empty() {
+                vec![
+                    root_path.join(&policy.invariants_file),
+                    PathBuf::from(&policy.invariants_file),
+                    PathBuf::from(".ide/invariants.json"),
+                    PathBuf::from("../../.ide/invariants.json"),
+                    PathBuf::from("invariants.json"),
+                ]
+            } else {
+                vec![root_path.join(&policy.invariants_file)]
+            };
 
             let inv_path = inv_candidates.into_iter().find(|p| p.exists());
 

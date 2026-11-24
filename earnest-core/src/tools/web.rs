@@ -10,8 +10,27 @@ pub fn search_web(query: &str, max_results: usize) -> Result<Value, String> {
         .build()
         .map_err(|e| format!("Erreur initialisation client HTTP: {}", e))?;
 
-    // 1. Bing RSS (XML structuré, sans challenge anti-bot JS/CAPTCHA)
+    // 1. DuckDuckGo HTML (résultats pertinents sans CAPTCHA JS ni flux RSS pollué)
     let encoded_q = urlencoding::encode(query);
+    let ddg_url = format!("https://html.duckduckgo.com/html/?q={}", encoded_q);
+    if let Ok(resp) = client.get(&ddg_url).send() {
+        if resp.status().is_success() {
+            if let Ok(html) = resp.text() {
+                let results = parse_ddg_html(&html, max_results);
+                if !results.is_empty() {
+                    return Ok(serde_json::json!({
+                        "status": "success",
+                        "engine": "duckduckgo_html",
+                        "query": query,
+                        "count": results.len(),
+                        "results": results
+                    }));
+                }
+            }
+        }
+    }
+
+    // 2. Fallback Bing RSS (XML structuré)
     let rss_url = format!("https://www.bing.com/search?q={}&format=rss&mkt=fr-FR", encoded_q);
     if let Ok(resp) = client.get(&rss_url).send() {
         if resp.status().is_success() {
@@ -62,6 +81,69 @@ pub fn search_web(query: &str, max_results: usize) -> Result<Value, String> {
         "count": results.len(),
         "results": results
     }))
+}
+
+fn clean_html_entities(s: &str) -> String {
+    s.replace("&amp;", "&")
+        .replace("&lt;", "<")
+        .replace("&gt;", ">")
+        .replace("&quot;", "\"")
+        .replace("&#39;", "'")
+        .replace("&#x27;", "'")
+        .replace("&nbsp;", " ")
+        .trim()
+        .to_string()
+}
+
+fn decode_ddg_href(raw_href: &str) -> String {
+    let href = clean_html_entities(raw_href);
+    if let Some(pos) = href.find("uddg=") {
+        let rest = &href[pos + 5..];
+        let encoded = rest.split('&').next().unwrap_or(rest);
+        if let Ok(decoded) = urlencoding::decode(encoded) {
+            return decoded.into_owned();
+        }
+    }
+    if href.starts_with("//") {
+        return format!("https:{}", href);
+    }
+    href
+}
+
+fn parse_ddg_html(html: &str, max_results: usize) -> Vec<Value> {
+    let re_link = Regex::new(r#"(?is)<a[^>]*class="[^"]*result__a[^"]*"[^>]*href="([^"]+)"[^>]*>(.*?)</a>"#).unwrap();
+    let re_snip = Regex::new(r#"(?is)class="[^"]*result__snippet[^"]*"[^>]*>(.*?)</(?:a|div|span)>"#).unwrap();
+    let re_tags = Regex::new(r"<[^>]+>").unwrap();
+
+    let links: Vec<(String, String)> = re_link
+        .captures_iter(html)
+        .take(max_results)
+        .map(|c| {
+            let url = decode_ddg_href(&c[1]);
+            let title = clean_html_entities(&re_tags.replace_all(&c[2], ""));
+            (title, url)
+        })
+        .collect();
+
+    let snips: Vec<String> = re_snip
+        .captures_iter(html)
+        .take(max_results)
+        .map(|c| clean_html_entities(&re_tags.replace_all(&c[1], "")))
+        .collect();
+
+    links
+        .into_iter()
+        .enumerate()
+        .filter(|(_, (t, u))| !t.is_empty() && u.starts_with("http"))
+        .map(|(i, (title, url))| {
+            let snippet = snips.get(i).cloned().unwrap_or_default();
+            serde_json::json!({
+                "title": title,
+                "url": url,
+                "snippet": snippet
+            })
+        })
+        .collect()
 }
 
 fn parse_bing_rss(xml: &str, max_results: usize) -> Vec<Value> {
@@ -135,7 +217,17 @@ pub fn fetch_web_page(url: &str, max_chars: usize) -> Result<Value, String> {
 
 #[cfg(test)]
 mod tests {
-    use super::parse_bing_rss;
+    use super::{parse_bing_rss, parse_ddg_html};
+
+    #[test]
+    fn parse_ddg_html_extracts_clean_results() {
+        let html = r###"<div class="result"><a class="result__a" href="//duckduckgo.com/l/?uddg=https%3A%2F%2Fwww.allocine.fr%2Ffilm%2Faucinema%2F&amp;rut=1">Sorties Cinéma</a><a class="result__snippet" href="#">Les prochains films en salle</a></div>"###;
+        let items = parse_ddg_html(html, 5);
+        assert_eq!(items.len(), 1);
+        assert_eq!(items[0]["title"], "Sorties Cinéma");
+        assert_eq!(items[0]["url"], "https://www.allocine.fr/film/aucinema/");
+        assert_eq!(items[0]["snippet"], "Les prochains films en salle");
+    }
 
     #[test]
     fn parse_bing_rss_extracts_items() {

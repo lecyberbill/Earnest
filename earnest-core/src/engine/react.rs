@@ -572,7 +572,21 @@ Quand ta mission est entièrement accomplie et vérifiée sur disque, fournis di
         }
 
         if final_answer.is_empty() && self.max_steps > 0 {
-            final_answer = format!("⚠️ Limite de {} tours atteinte sans réponse finale.", self.max_steps);
+            let mut synth_msgs = messages.clone();
+            synth_msgs.push(ChatMessage {
+                role: "user".to_string(),
+                content: "Tu as atteint la limite d'étapes. Synthétise immédiatement ta réponse finale complète en français à partir des informations déjà collectées, sans appeler d'outil.".to_string(),
+                images: None,
+            });
+            if let Ok((synth_res, _)) = self.router.chat_completion_with_fallback(&synth_msgs, None, &self.think_effort) {
+                if !synth_res.content.trim().is_empty() {
+                    final_answer = synth_res.content;
+                    total_tokens += synth_res.total_tokens;
+                }
+            }
+            if final_answer.is_empty() {
+                final_answer = format!("⚠️ Limite de {} tours atteinte sans réponse finale.", self.max_steps);
+            }
         }
 
         let duration_ms = start.elapsed().as_millis();

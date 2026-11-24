@@ -293,6 +293,14 @@ impl<'a> ReActEngine<'a> {
                     Err(e) => serde_json::json!({"status": "error", "error": e.to_string()}).to_string(),
                 }
             }
+            "list_skills" => crate::tools::skills::list_skills_tool().to_string(),
+            "read_skill" => {
+                let name = args["name"].as_str().unwrap_or("");
+                match crate::tools::skills::read_skill_tool(name) {
+                    Ok(res) => res.to_string(),
+                    Err(e) => serde_json::json!({"status": "error", "error": e}).to_string(),
+                }
+            }
             "kb_list_products" => call_kb_mcp_tool("kb_list_products", &serde_json::json!({})),
             "kb_search" => {
                 let pid = args["product_id"].as_str().unwrap_or("earnest");
@@ -350,15 +358,17 @@ impl<'a> ReActEngine<'a> {
         ).map_err(|e| e.to_string())?;
 
         let env_context = detect_runtime_environment();
+        let skills_summary = crate::tools::skills::skills_prompt_summary();
         let system_prompt = format!(
             "Tu es Earnest, un système agentique autonome propulsé par un moteur Rust natif ultra-robuste. \
 Tu résous la tâche pas à pas (ReAct). Tu disposes d'un accès complet à Internet et au web via 'web_search' et 'web_fetch'. \
-Utilise également les autres outils mis à disposition (read_file, edit_file, list_dir, grep_search, workspace_map, symbol_search, terminal_exec, create_artifact, store_memory, recall_memory) quand nécessaire. \
-Pour rédiger ou modifier des workflows WFL, consulte `.gemini/skills/earnest-wfl/SKILL.md` avec `read_file` si besoin. \
+Utilise également les autres outils mis à disposition (read_file, edit_file, list_dir, grep_search, workspace_map, symbol_search, terminal_exec, create_artifact, store_memory, recall_memory, list_skills, read_skill) quand nécessaire. \
+{} \
 Environnement réel capturé : {}. \
 Adapte tes commandes au shell et à l'OS indiqués ci-dessus. \
 En cours de mission, n'émets pas de phrase d'annonce sans appel d'outil : appelle directement l'outil suivant. \
 Quand ta mission est entièrement accomplie et vérifiée sur disque, fournis directement ta réponse finale complète sans appel d'outil.",
+            skills_summary,
             env_context
         );
 
@@ -496,7 +506,7 @@ Quand ta mission est entièrement accomplie et vérifiée sur disque, fournis di
                     last_tool_sig = sig;
                     repeat_tool_count = 1;
                 }
-                let is_cacheable_read = matches!(fn_name.as_str(), "recall_memory" | "read_file" | "list_dir" | "list_files" | "grep_search" | "web_fetch" | "symbol_search" | "workspace_map");
+                let is_cacheable_read = matches!(fn_name.as_str(), "recall_memory" | "read_file" | "read_skill" | "list_skills" | "list_dir" | "list_files" | "grep_search" | "web_fetch" | "symbol_search" | "workspace_map");
                 let raw_output = if is_cacheable_read {
                     let hit = cache_mutex.lock().ok().and_then(|mut c| c.get(fn_name, &args_key).map(|s| s.to_string()));
                     if let Some(cached) = hit {

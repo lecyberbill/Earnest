@@ -1,6 +1,7 @@
 pub mod terminal;
 pub mod artifacts;
 pub mod fs;
+pub mod skills;
 pub mod web;
 
 use serde_json::Value;
@@ -214,6 +215,31 @@ pub fn get_primitive_tools_schemas() -> Vec<Value> {
                         "file_path": { "type": "string", "description": "Chemin cible optionnel" }
                     },
                     "required": ["title", "content"]
+                }
+            }
+        }),
+        serde_json::json!({
+            "type": "function",
+            "function": {
+                "name": "list_skills",
+                "description": "Liste les skills spécialisés disponibles pour l'agent (dont 'earnest-wfl' pour concevoir des workflows WFL).",
+                "parameters": {
+                    "type": "object",
+                    "properties": {}
+                }
+            }
+        }),
+        serde_json::json!({
+            "type": "function",
+            "function": {
+                "name": "read_skill",
+                "description": "Lit les instructions complètes d'un skill (ex: 'earnest-wfl' pour la syntaxe WFL, les actions, variables, pipes et boucles).",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "name": { "type": "string", "description": "Nom du skill à lire (ex: 'earnest-wfl')" }
+                    },
+                    "required": ["name"]
                 }
             }
         }),

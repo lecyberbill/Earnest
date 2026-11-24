@@ -262,3 +262,19 @@ at your option.
 
 ### Architecture & Specs
 - [Technical Report](docs/TECHNICAL_REPORT.md) · [Architecture Spec](docs/spe.md) · [Atlas](ATLAS.md)
+
+---
+
+## ⚙️ Configuration, `EARNEST.md` & Skills (Philosophie des 3 Modes)
+
+### 1. `EARNEST.md` (Global & Projet)
+- **Global** : `%APPDATA%\Earnest\EARNEST.md` (Windows) ou `~/.earnest/EARNEST.md` (Linux/macOS), surchargeable via `EARNEST_HOME`.
+- **Projet** : `EARNEST.md` à la racine du projet (ou `.earnest/EARNEST.md`).
+- **Chargement dans `earnest-core` (Desktop / CLI)** : toujours injecté au démarrage du run (le niveau projet complète le niveau global).
+- **Chargement dans `earnest-ide` (Gouvernance 3 modes)** :
+  - **Mode 1 (`Normal`)** : `EARNEST.md` (global + projet) **est chargé** — l'utilisateur travaille librement avec ses propres règles.
+  - **Mode 2 (`Constrained`) & Mode 3 (`Architecture`)** : `EARNEST.md` **n'est volontairement pas chargé** afin de préserver intégralement la gouvernance par invariants cryptographiques (`.ide/invariants.json`), `policy.json` et le `shadow_worktree` sans interférence.
+
+### 2. Skills (`list_skills` / `read_skill`)
+- La skill WFL ([`earnest-wfl`](.gemini/skills/earnest-wfl/SKILL.md)) est embarquée nativement dans `earnest-core`.
+- Des skills supplémentaires peuvent être ajoutés dans `.gemini/skills/<nom>/SKILL.md` ou `.earnest/skills/<nom>/SKILL.md` sans affecter la gouvernance `.ide/`.

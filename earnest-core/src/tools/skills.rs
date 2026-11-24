@@ -127,3 +127,50 @@ pub fn read_skill_tool(name: &str) -> Result<Value, String> {
         Err(format!("Skill '{}' introuvable (appelle `list_skills` pour voir la liste)", target))
     }
 }
+
+fn global_earnest_dir() -> Option<std::path::PathBuf> {
+    if let Ok(home) = std::env::var("EARNEST_HOME") {
+        let trimmed = home.trim();
+        if !trimmed.is_empty() {
+            return Some(std::path::PathBuf::from(trimmed));
+        }
+    }
+    #[cfg(windows)]
+    if let Ok(appdata) = std::env::var("APPDATA") {
+        return Some(std::path::PathBuf::from(appdata).join("Earnest"));
+    }
+    if let Ok(home) = std::env::var("HOME") {
+        return Some(std::path::PathBuf::from(home).join(".earnest"));
+    }
+    None
+}
+
+pub fn load_earnest_md(workspace_root: &Path) -> String {
+    let mut sections = Vec::new();
+    if let Some(gdir) = global_earnest_dir() {
+        let gfile = gdir.join("EARNEST.md");
+        if let Ok(raw) = fs::read_to_string(&gfile) {
+            let trimmed = raw.trim();
+            if !trimmed.is_empty() {
+                let bounded: String = trimmed.chars().take(4_000).collect();
+                sections.push(format!("[EARNEST.md GLOBAL ({})]\n{}", gfile.display(), bounded));
+            }
+        }
+    }
+    for rel in ["EARNEST.md", ".earnest/EARNEST.md"] {
+        let p = workspace_root.join(rel);
+        if let Ok(raw) = fs::read_to_string(&p) {
+            let trimmed = raw.trim();
+            if !trimmed.is_empty() {
+                let bounded: String = trimmed.chars().take(4_000).collect();
+                sections.push(format!("[EARNEST.md PROJET ({})]\n{}", rel, bounded));
+                break;
+            }
+        }
+    }
+    if sections.is_empty() {
+        String::new()
+    } else {
+        format!("\n\n{}\n", sections.join("\n\n"))
+    }
+}

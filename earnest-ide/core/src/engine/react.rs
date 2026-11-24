@@ -1301,6 +1301,46 @@ impl<'a> ReActEngine<'a> {
             String::new()
         };
 
+        let earnest_md_context = if policy.mode == GovernanceMode::Normal {
+            let mut parts = Vec::new();
+            let global_dir = std::env::var("EARNEST_HOME")
+                .ok()
+                .filter(|s| !s.trim().is_empty())
+                .map(std::path::PathBuf::from)
+                .or_else(|| {
+                    #[cfg(windows)]
+                    {
+                        std::env::var("APPDATA").ok().map(|p| std::path::PathBuf::from(p).join("Earnest"))
+                    }
+                    #[cfg(not(windows))]
+                    {
+                        std::env::var("HOME").ok().map(|p| std::path::PathBuf::from(p).join(".earnest"))
+                    }
+                });
+            if let Some(gdir) = global_dir {
+                if let Ok(raw) = std::fs::read_to_string(gdir.join("EARNEST.md")) {
+                    let t = raw.trim();
+                    if !t.is_empty() {
+                        let bounded: String = t.chars().take(4_000).collect();
+                        parts.push(format!("[EARNEST.md GLOBAL]\n{}", bounded));
+                    }
+                }
+            }
+            for rel in ["EARNEST.md", ".earnest/EARNEST.md"] {
+                if let Ok(raw) = std::fs::read_to_string(self.workspace_root.join(rel)) {
+                    let t = raw.trim();
+                    if !t.is_empty() {
+                        let bounded: String = t.chars().take(4_000).collect();
+                        parts.push(format!("[EARNEST.md PROJET ({})]\n{}", rel, bounded));
+                        break;
+                    }
+                }
+            }
+            if parts.is_empty() { String::new() } else { format!("\n\n{}", parts.join("\n\n")) }
+        } else {
+            String::new()
+        };
+
         let system_prompt = format!(
             "Tu es Earnest IDE, un ingénieur logiciel agentique d'élite encadré par un système déterministe de gouvernance par invariants cryptographiques.\n\
             Politique active : {}\n\n\
@@ -1309,11 +1349,12 @@ impl<'a> ReActEngine<'a> {
             2. Examine scrupuleusement le code existant avec 'read_file' et 'list_files'.\n\
             3. En cas de bug, découverte ou piège résolu, transmets-le dans la base d'expérience via 'kb_propose'.\n\
             4. Respecte strictement les règles du mode de gouvernance actif.\n\
-            5. Atlas projet : maintiens '.ide/atlas.md' (carte des modules, APIs publiques, décisions) aux jalons et consulte-le avec 'read_file' quand tu as besoin de contexte.{}{}{}\n",
+            5. Atlas projet : maintiens '.ide/atlas.md' (carte des modules, APIs publiques, décisions) aux jalons et consulte-le avec 'read_file' quand tu as besoin de contexte.{}{}{}{}\n",
             mode_desc,
             memory_context,
             workspace_map_context,
-            shadow_context
+            shadow_context,
+            earnest_md_context
         );
 
         let mut messages = vec![

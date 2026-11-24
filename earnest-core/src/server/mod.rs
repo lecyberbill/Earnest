@@ -193,6 +193,33 @@ fn handle_request(mut req: tiny_http::Request) {
             return;
         }
 
+        if path == "/api/vault/secrets" {
+            let tenant = query.get("tenant").map(|s| s.as_str()).unwrap_or("default");
+            let vaults_dir = chromatix_vault::resolve_vaults_dir();
+            let resp = match chromatix_vault::TenantVault::from_env(&vaults_dir) {
+                Ok(vault) => {
+                    let keys = vault.list_keys(tenant).unwrap_or_default();
+                    Response::from_string(serde_json::json!({
+                        "status": "ok",
+                        "host_key_configured": true,
+                        "vaults_dir": vaults_dir.to_string_lossy(),
+                        "tenant": tenant,
+                        "keys": keys
+                    }).to_string())
+                }
+                Err(err) => Response::from_string(serde_json::json!({
+                    "status": "ok",
+                    "host_key_configured": false,
+                    "vaults_dir": vaults_dir.to_string_lossy(),
+                    "tenant": tenant,
+                    "keys": [],
+                    "warning": err
+                }).to_string()),
+            };
+            req.respond(resp.with_header(json_header).with_header(cors_header)).ok();
+            return;
+        }
+
         if path == "/api/workflows" {
             let ws = discover_wf_workspace();
             let resp = match wf_core::WfStore::open(&ws.join(".wf").join("wf.db")) {
@@ -888,6 +915,56 @@ fn handle_request(mut req: tiny_http::Request) {
                     "status": "error",
                     "error": e
                 }).to_string()).with_status_code(400),
+            };
+            req.respond(resp.with_header(json_header).with_header(cors_header)).ok();
+            return;
+        }
+
+        if path == "/api/vault/secrets" {
+            let tenant = body["tenant"].as_str().unwrap_or("default");
+            let key = body["key"].as_str().unwrap_or("").trim();
+            let value = body["value"].as_str().unwrap_or("");
+            let vaults_dir = chromatix_vault::resolve_vaults_dir();
+            let resp = if key.is_empty() {
+                Response::from_string(serde_json::json!({"status": "error", "error": "Nom de clé requis"}).to_string()).with_status_code(400)
+            } else {
+                match chromatix_vault::TenantVault::from_env(&vaults_dir) {
+                    Ok(vault) => match vault.set(tenant, key, value) {
+                        Ok(()) => {
+                            let keys = vault.list_keys(tenant).unwrap_or_default();
+                            Response::from_string(serde_json::json!({
+                                "status": "ok",
+                                "tenant": tenant,
+                                "key": key,
+                                "keys": keys
+                            }).to_string())
+                        }
+                        Err(e) => Response::from_string(serde_json::json!({"status": "error", "error": e}).to_string()).with_status_code(500),
+                    },
+                    Err(e) => Response::from_string(serde_json::json!({"status": "error", "error": e}).to_string()).with_status_code(400),
+                }
+            };
+            req.respond(resp.with_header(json_header).with_header(cors_header)).ok();
+            return;
+        }
+
+        if path == "/api/vault/delete" {
+            let tenant = body["tenant"].as_str().unwrap_or("default");
+            let key = body["key"].as_str().unwrap_or("").trim();
+            let vaults_dir = chromatix_vault::resolve_vaults_dir();
+            let resp = match chromatix_vault::TenantVault::from_env(&vaults_dir) {
+                Ok(vault) => match vault.delete(tenant, key) {
+                    Ok(deleted) => {
+                        let keys = vault.list_keys(tenant).unwrap_or_default();
+                        Response::from_string(serde_json::json!({
+                            "status": "ok",
+                            "deleted": deleted,
+                            "keys": keys
+                        }).to_string())
+                    }
+                    Err(e) => Response::from_string(serde_json::json!({"status": "error", "error": e}).to_string()).with_status_code(500),
+                },
+                Err(e) => Response::from_string(serde_json::json!({"status": "error", "error": e}).to_string()).with_status_code(400),
             };
             req.respond(resp.with_header(json_header).with_header(cors_header)).ok();
             return;

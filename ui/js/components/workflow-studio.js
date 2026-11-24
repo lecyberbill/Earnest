@@ -629,6 +629,7 @@ export class WorkflowStudio {
             <div style="display:flex;align-items:center;gap:4px;flex-wrap:wrap;">
                 <span style="color:var(--text-muted);font-family:var(--font-mono);">CONNEXIONS:</span> ${connList}
                 <button id="wfs-add-conn" class="btn-bubble-action" style="font-size:0.68rem;padding:2px 6px;cursor:pointer;">+ Connexion</button>
+                <button id="wfs-open-vault" class="btn-bubble-action" style="font-size:0.68rem;padding:2px 6px;cursor:pointer;color:#a7f3d0;border-color:rgba(16,185,129,0.4);" title="Gérer les secrets chiffrés Chromatix Vault (.vault.png)">🔐 Secrets</button>
             </div>
             <div style="display:flex;align-items:center;gap:4px;flex-wrap:wrap;width:100%;">
                 <span style="color:var(--text-muted);font-family:var(--font-mono);">VARS:</span> ${varsList}
@@ -637,6 +638,7 @@ export class WorkflowStudio {
             <div id="wfs-var-editor" style="display:none;width:100%;background:rgba(15,23,42,0.9);border:1px solid var(--accent-cyan);border-radius:6px;padding:0.5rem;gap:0.4rem;align-items:center;flex-wrap:wrap;"></div>
             <div id="wfs-trig-editor" style="display:none;width:100%;background:rgba(15,23,42,0.9);border:1px solid var(--accent-cyan);border-radius:6px;padding:0.5rem;gap:0.4rem;align-items:center;flex-wrap:wrap;"></div>
             <div id="wfs-conn-editor" style="display:none;width:100%;background:rgba(15,23,42,0.9);border:1px solid var(--accent-cyan);border-radius:6px;padding:0.5rem;gap:0.4rem;align-items:center;flex-wrap:wrap;"></div>
+            <div id="wfs-vault-editor" style="display:none;width:100%;background:rgba(6,24,20,0.92);border:1px solid rgba(16,185,129,0.55);border-radius:6px;padding:0.6rem;flex-direction:column;gap:0.45rem;"></div>
         `;
         const openVarEditor = (editName = '', editVal = true) => {
             const box = meta.querySelector('#wfs-var-editor');
@@ -763,6 +765,91 @@ export class WorkflowStudio {
             });
             box.querySelector('#wfs-ce-cancel').addEventListener('click', () => { box.style.display = 'none'; });
             box.querySelector('#wfs-ce-name').focus();
+        });
+        meta.querySelector('#wfs-open-vault').addEventListener('click', async () => {
+            const box = meta.querySelector('#wfs-vault-editor');
+            if (!box) return;
+            if (box.style.display === 'flex') { box.style.display = 'none'; return; }
+            box.style.display = 'flex';
+            let tenant = this.spec.name || 'default';
+            const renderVault = async () => {
+                box.innerHTML = '<div style="font-size:0.72rem;color:var(--text-muted);">Chargement du coffre Chromatix (.vault.png)...</div>';
+                let data = { host_key_configured: false, keys: [], warning: 'Serveur inaccessible' };
+                try {
+                    const r = await fetch(`/api/vault/secrets?tenant=${encodeURIComponent(tenant)}`);
+                    data = await r.json();
+                    this.vaultKeys = data.keys || [];
+                } catch {}
+                const statusBadge = data.host_key_configured
+                    ? `<span style="color:#34d399;font-size:0.7rem;">✅ SECRET_VAULT_KEY active (${data.vaults_dir || ''})</span>`
+                    : `<span style="color:#fbbf24;font-size:0.7rem;">⚠️ ${data.warning || 'SECRET_VAULT_KEY absente sur l’hôte'}</span>`;
+                const keysHtml = (data.keys || []).length === 0
+                    ? '<span style="font-size:0.7rem;color:var(--text-muted);">Aucun secret enregistré pour ce coffre.</span>'
+                    : (data.keys || []).map(k => `<span style="display:inline-flex;align-items:center;gap:4px;background:rgba(16,185,129,0.14);border:1px solid rgba(16,185,129,0.4);padding:2px 7px;border-radius:4px;font-family:var(--font-mono);font-size:0.7rem;color:#a7f3d0;"><button type="button" data-copy-kr="${k}" title="Copier \${keyring.${k}}" style="background:none;border:none;color:inherit;cursor:pointer;padding:0;font-family:inherit;">🔑 \${keyring.${k}}</button><button type="button" data-del-kr="${k}" style="background:none;border:none;color:#fda4af;cursor:pointer;padding:0;">✕</button></span>`).join(' ');
+                box.innerHTML = `
+                    <div style="display:flex;justify-content:space-between;align-items:center;gap:6px;flex-wrap:wrap;">
+                        <div style="display:flex;align-items:center;gap:8px;">
+                            <strong style="font-size:0.75rem;color:#a7f3d0;">🔐 Coffre Chromatix (.vault.png)</strong>
+                            <select id="wfs-vt-tenant" style="background:#0b1326;border:1px solid var(--border-subtle);color:#fff;padding:2px 6px;border-radius:4px;font-family:var(--font-mono);font-size:0.7rem;">
+                                <option value="default" ${tenant === 'default' ? 'selected' : ''}>Global (default)</option>
+                                <option value="${this.spec.name || 'default'}" ${tenant !== 'default' ? 'selected' : ''}>Workflow (${this.spec.name || 'default'})</option>
+                            </select>
+                        </div>
+                        <div style="display:flex;align-items:center;gap:8px;">
+                            ${statusBadge}
+                            <button id="wfs-vt-close" class="btn-bubble-action" style="padding:2px 7px;font-size:0.7rem;">✕</button>
+                        </div>
+                    </div>
+                    <div style="display:flex;flex-wrap:wrap;gap:4px;align-items:center;">${keysHtml}</div>
+                    <div style="display:flex;gap:5px;align-items:center;flex-wrap:wrap;">
+                        <input id="wfs-vt-key" type="text" placeholder="nom_secret (ex: smtp_pass)" style="width:165px;background:#0b1326;border:1px solid var(--border-subtle);color:#fff;padding:4px 6px;border-radius:4px;font-family:var(--font-mono);font-size:0.72rem;">
+                        <input id="wfs-vt-val" type="password" placeholder="Mot de passe / Token..." style="flex:1;min-width:160px;background:#0b1326;border:1px solid var(--border-subtle);color:#fff;padding:4px 6px;border-radius:4px;font-family:var(--font-mono);font-size:0.72rem;">
+                        <button id="wfs-vt-eye" type="button" class="btn-bubble-action" style="padding:4px 7px;font-size:0.72rem;" title="Afficher/masquer">👁️</button>
+                        <button id="wfs-vt-save" type="button" class="btn-primary" style="padding:4px 10px;font-size:0.72rem;">🔒 Enregistrer</button>
+                    </div>
+                    <div id="wfs-vt-msg" style="font-size:0.68rem;color:#34d399;"></div>
+                `;
+                box.querySelector('#wfs-vt-close').addEventListener('click', () => { box.style.display = 'none'; });
+                box.querySelector('#wfs-vt-tenant').addEventListener('change', (e) => { tenant = e.target.value; renderVault(); });
+                box.querySelector('#wfs-vt-eye').addEventListener('click', () => {
+                    const vi = box.querySelector('#wfs-vt-val');
+                    vi.type = vi.type === 'password' ? 'text' : 'password';
+                });
+                box.querySelectorAll('[data-copy-kr]').forEach(b => b.addEventListener('click', () => {
+                    const expr = `\${keyring.${b.getAttribute('data-copy-kr')}}`;
+                    navigator.clipboard?.writeText(expr);
+                    box.querySelector('#wfs-vt-msg').textContent = `Copié : ${expr}`;
+                }));
+                box.querySelectorAll('[data-del-kr]').forEach(b => b.addEventListener('click', async () => {
+                    await fetch('/api/vault/delete', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ tenant, key: b.getAttribute('data-del-kr') })
+                    });
+                    renderVault();
+                }));
+                box.querySelector('#wfs-vt-save').addEventListener('click', async () => {
+                    const k = box.querySelector('#wfs-vt-key').value.trim();
+                    const v = box.querySelector('#wfs-vt-val').value;
+                    if (!k) return;
+                    const r = await fetch('/api/vault/secrets', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ tenant, key: k, value: v })
+                    });
+                    const res = await r.json();
+                    if (res.status === 'ok') {
+                        await renderVault();
+                        this.renderInspector();
+                        const msgEl = box.querySelector('#wfs-vt-msg');
+                        if (msgEl) msgEl.textContent = `Secret '${k}' chiffré dans ${tenant}.vault.png → utilise \${keyring.${k}}`;
+                    } else {
+                        box.querySelector('#wfs-vt-msg').style.color = '#fda4af';
+                        box.querySelector('#wfs-vt-msg').textContent = res.error || 'Erreur';
+                    }
+                });
+            };
+            renderVault();
         });
         canvas.appendChild(meta);
 
@@ -1233,13 +1320,17 @@ export class WorkflowStudio {
 
         // Suivi du dernier champ focalisé + datalist autocomplétion + dropdown d'insertion
         const allVars = this.collectAllVarNames();
+        const vaultRefs = (this.vaultKeys || []).map(k => `\${keyring.${k}}`);
         let dl = document.getElementById('wfs-vars-datalist');
         if (!dl) {
             dl = document.createElement('datalist');
             dl.id = 'wfs-vars-datalist';
             document.body.appendChild(dl);
         }
-        dl.innerHTML = allVars.map(vn => `<option value="\${vars.${vn}}"></option>`).join('');
+        dl.innerHTML = [
+            ...allVars.map(vn => `<option value="\${vars.${vn}}"></option>`),
+            ...vaultRefs.map(kr => `<option value="${kr}"></option>`)
+        ].join('');
 
         let lastFocusedInput = null;
         insp.querySelectorAll('input[type="text"], textarea').forEach(el => {

@@ -812,15 +812,22 @@ impl<'a> ReActEngine<'a> {
                     let err = tool_guard::error::GuardError::SystemPath { requested: path.to_string() };
                     return (serde_json::json!({"status": "error", "error": err.to_string()}).to_string(), None);
                 }
-                let resolved = if raw_p.is_absolute() {
-                    PathBuf::from(path)
+                let rel_for_shadow = if raw_p.is_absolute() {
+                    raw_p.strip_prefix(&self.workspace_root).ok()
                 } else {
-                    let shadow_candidate = self.workspace_root.join(&policy.shadow_env.path).join(path);
+                    Some(raw_p)
+                };
+                let resolved = if let Some(rel) = rel_for_shadow {
+                    let shadow_candidate = self.workspace_root.join(&policy.shadow_env.path).join(rel);
                     if policy.mode == GovernanceMode::Constrained && shadow_candidate.is_file() {
                         shadow_candidate
+                    } else if raw_p.is_absolute() {
+                        PathBuf::from(path)
                     } else {
-                        self.workspace_root.join(path)
+                        self.workspace_root.join(rel)
                     }
+                } else {
+                    PathBuf::from(path)
                 };
                 if let Ok(meta) = std::fs::metadata(&resolved) {
                     if let Err(err) = tool_guard::file::enforce_size_bound(meta.len()) {
@@ -1273,8 +1280,8 @@ impl<'a> ReActEngine<'a> {
         // Prompt système adapté selon le Mode de gouvernance
         let mode_desc = match policy.mode {
             GovernanceMode::Normal => "MODE 1 (NORMAL) : Tu as un accès libre aux outils de développement usuels. Garde ta réflexion (thinking) très courte (quelques lignes max, JAMAIS de brouillons de code complets dedans) et passe immédiatement à l'action avec 'write_file' / 'edit_file' fichier par fichier, puis vérifie avec 'terminal_exec'.",
-            GovernanceMode::Architecture => "MODE 3 (ARCHITECTURE / SPEC-FIRST) : Interdiction FORMELLE d'écrire ou modifier du code source directement. Ne rédige JAMAIS l'implémentation ni les tests dans ta réflexion : conçois uniquement l'architecture et formalise les contrats d'invariants (préfère l'outil plat 'add_invariant' avec id, title, statement, target_file, test_query) puis demande la validation humaine via 'request_architecture_review'.",
-            GovernanceMode::Constrained => "MODE 2 (CONTRAINT PAR INVARIANTS) : Toute modification de code passe IMPÉRATIVEMENT par 'write_code' et est validée en sandbox isolée (shadow worktree) par les sondes cryptographiques scellées. Modifie UN seul fichier à la fois : utilise 'target'/'replacement' pour les éditions ciblées, ou 'stage_only: true' fichier par fichier puis un dernier appel 'write_code' (sans 'stage_only' sur le dernier fichier modifié) pour lancer les sondes et fusionner. Les fichiers déjà présents sur le disque ou déjà stagés dans le shadow worktree sont conservés : ne réécris JAMAIS tout le projet dans un seul gros appel 'files'. N'émets JAMAIS de message texte seul sans appel d'outil tant que tous les contrats ne sont pas validés par 'write_code'. Si tu es bloqué par un contrat, utilise 'request_contract_mutation'.",
+            GovernanceMode::Architecture => "MODE 3 (ARCHITECTURE / SPEC-FIRST) : Garde ta réflexion (thinking) très courte et factuelle. Interdiction FORMELLE d'écrire ou modifier du code source directement. Conçois uniquement l'architecture et formalise les contrats d'invariants ('add_invariant' avec id, title, statement, target_file, test_query) puis demande la validation humaine via 'request_architecture_review'.",
+            GovernanceMode::Constrained => "MODE 2 (CONTRAINT PAR INVARIANTS) : Garde ta réflexion (thinking) très courte et factuelle ; passe directement aux appels d'outils. Toute modification de code passe IMPÉRATIVEMENT par 'write_code' et est validée en sandbox isolée (shadow worktree) par les sondes scellées. Modifie UN seul fichier à la fois : utilise 'target'/'replacement' pour les éditions ciblées, ou 'stage_only: true' fichier par fichier puis 'shadow_validate_and_merge' (ou un dernier 'write_code' sans 'stage_only') pour lancer les sondes et fusionner. Les fichiers déjà présents sur le disque ou stagés dans le shadow worktree sont conservés. Dès que la fusion réussit et les sondes passent, fournis ta réponse finale sans appel inutile. Si tu es bloqué par un contrat, utilise 'request_contract_mutation'.",
         };
 
         let workspace_map_context = match symbol_index::workspace_map(&self.workspace_root, 15, 5) {
@@ -1349,7 +1356,7 @@ impl<'a> ReActEngine<'a> {
             2. Examine scrupuleusement le code existant avec 'read_file' et 'list_files'.\n\
             3. En cas de bug, découverte ou piège résolu, transmets-le dans la base d'expérience via 'kb_propose'.\n\
             4. Respecte strictement les règles du mode de gouvernance actif.\n\
-            5. Atlas projet : maintiens '.ide/atlas.md' (carte des modules, APIs publiques, décisions) aux jalons et consulte-le avec 'read_file' quand tu as besoin de contexte.{}{}{}{}\n",
+            5. Mémoire projet : consulte '.ide/atlas.md' avec 'read_file' s'il existe (en Mode 1 Normal, tu peux le mettre à jour aux jalons ; en Mode 2 Contraint, utilise plutôt 'store_memory' sans détourner 'write_code' pour de la documentation hors contrat).{}{}{}{}\n",
             mode_desc,
             memory_context,
             workspace_map_context,
@@ -1633,7 +1640,7 @@ impl<'a> ReActEngine<'a> {
                     repeat_count = 1;
                 }
 
-                let is_cacheable_read = matches!(fn_name.as_str(), "read_file" | "list_files" | "grep_search");
+                let is_cacheable_read = matches!(fn_name.as_str(), "read_file");
 
                 let (raw_output, interrupt_action) = if all_readonly_batch {
                     batch_results[call_idx].clone()

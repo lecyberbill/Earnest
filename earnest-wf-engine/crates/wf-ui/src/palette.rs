@@ -193,6 +193,7 @@ impl FormModalState {
                     path: self.field2.trim().to_string(),
                     glob: Some(self.field3.trim().to_string()).filter(|s| !s.is_empty()),
                     recursive: false,
+                    include_dirs: false,
                 },
             },
             "vfs.read" => ActionSpec::VfsRead {

@@ -480,3 +480,132 @@ steps:
 
     let _ = std::fs::remove_dir_all(&tmp);
 }
+
+#[test]
+fn wfl_v1_rich_list_pipes_loops_data_and_vfs_ops() {
+    let tmp = std::env::temp_dir().join("wf_core_v1_test");
+    let _ = std::fs::remove_dir_all(&tmp);
+    std::fs::create_dir_all(tmp.join("sub")).unwrap();
+    std::fs::write(tmp.join("alpha.txt"), "hello").unwrap();
+    std::fs::write(tmp.join("sub").join("beta_2026.pdf"), "pdf").unwrap();
+
+    let yaml = format!(
+        r#"
+version: "1.0"
+name: "wfl_rich_test"
+connections:
+  local:
+    driver: local
+    root: "{}"
+vars:
+  today: "${{now('%Y')}}"
+  counter: 0
+  stems_acc: []
+steps:
+  - id: list_all
+    action: vfs.list
+    params:
+      conn: local
+      path: "."
+      recursive: true
+    output: files
+  - id: each_file
+    action: flow.each
+    items: "${{vars.files.data}}"
+    as: f
+    steps:
+      - id: only_pdf_or_txt
+        action: flow.if
+        condition: "${{f.ext}} == 'txt' || (${{f.ext}} == 'pdf' && ${{f.stem}} contains 'beta')"
+        then:
+          - id: add_stem
+            action: flow.append
+            params:
+              var: stems_acc
+              value: "${{f.stem | upper}}"
+          - id: append_log
+            action: vfs.append
+            params:
+              conn: local
+              path: "summary.txt"
+              content: "${{loop.index1}}:${{f.stem}}:${{vars.today}}"
+  - id: loop_while
+    action: flow.while
+    condition: "${{vars.counter}} < 5"
+    max_iterations: 20
+    steps:
+      - id: inc
+        action: flow.set
+        params:
+          var: counter
+          value: "${{vars.counter}} + 1"
+      - id: stop_at_3
+        action: flow.if
+        condition: "${{vars.counter}} == 3"
+        then:
+          - id: brk
+            action: flow.break
+  - id: sw
+    action: flow.switch
+    value: "${{vars.counter}}"
+    cases:
+      "3":
+        - id: sw_ok
+          action: flow.set
+          params:
+            var: sw_res
+            value: "matched_3"
+    default: []
+  - id: csv_step
+    action: data.parse_csv
+    params:
+      text: "name,score\nalice,10\nbob,20"
+    output: csv_out
+  - id: regex_step
+    action: data.regex
+    params:
+      text: "ID-42-OK"
+      pattern: "ID-(\\d+)"
+    output: re_out
+  - id: mk
+    action: vfs.mkdir
+    params:
+      conn: local
+      path: "out_dir"
+  - id: ex
+    action: vfs.exists
+    params:
+      conn: local
+      path: "summary.txt"
+    output: ex_out
+"#,
+        tmp.to_string_lossy().replace('\\', "/")
+    );
+
+    let spec = parse_workflow_yaml(&yaml).unwrap();
+    let rep = execute_workflow(
+        &spec,
+        ExecutionOptions {
+            dry_run: false,
+            ..Default::default()
+        },
+    )
+    .unwrap();
+    assert!(rep.success, "workflow failed: {:?}", rep.error);
+
+    let summary = std::fs::read_to_string(tmp.join("summary.txt")).unwrap();
+    assert!(summary.contains("alpha"));
+    assert!(summary.contains("beta_2026"));
+    assert!(tmp.join("out_dir").is_dir());
+
+    let ex_log = rep.logs.iter().find(|l| l.step_id == "ex").unwrap();
+    assert_eq!(ex_log.output.as_ref().unwrap()["exists"], true);
+
+    let csv_log = rep.logs.iter().find(|l| l.step_id == "csv_step").unwrap();
+    assert_eq!(csv_log.output.as_ref().unwrap()["count"], 2);
+
+    let re_log = rep.logs.iter().find(|l| l.step_id == "regex_step").unwrap();
+    assert_eq!(re_log.output.as_ref().unwrap()["first"]["groups"][0], "42");
+
+    let _ = std::fs::remove_dir_all(&tmp);
+}

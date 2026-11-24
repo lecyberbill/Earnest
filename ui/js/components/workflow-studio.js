@@ -4,19 +4,32 @@
 
 export const WF_ACTION_CATALOG = [
     // --- VFS / Fichiers ---
-    { action: 'vfs.list', cat: 'VFS / Fichiers', icon: '📂', color: '#38bdf8', label: 'Lister fichiers', defaults: { params: { conn: 'local', path: '.', glob: '', recursive: false } } },
+    { action: 'vfs.list', cat: 'VFS / Fichiers', icon: '📂', color: '#38bdf8', label: 'Lister fichiers', defaults: { params: { conn: 'local', path: '.', glob: '', recursive: false, include_dirs: false } } },
     { action: 'vfs.read', cat: 'VFS / Fichiers', icon: '📄', color: '#38bdf8', label: 'Lire fichier', defaults: { params: { conn: 'local', path: 'input.txt', encoding: 'utf8' } } },
     { action: 'vfs.write', cat: 'VFS / Fichiers', icon: '✍️', color: '#38bdf8', label: 'Écrire fichier', defaults: { params: { conn: 'local', path: 'output.txt', content: '', create_dirs: true } } },
-    { action: 'vfs.transfer', cat: 'VFS / Fichiers', icon: '🔁', color: '#38bdf8', label: 'Transférer fichier', defaults: { params: { src: { conn: 'local', path: 'a.txt' }, dst: { conn: 'local', path: 'b.txt' }, overwrite: true } } },
+    { action: 'vfs.append', cat: 'VFS / Fichiers', icon: '➕', color: '#38bdf8', label: 'Ajouter ligne (Append)', defaults: { params: { conn: 'local', path: 'output.txt', content: '', newline: true, create_dirs: true } } },
+    { action: 'vfs.mkdir', cat: 'VFS / Fichiers', icon: '📁', color: '#38bdf8', label: 'Créer dossier', defaults: { params: { conn: 'local', path: 'export' } } },
+    { action: 'vfs.exists', cat: 'VFS / Fichiers', icon: '❓', color: '#38bdf8', label: 'Tester existence', defaults: { params: { conn: 'local', path: 'file.txt' } } },
+    { action: 'vfs.transfer', cat: 'VFS / Fichiers', icon: '🔁', color: '#38bdf8', label: 'Copier / Transférer', defaults: { params: { src: { conn: 'local', path: 'a.txt' }, dst: { conn: 'local', path: 'b.txt' }, overwrite: true } } },
+    { action: 'vfs.move', cat: 'VFS / Fichiers', icon: '📦', color: '#38bdf8', label: 'Déplacer / Renommer', defaults: { params: { src: { conn: 'local', path: 'a.txt' }, dst: { conn: 'local', path: 'b.txt' }, overwrite: true } } },
     { action: 'vfs.stat', cat: 'VFS / Fichiers', icon: '🔍', color: '#38bdf8', label: 'Inspecter fichier', defaults: { params: { conn: 'local', path: 'file.txt', compute_sha256: false } } },
     { action: 'vfs.delete', cat: 'VFS / Fichiers', icon: '🗑️', color: '#fb7185', label: 'Supprimer fichier', defaults: { params: { conn: 'local', path: 'tmp.txt' } } },
+    // --- Données ---
+    { action: 'data.parse_json', cat: 'Données', icon: '🧩', color: '#a78bfa', label: 'Parser JSON', defaults: { params: { text: '${vars.raw}' } } },
+    { action: 'data.parse_csv', cat: 'Données', icon: '📊', color: '#a78bfa', label: 'Parser CSV', defaults: { params: { text: '${vars.csv}', delimiter: ',', headers: true } } },
+    { action: 'data.regex', cat: 'Données', icon: '🔎', color: '#a78bfa', label: 'Extraire Regex', defaults: { params: { text: '${vars.txt}', pattern: '(\\d+)' } } },
     // --- Mail ---
     { action: 'mail.send', cat: 'Messagerie', icon: '✉️', color: '#c084fc', label: 'Envoyer Email', defaults: { params: { conn: 'smtp', from: 'bot@local', to: ['ops@local'], subject: 'Rapport WFL', body_text: 'Exécution terminée.' } } },
     { action: 'mail.fetch', cat: 'Messagerie', icon: '📥', color: '#c084fc', label: 'Lire Emails', defaults: { params: { conn: 'imap', folder: 'INBOX', limit: 10, unread_only: true, mark_read: false } } },
     // --- Contrôle de flux ---
     { action: 'flow.if', cat: 'Contrôle de flux', icon: '🔀', color: '#fbbf24', label: 'Condition (If / Else)', defaults: { condition: '${vars.ok} == true', then: [], else: [] } },
     { action: 'flow.each', cat: 'Contrôle de flux', icon: '🔄', color: '#fbbf24', label: 'Boucle (For Each)', defaults: { items: '${vars.items}', as: 'item', concurrency: 1, steps: [] } },
+    { action: 'flow.while', cat: 'Contrôle de flux', icon: '🔁', color: '#fbbf24', label: 'Boucle (While)', defaults: { condition: '${vars.i} < 10', max_iterations: 1000, steps: [] } },
+    { action: 'flow.switch', cat: 'Contrôle de flux', icon: '🎛️', color: '#fbbf24', label: 'Aiguillage (Switch)', defaults: { value: '${vars.mode}', cases: { dev: [] }, default: [] } },
     { action: 'flow.set', cat: 'Contrôle de flux', icon: '📌', color: '#fbbf24', label: 'Définir variable', defaults: { params: { var: 'result', value: 'ok' } } },
+    { action: 'flow.append', cat: 'Contrôle de flux', icon: '📥', color: '#fbbf24', label: 'Ajouter au tableau', defaults: { params: { var: 'items', value: '${item.stem}' } } },
+    { action: 'flow.break', cat: 'Contrôle de flux', icon: '⏭️', color: '#fbbf24', label: 'Sortir de boucle (Break)', defaults: {} },
+    { action: 'flow.continue', cat: 'Contrôle de flux', icon: '⏩', color: '#fbbf24', label: 'Itération suivante (Continue)', defaults: {} },
     { action: 'flow.sleep', cat: 'Contrôle de flux', icon: '⏱️', color: '#fbbf24', label: 'Pause (Sleep)', defaults: { params: { duration_ms: 1000 } } },
     { action: 'flow.call', cat: 'Contrôle de flux', icon: '🔗', color: '#fbbf24', label: 'Appeler sous-flux', defaults: { params: { workflow_path: 'workflows/sub.wf.yaml', inputs: {} } } },
     { action: 'flow.fail', cat: 'Contrôle de flux', icon: '🛑', color: '#fb7185', label: 'Échec explicite', defaults: { params: { code: 'ERR_FLOW', message: 'Condition critique non remplie' } } },
@@ -53,11 +66,17 @@ function summarizeStep(step) {
         case 'sys.http': return `${p.method || 'GET'} ${p.url || ''}`;
         case 'flow.if': return `Si ${step.condition || '...'}`;
         case 'flow.each': return `Pour chaque ${step.as || 'item'} dans ${step.items || '...'}`;
+        case 'flow.while': return `Tant que ${step.condition || '...'}`;
+        case 'flow.switch': return `Switch ${step.value || '...'}`;
+        case 'flow.break': return 'Sortir de boucle';
+        case 'flow.continue': return 'Itération suivante';
         case 'flow.set': return `${p.var || ''} = ${JSON.stringify(p.value ?? '')}`;
+        case 'flow.append': return `${p.var || ''} += ${JSON.stringify(p.value ?? '')}`;
         case 'flow.sleep': return `${p.duration_ms || 0} ms`;
         case 'flow.call': return `${p.workflow_path || ''}`;
         case 'flow.fail': return `${p.code || ''}: ${p.message || ''}`;
-        case 'vfs.transfer': return `${p.src?.conn || '?'}:${p.src?.path || ''} → ${p.dst?.conn || '?'}:${p.dst?.path || ''}`;
+        case 'vfs.transfer':
+        case 'vfs.move': return `${p.src?.conn || '?'}:${p.src?.path || ''} → ${p.dst?.conn || '?'}:${p.dst?.path || ''}`;
         default: return p.conn ? `${p.conn}:${p.path || p.folder || ''}` : step.action;
     }
 }
@@ -416,18 +435,47 @@ export class WorkflowStudio {
 
     collectAllVarNames() {
         const varNames = new Set(Object.keys(this.spec.vars || {}));
+        let hasLoop = false;
         const walk = (arr) => {
             for (const s of arr || []) {
-                if (s.output) varNames.add(s.output);
-                if (s.action === 'flow.set' && s.params?.var) varNames.add(s.params.var);
-                if (s.action === 'flow.each' && s.as) varNames.add(s.as);
+                if (s.output) {
+                    varNames.add(s.output);
+                    if (s.action === 'vfs.list') {
+                        varNames.add(`${s.output}.stems`);
+                        varNames.add(`${s.output}.names`);
+                        varNames.add(`${s.output}.paths`);
+                        varNames.add(`${s.output}.full_paths`);
+                        varNames.add(`${s.output}.count`);
+                        varNames.add(`${s.output}.data`);
+                    }
+                }
+                if ((s.action === 'flow.set' || s.action === 'flow.append') && s.params?.var) varNames.add(s.params.var);
+                if (s.action === 'flow.each' && s.as) {
+                    hasLoop = true;
+                    varNames.add(s.as);
+                    varNames.add(`${s.as}.name`);
+                    varNames.add(`${s.as}.stem`);
+                    varNames.add(`${s.as}.ext`);
+                    varNames.add(`${s.as}.path`);
+                    varNames.add(`${s.as}.full_path`);
+                }
+                if (s.action === 'flow.while') hasLoop = true;
                 walk(s.then);
                 walk(s.else);
                 walk(s.steps);
                 walk(s.on_error);
+                if (s.cases) Object.values(s.cases).forEach(walk);
+                walk(s.default);
             }
         };
         walk(this.spec.steps);
+        if (hasLoop) {
+            varNames.add('loop.index');
+            varNames.add('loop.index1');
+            varNames.add('loop.count');
+            varNames.add('loop.first');
+            varNames.add('loop.last');
+        }
         return [...varNames];
     }
 
@@ -1014,7 +1062,19 @@ export class WorkflowStudio {
             `;
             specBox.querySelector('#wfi-items').addEventListener('input', (e) => { step.items = e.target.value; this.renderCanvas(); });
             specBox.querySelector('#wfi-as').addEventListener('input', (e) => { step.as = e.target.value; this.renderCanvas(); });
-        } else if (step.action === 'vfs.transfer' && step.params) {
+        } else if (step.action === 'flow.while') {
+            specBox.innerHTML = `
+                <label style="display:block;color:#fbbf24;margin-bottom:2px;">Condition</label>
+                <input id="wfi-cond" type="text" value="${step.condition || ''}" style="width:100%;box-sizing:border-box;background:#0b1326;border:1px solid var(--border-subtle);color:#fff;padding:5px;border-radius:4px;font-family:var(--font-mono);margin-bottom:4px;">
+                <label style="display:block;color:#fbbf24;margin-bottom:2px;">Max itérations</label>
+                <input id="wfi-maxiter" type="number" min="1" value="${step.max_iterations || 1000}" style="width:100%;box-sizing:border-box;background:#0b1326;border:1px solid var(--border-subtle);color:#fff;padding:5px;border-radius:4px;font-family:var(--font-mono);">
+            `;
+            specBox.querySelector('#wfi-cond').addEventListener('input', (e) => { step.condition = e.target.value; this.renderCanvas(); });
+            specBox.querySelector('#wfi-maxiter').addEventListener('input', (e) => { step.max_iterations = Math.max(1, parseInt(e.target.value, 10) || 1000); });
+        } else if (step.action === 'flow.switch') {
+            specBox.innerHTML = `<label style="display:block;color:#fbbf24;margin-bottom:2px;">Valeur à tester</label><input id="wfi-swval" type="text" value="${step.value || ''}" style="width:100%;box-sizing:border-box;background:#0b1326;border:1px solid var(--border-subtle);color:#fff;padding:5px;border-radius:4px;font-family:var(--font-mono);">`;
+            specBox.querySelector('#wfi-swval').addEventListener('input', (e) => { step.value = e.target.value; this.renderCanvas(); });
+        } else if ((step.action === 'vfs.transfer' || step.action === 'vfs.move') && step.params) {
             const src = step.params.src || (step.params.src = { conn: 'local', path: '' });
             const dst = step.params.dst || (step.params.dst = { conn: 'local', path: '' });
             const mkLoc = (title, obj) => {

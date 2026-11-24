@@ -216,6 +216,14 @@ pub enum ActionSpec {
     VfsDelete { params: VfsLocation },
     #[serde(rename = "vfs.stat")]
     VfsStat { params: VfsStatParams },
+    #[serde(rename = "vfs.append")]
+    VfsAppend { params: VfsAppendParams },
+    #[serde(rename = "vfs.mkdir")]
+    VfsMkdir { params: VfsLocation },
+    #[serde(rename = "vfs.exists")]
+    VfsExists { params: VfsLocation },
+    #[serde(rename = "vfs.move")]
+    VfsMove { params: VfsTransferParams },
 
     #[serde(rename = "mail.send")]
     MailSend { params: MailSendParams },
@@ -240,12 +248,39 @@ pub enum ActionSpec {
     },
     #[serde(rename = "flow.set")]
     FlowSet { params: FlowSetParams },
+    #[serde(rename = "flow.append")]
+    FlowAppend { params: FlowSetParams },
+    #[serde(rename = "flow.while")]
+    FlowWhile {
+        condition: String,
+        #[serde(default = "default_max_while")]
+        max_iterations: usize,
+        steps: Vec<StepSpec>,
+    },
+    #[serde(rename = "flow.switch")]
+    FlowSwitch {
+        value: String,
+        cases: HashMap<String, Vec<StepSpec>>,
+        #[serde(default)]
+        default: Vec<StepSpec>,
+    },
+    #[serde(rename = "flow.break")]
+    FlowBreak {},
+    #[serde(rename = "flow.continue")]
+    FlowContinue {},
     #[serde(rename = "flow.sleep")]
     FlowSleep { params: FlowSleepParams },
     #[serde(rename = "flow.call")]
     FlowCall { params: FlowCallParams },
     #[serde(rename = "flow.fail")]
     FlowFail { params: FlowFailParams },
+
+    #[serde(rename = "data.parse_json")]
+    DataParseJson { params: DataTextParams },
+    #[serde(rename = "data.parse_csv")]
+    DataParseCsv { params: DataCsvParams },
+    #[serde(rename = "data.regex")]
+    DataRegex { params: DataRegexParams },
 
     #[serde(rename = "sys.exec")]
     SysExec { params: SysExecParams },
@@ -271,6 +306,8 @@ pub struct VfsListParams {
     pub glob: Option<String>,
     #[serde(default)]
     pub recursive: bool,
+    #[serde(default)]
+    pub include_dirs: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
@@ -298,6 +335,41 @@ pub struct VfsWriteParams {
     pub content: String,
     #[serde(default = "default_true")]
     pub create_dirs: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct VfsAppendParams {
+    pub conn: String,
+    pub path: String,
+    pub content: String,
+    #[serde(default = "default_true")]
+    pub newline: bool,
+    #[serde(default = "default_true")]
+    pub create_dirs: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct DataTextParams {
+    pub text: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct DataCsvParams {
+    pub text: String,
+    #[serde(default = "default_comma")]
+    pub delimiter: String,
+    #[serde(default = "default_true")]
+    pub headers: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct DataRegexParams {
+    pub text: String,
+    pub pattern: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
@@ -461,4 +533,10 @@ fn default_fetch_limit() -> usize {
 }
 fn default_true() -> bool {
     true
+}
+fn default_max_while() -> usize {
+    1000
+}
+fn default_comma() -> String {
+    ",".to_string()
 }

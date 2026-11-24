@@ -199,6 +199,16 @@ fn validate_action(
         ActionSpec::VfsStat { params } => {
             check_conn(spec, &params.conn, format!("{}.params.conn", path), errors)
         }
+        ActionSpec::VfsAppend { params } => {
+            check_conn(spec, &params.conn, format!("{}.params.conn", path), errors)
+        }
+        ActionSpec::VfsMkdir { params } | ActionSpec::VfsExists { params } => {
+            check_conn(spec, &params.conn, format!("{}.params.conn", path), errors)
+        }
+        ActionSpec::VfsMove { params } => {
+            check_conn(spec, &params.src.conn, format!("{}.params.src.conn", path), errors);
+            check_conn(spec, &params.dst.conn, format!("{}.params.dst.conn", path), errors);
+        }
         ActionSpec::VfsTransfer { params } => {
             check_conn(spec, &params.src.conn, format!("{}.params.src.conn", path), errors);
             check_conn(spec, &params.dst.conn, format!("{}.params.dst.conn", path), errors);
@@ -265,6 +275,26 @@ fn validate_action(
                 });
             }
             validate_steps(spec, steps, &format!("{}.steps", path), seen_ids, step_count, errors);
+        }
+        ActionSpec::FlowWhile {
+            max_iterations,
+            steps,
+            ..
+        } => {
+            if *max_iterations == 0 {
+                errors.push(ValidationError {
+                    code: "INVALID_MAX_ITERATIONS",
+                    path: format!("{}.max_iterations", path),
+                    message: "max_iterations doit être >= 1".into(),
+                });
+            }
+            validate_steps(spec, steps, &format!("{}.steps", path), seen_ids, step_count, errors);
+        }
+        ActionSpec::FlowSwitch { cases, default, .. } => {
+            for (k, branch) in cases {
+                validate_steps(spec, branch, &format!("{}.cases.{}", path, k), seen_ids, step_count, errors);
+            }
+            validate_steps(spec, default, &format!("{}.default", path), seen_ids, step_count, errors);
         }
         _ => {}
     }

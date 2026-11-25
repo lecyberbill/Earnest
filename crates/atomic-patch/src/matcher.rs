@@ -170,7 +170,8 @@ fn dedent_lines<'a>(lines: &[&'a str]) -> Vec<&'a str> {
 }
 
 /// Localise toutes les fenêtres de `haystack` égales à `needle` après
-/// normalisation de l'indentation commune (dédent relatif des deux côtés).
+/// normalisation de l'indentation commune (dédent relatif des deux côtés)
+/// et suppression des espaces horizontaux de fin de ligne.
 fn fuzzy_matches(haystack: &[&str], needle: &[&str]) -> Vec<usize> {
     if needle.is_empty() || needle.len() > haystack.len() {
         return Vec::new();
@@ -180,7 +181,12 @@ fn fuzzy_matches(haystack: &[&str], needle: &[&str]) -> Vec<usize> {
     let mut starts = Vec::new();
 
     for (start, window) in haystack.windows(needle.len()).enumerate() {
-        if dedent_lines(window) == needle_norm {
+        let win_norm = dedent_lines(window);
+        let eq_trimmed = win_norm
+            .iter()
+            .map(|s| s.trim_end_matches([' ', '\t']))
+            .eq(needle_norm.iter().map(|s| s.trim_end_matches([' ', '\t'])));
+        if eq_trimmed {
             starts.push(start);
         }
     }
@@ -227,12 +233,32 @@ pub fn apply_patch(source: &str, search: &str, replace: &str) -> Result<String, 
         ));
     }
 
-    // ---- Passe 2 : fallback normalisé (indentation + fins de ligne) ----
+    // ---- Passe 1.5 : correspondance exacte après normalisation CRLF <-> LF ----
     let uses_crlf = source.contains("\r\n");
     let source_lf = source.replace("\r\n", "\n");
     let search_lf = search.replace("\r\n", "\n");
     let replace_lf = replace.replace("\r\n", "\n");
 
+    let lf_occurrences = source_lf.matches(&search_lf).count();
+    if lf_occurrences == 1 {
+        let patched_lf = source_lf.replacen(&search_lf, &replace_lf, 1);
+        return Ok(if uses_crlf {
+            patched_lf.replace('\n', "\r\n")
+        } else {
+            patched_lf
+        });
+    }
+    if lf_occurrences > 1 {
+        return Err(error(
+            MatchStatus::Ambiguous,
+            format!(
+                "recherche présente {} fois (fins de ligne normalisées) — spécifiez un contexte plus large",
+                lf_occurrences
+            ),
+        ));
+    }
+
+    // ---- Passe 2 : fallback normalisé (indentation + espaces de fin de ligne) ----
     let source_lines: Vec<&str> = source_lf.lines().collect();
     let search_lines: Vec<&str> = search_lf.lines().collect();
 
@@ -261,22 +287,40 @@ pub fn apply_patch(source: &str, search: &str, replace: &str) -> Result<String, 
     }
 
     let start = starts[0];
-    let matched_first = source_lines[start];
-    let base_indent = matched_first[..indent_len(matched_first)].to_string();
+    let matched_window = &source_lines[start..start + search_lines.len()];
+    let window_min_line = matched_window
+        .iter()
+        .copied()
+        .filter(|l| !l.trim().is_empty())
+        .min_by_key(|l| indent_len(l))
+        .unwrap_or("");
+    let window_min = indent_len(window_min_line);
+    let search_min = search_lines
+        .iter()
+        .filter(|l| !l.trim().is_empty())
+        .map(|l| indent_len(l))
+        .min()
+        .unwrap_or(0);
+    let indent_unit = if window_min_line.starts_with('\t') {
+        '\t'
+    } else {
+        ' '
+    };
+    let delta: isize = (window_min as isize) - (search_min as isize);
 
-    // `replace` est d'abord dédenté relativement (comme `search`), puis
-    // l'indentation de base du bloc réellement trouvé lui est ré-appliquée :
-    // un `replace` écrit à la même indentation relative que `search` produit
-    // donc exactement le même résultat quel que soit l'écart du fichier.
     let replace_lines: Vec<&str> = replace_lf.lines().collect();
-    let replace_norm = dedent_lines(&replace_lines);
-
-    let mut new_lines: Vec<String> = Vec::with_capacity(replace_norm.len());
-    for line in replace_norm {
-        if line.is_empty() {
+    let mut new_lines: Vec<String> = Vec::with_capacity(replace_lines.len());
+    for line in replace_lines {
+        if line.trim().is_empty() {
             new_lines.push(String::new());
+        } else if delta > 0 {
+            let pad: String = std::iter::repeat_n(indent_unit, delta as usize).collect();
+            new_lines.push(format!("{}{}", pad, line));
+        } else if delta < 0 {
+            let strip = ((-delta) as usize).min(indent_len(line));
+            new_lines.push(line[strip..].to_string());
         } else {
-            new_lines.push(format!("{}{}", base_indent, line));
+            new_lines.push(line.to_string());
         }
     }
 
@@ -354,5 +398,17 @@ mod tests {
         let source = "    dup();\n    other();\n    dup();\n";
         let err = apply_patch(source, "dup();", "done();").expect_err("ambiguïté fuzzy attendue");
         assert_eq!(err.status, MatchStatus::Ambiguous);
+    }
+
+    #[test]
+    fn apply_patch_multiline_crlf_with_closing_braces_and_trailing_spaces() {
+        let source = "mod tests {\r\n    fn demo() {\r\n        assert!(true);   \r\n    }\r\n}\r\n";
+        let search = "        assert!(true);\n    }\n}";
+        let replace = "        assert!(true);\n    }\n\n    fn extra() {}\n}";
+        let out = apply_patch(source, search, replace).expect("doit matcher malgré CRLF + espaces finaux");
+        assert_eq!(
+            out,
+            "mod tests {\r\n    fn demo() {\r\n        assert!(true);\r\n    }\r\n\r\n    fn extra() {}\r\n}\r\n"
+        );
     }
 }

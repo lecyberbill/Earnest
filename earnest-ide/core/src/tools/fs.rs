@@ -85,10 +85,8 @@ pub fn edit_file(path_str: &str, target: &str, replacement: &str) -> Result<Valu
     let content = fs::read_to_string(&path)
         .map_err(|e| format!("Impossible de lire le fichier {}: {}", path_str, e))?;
 
-    let match_res = atomic_patch::match_block(&content, target);
-    match match_res.status {
-        atomic_patch::MatchStatus::Exact => {
-            let new_content = content.replacen(target, replacement, 1);
+    match atomic_patch::apply_patch(&content, target, replacement) {
+        Ok(new_content) => {
             let diff = atomic_patch::generate_unified_diff(&content, &new_content);
             let tx = atomic_patch::Transaction::new().add_op(atomic_patch::PatchOperation {
                 path: path.clone(),
@@ -107,25 +105,18 @@ pub fn edit_file(path_str: &str, target: &str, replacement: &str) -> Result<Valu
                 }
             }
         }
-        atomic_patch::MatchStatus::Ambiguous => Err(format!(
-            "Bloc 'target' ambigu dans '{}': {}",
-            path_str,
-            match_res.context.unwrap_or_else(|| "plusieurs occurrences".to_string())
-        )),
-        atomic_patch::MatchStatus::Fuzzy => {
-            let pos = match_res.position.map(|p| format!("ligne {}:{}", p.line, p.column)).unwrap_or_default();
-            Err(format!(
-                "Correspondance approximative uniquement ({}) dans '{}' ({}). Fournissez le bloc exact pour éditer.",
-                pos,
+        Err(match_res) => match match_res.status {
+            atomic_patch::MatchStatus::Ambiguous => Err(format!(
+                "Bloc 'target' ambigu dans '{}': {}",
+                path_str,
+                match_res.context.unwrap_or_else(|| "plusieurs occurrences".to_string())
+            )),
+            _ => Err(format!(
+                "Le texte cible (target) est introuvable dans '{}'. {}",
                 path_str,
                 match_res.context.unwrap_or_default()
-            ))
-        }
-        atomic_patch::MatchStatus::NotFound => Err(format!(
-            "Le texte cible (target) est introuvable dans '{}'. {}",
-            path_str,
-            match_res.context.unwrap_or_default()
-        )),
+            )),
+        },
     }
 }
 

@@ -280,7 +280,8 @@ impl LLMClient {
             _ => None,
         };
         if url_low.contains("deepseek") || model_low.contains("deepseek") {
-            if think_effort == "off" || think_effort == "none" || think_effort == "false" {
+            let effort_low = think_effort.to_lowercase();
+            if matches!(effort_low.as_str(), "off" | "none" | "false" | "low" | "") {
                 body["thinking"] = serde_json::json!({ "type": "disabled" });
             } else {
                 body["thinking"] = serde_json::json!({ "type": "enabled" });

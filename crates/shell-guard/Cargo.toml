@@ -1,0 +1,11 @@
+[package]
+name = "shell-guard"
+version = "0.1.0"
+edition = "2021"
+description = "Static shell command analyzer (POSIX sh/bash and Windows PowerShell/cmd) for AI agents"
+license = "MIT"
+readme = "README.md"
+
+[lib]
+name = "shell_guard"
+path = "src/lib.rs"

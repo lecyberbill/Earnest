@@ -2,23 +2,37 @@ use std::io::Read;
 use std::process::{Command, Stdio};
 use std::time::{Duration, Instant};
 use serde_json::Value;
-
-// Liste des commandes strictement interdites pour garantir l'intégrité de l'hôte
-const FORBIDDEN_PATTERNS: &[&str] = &[
-    "format ", "format.com", "diskpart",
-    "rmdir /s /q c:\\", "rmdir /s /q c:/",
-    "remove-item -recurse -force c:\\", "remove-item -recurse -force c:/",
-    ":(){ :|:& };:", "del /f /s /q c:\\windows",
-];
+use shell_guard::{inspect_command, Verdict};
 
 pub fn is_forbidden(command: &str) -> bool {
-    let lower = command.to_lowercase();
-    FORBIDDEN_PATTERNS.iter().any(|pat| lower.contains(pat))
+    matches!(inspect_command(command), Verdict::DangerousBlocked { .. })
 }
 
 pub fn execute_terminal(command: &str, timeout_secs: u64) -> Result<Value, String> {
-    if is_forbidden(command) {
-        return Err(format!("Commande bloquée par les garde-fous de sécurité : '{}'", command));
+    match inspect_command(command) {
+        Verdict::DangerousBlocked { command: cmd_name, reason } => {
+            return Err(format!(
+                "Commande destructrice bloquée par shell-guard ('{}') : {}",
+                cmd_name, reason
+            ));
+        }
+        Verdict::InteractiveBlocked {
+            command: cmd_name,
+            reason,
+            suggestion,
+        } => {
+            return Ok(serde_json::json!({
+                "status": "blocked_interactive",
+                "exit_code": -1,
+                "stdout": "",
+                "stderr": format!(
+                    "Commande interactive bloquée ('{}') : {} Suggestion non-interactive : {}",
+                    cmd_name, reason, suggestion
+                ),
+                "duration_ms": 0
+            }));
+        }
+        Verdict::Allowed { .. } => {}
     }
 
     #[cfg(target_os = "windows")]
@@ -38,7 +52,7 @@ pub fn execute_terminal(command: &str, timeout_secs: u64) -> Result<Value, Strin
         c
     };
 
-    cmd.stdout(Stdio::piped()).stderr(Stdio::piped());
+    cmd.stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::piped());
 
     let start = Instant::now();
     let mut child = cmd.spawn().map_err(|e| format!("Échec du lancement du sous-processus : {}", e))?;
@@ -70,6 +84,15 @@ pub fn execute_terminal(command: &str, timeout_secs: u64) -> Result<Value, Strin
             Ok(None) => {
                 if start.elapsed() >= limit {
                     timed_out = true;
+                    #[cfg(target_os = "windows")]
+                    {
+                        use std::os::windows::process::CommandExt;
+                        let pid = child.id().to_string();
+                        let _ = Command::new("taskkill")
+                            .args(["/T", "/F", "/PID", &pid])
+                            .creation_flags(0x0800_0000)
+                            .output();
+                    }
                     let _ = child.kill();
                     let _ = child.wait();
                     break None;
@@ -121,8 +144,18 @@ mod tests {
         let cmd = "Start-Sleep -Seconds 5";
         #[cfg(not(target_os = "windows"))]
         let cmd = "sleep 5";
+
         let res = execute_terminal(cmd, 1).unwrap();
         assert_eq!(res["status"], "timeout");
     }
-}
 
+    #[test]
+    fn execute_terminal_blocks_interactive_and_dangerous_commands_instantly() {
+        let inter = execute_terminal("git commit", 5).unwrap();
+        assert_eq!(inter["status"], "blocked_interactive");
+        assert!(inter["stderr"].as_str().unwrap_or("").contains("-m"));
+
+        let dang = execute_terminal("rm -rf /", 5);
+        assert!(dang.is_err());
+    }
+}

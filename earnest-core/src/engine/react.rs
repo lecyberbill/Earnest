@@ -612,9 +612,10 @@ Quand ta mission est entièrement accomplie et vérifiée sur disque, fournis di
             }
         }
 
+        let saved_answer = context_trimmer::truncate_tool_output(&final_answer, 4_000);
         self.conn.execute(
-            "UPDATE runs SET status = 'success', completed_at = CURRENT_TIMESTAMP, duration_ms = ?1, total_tokens = ?2 WHERE id = ?3",
-            params![duration_ms as i64, total_tokens as i64, run_id],
+            "UPDATE runs SET status = 'success', completed_at = CURRENT_TIMESTAMP, duration_ms = ?1, total_tokens = ?2, final_answer = ?4 WHERE id = ?3",
+            params![duration_ms as i64, total_tokens as i64, run_id, saved_answer],
         ).ok();
 
         Ok(ReActResult {

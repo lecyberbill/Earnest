@@ -1039,6 +1039,37 @@ fn exec_leaf_action(ctx: &mut RuntimeCtx<'_>, step: &StepSpec) -> Result<Option<
         ActionSpec::SysExec { params } => {
             let program = ctx.render_str(&params.program);
             let args: Vec<String> = params.args.iter().map(|a| ctx.render_str(a)).collect();
+            let composed_cmd = if args.is_empty() {
+                program.clone()
+            } else {
+                let quoted_args: Vec<String> = args
+                    .iter()
+                    .map(|a| {
+                        if a.contains(char::is_whitespace) {
+                            format!("\"{}\"", a.replace('"', "\\\""))
+                        } else {
+                            a.clone()
+                        }
+                    })
+                    .collect();
+                format!("{} {}", program, quoted_args.join(" "))
+            };
+            match shell_guard::inspect_command(&composed_cmd) {
+                shell_guard::Verdict::DangerousBlocked { command: c, reason } => {
+                    return Err(format!("sys.exec bloqué par shell-guard ('{}'): {}", c, reason));
+                }
+                shell_guard::Verdict::InteractiveBlocked {
+                    command: c,
+                    reason,
+                    suggestion,
+                } => {
+                    return Err(format!(
+                        "sys.exec commande interactive refusée ('{}'): {} Suggestion: {}",
+                        c, reason, suggestion
+                    ));
+                }
+                shell_guard::Verdict::Allowed { .. } => {}
+            }
             if ctx.dry_run {
                 return Ok(Some(json!({
                     "dry_run": true,
@@ -1070,15 +1101,44 @@ fn exec_leaf_action(ctx: &mut RuntimeCtx<'_>, step: &StepSpec) -> Result<Option<
             let mut child = cmd
                 .spawn()
                 .map_err(|e| format!("sys.exec '{}': {}", program, e))?;
-            if let Some(ms) = step.timeout_ms {
+            let mut child_out = child.stdout.take();
+            let mut child_err = child.stderr.take();
+            let out_handle = std::thread::spawn(move || {
+                use std::io::Read;
+                let mut buf = Vec::new();
+                if let Some(ref mut r) = child_out {
+                    let _ = r.read_to_end(&mut buf);
+                }
+                buf
+            });
+            let err_handle = std::thread::spawn(move || {
+                use std::io::Read;
+                let mut buf = Vec::new();
+                if let Some(ref mut r) = child_err {
+                    let _ = r.read_to_end(&mut buf);
+                }
+                buf
+            });
+            let exit_status = if let Some(ms) = step.timeout_ms {
                 let deadline = std::time::Instant::now() + Duration::from_millis(ms.max(50));
                 loop {
                     match child.try_wait() {
-                        Ok(Some(_)) => break,
+                        Ok(Some(st)) => break st,
                         Ok(None) => {
                             if std::time::Instant::now() >= deadline {
+                                #[cfg(windows)]
+                                {
+                                    use std::os::windows::process::CommandExt;
+                                    let pid = child.id().to_string();
+                                    let _ = Command::new("taskkill")
+                                        .args(["/T", "/F", "/PID", &pid])
+                                        .creation_flags(0x0800_0000)
+                                        .output();
+                                }
                                 let _ = child.kill();
                                 let _ = child.wait();
+                                let _ = out_handle.join();
+                                let _ = err_handle.join();
                                 return Err(format!("sys.exec '{}' timeout après {}ms", program, ms));
                             }
                             std::thread::sleep(Duration::from_millis(20));
@@ -1086,14 +1146,17 @@ fn exec_leaf_action(ctx: &mut RuntimeCtx<'_>, step: &StepSpec) -> Result<Option<
                         Err(e) => return Err(format!("sys.exec '{}': {}", program, e)),
                     }
                 }
-            }
-            let out = child
-                .wait_with_output()
-                .map_err(|e| format!("sys.exec '{}': {}", program, e))?;
-            let code = out.status.code().unwrap_or(-1);
-            let stdout = ctx.sanitize(&String::from_utf8_lossy(&out.stdout));
-            let stderr = ctx.sanitize(&String::from_utf8_lossy(&out.stderr));
-            if !out.status.success() && !params.allow_non_zero {
+            } else {
+                child
+                    .wait()
+                    .map_err(|e| format!("sys.exec '{}': {}", program, e))?
+            };
+            let raw_out = out_handle.join().unwrap_or_default();
+            let raw_err = err_handle.join().unwrap_or_default();
+            let code = exit_status.code().unwrap_or(-1);
+            let stdout = ctx.sanitize(&String::from_utf8_lossy(&raw_out));
+            let stderr = ctx.sanitize(&String::from_utf8_lossy(&raw_err));
+            if !exit_status.success() && !params.allow_non_zero {
                 return Err(format!("sys.exec '{}' exit {}: {}", program, code, stderr.trim()));
             }
             Ok(Some(json!({

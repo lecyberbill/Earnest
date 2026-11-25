@@ -947,7 +947,7 @@ impl<'a> ReActEngine<'a> {
                 } else {
                     let pattern = format!("%{}%", query);
                     if let Ok(mut stmt) = self.conn.prepare(
-                        "SELECT DISTINCT r.id, r.status, r.prompt, COALESCE(r.final_answer, ''), r.created_at FROM runs r LEFT JOIN traces t ON t.run_id = r.id WHERE r.project_id = ?1 AND (r.prompt LIKE ?2 OR r.final_answer LIKE ?2 OR t.content LIKE ?2) ORDER BY r.rowid DESC LIMIT ?3"
+                        "SELECT DISTINCT r.id, r.status, r.prompt, COALESCE(r.final_answer, ''), r.created_at FROM runs r LEFT JOIN run_traces t ON t.run_id = r.id WHERE r.project_id = ?1 AND (r.prompt LIKE ?2 OR r.final_answer LIKE ?2 OR t.payload LIKE ?2) ORDER BY r.rowid DESC LIMIT ?3"
                     ) {
                         if let Ok(rows) = stmt.query_map(params![self.project_id, pattern, limit], |r| {
                             Ok(serde_json::json!({

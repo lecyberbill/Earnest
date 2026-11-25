@@ -49,13 +49,14 @@ CREATE TABLE IF NOT EXISTS runs (
     project_id TEXT NOT NULL,
     task_id TEXT REFERENCES scheduled_tasks(id) ON DELETE SET NULL,
     prompt TEXT NOT NULL,
-    status TEXT CHECK(status IN ('running', 'success', 'failed', 'cancelled')),
+    status TEXT CHECK(status IN ('running', 'success', 'failed', 'cancelled', 'awaiting_approval')),
     provider TEXT NOT NULL,
     model TEXT NOT NULL,
     prompt_tokens INTEGER DEFAULT 0,
     completion_tokens INTEGER DEFAULT 0,
     total_tokens INTEGER DEFAULT 0,
     duration_ms INTEGER DEFAULT 0,
+    final_answer TEXT,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     completed_at DATETIME
 );
@@ -64,7 +65,7 @@ CREATE TABLE IF NOT EXISTS run_traces (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     run_id TEXT NOT NULL REFERENCES runs(id) ON DELETE CASCADE,
     step_order INTEGER NOT NULL,
-    step_type TEXT CHECK(step_type IN ('thought', 'tool_call', 'tool_output', 'error', 'answer')),
+    step_type TEXT CHECK(step_type IN ('thought', 'tool_call', 'tool_output', 'error', 'answer', 'wfl_suggestion')),
     tool_name TEXT,
     payload TEXT,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP

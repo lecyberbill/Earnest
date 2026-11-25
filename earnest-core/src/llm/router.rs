@@ -53,12 +53,16 @@ impl LLMRouter {
         }
 
         if backends.is_empty() {
+            let ollama_url = std::env::var("OLLAMA_HOST")
+                .ok()
+                .filter(|s| !s.trim().is_empty())
+                .unwrap_or_else(|| "http://127.0.0.1:11434".to_string());
             // Fallbacks
             backends.push(BackendConfig {
                 id: "ollama".to_string(),
                 name: "Ollama Local".to_string(),
                 provider_type: "ollama".to_string(),
-                base_url: "http://192.168.1.165:11434".to_string(),
+                base_url: ollama_url,
                 model: "qwen3.8:27b".to_string(),
                 api_key: None,
                 is_enabled: true,

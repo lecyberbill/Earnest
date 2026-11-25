@@ -217,17 +217,22 @@ impl LLMClient {
         think_effort: &str,
     ) -> Result<ChatResponse, String> {
         let url = format!("{}/v1/chat/completions", self.base_url);
-        let enable_think = !matches!(think_effort.to_lowercase().as_str(), "off" | "none" | "false" | "");
+        let effort_low = think_effort.to_lowercase();
+        let enable_think = !matches!(effort_low.as_str(), "off" | "none" | "false" | "");
         let mut body = serde_json::json!({
             "model": self.model,
             "messages": messages,
             "temperature": 0.2,
             "stream": true
         });
-        if self.base_url.contains("deepseek") {
+        if self.base_url.to_lowercase().contains("deepseek") || self.model.to_lowercase().contains("deepseek") {
+            let ds_think = enable_think && effort_low != "low";
             body["thinking"] = serde_json::json!({
-                "type": if enable_think { "enabled" } else { "disabled" }
+                "type": if ds_think { "enabled" } else { "disabled" }
             });
+            if ds_think {
+                body.as_object_mut().map(|o| o.remove("temperature"));
+            }
         }
 
         if let Some(t) = tools {

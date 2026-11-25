@@ -360,8 +360,10 @@ impl<'a> ReActEngine<'a> {
         let env_context = detect_runtime_environment();
         let skills_summary = crate::tools::skills::skills_prompt_summary();
         let earnest_md = crate::tools::skills::load_earnest_md(std::path::Path::new("."));
+        let now_str = chrono::Local::now().format("%Y-%m-%d %H:%M (%:z)").to_string();
         let system_prompt = format!(
             "Tu es Earnest, un système agentique autonome propulsé par un moteur Rust natif ultra-robuste. \
+Date et heure actuelles : {}. \
 Tu résous la tâche pas à pas (ReAct). Tu disposes d'un accès complet à Internet et au web via 'web_search' et 'web_fetch'. \
 Utilise également les autres outils mis à disposition (read_file, edit_file, list_dir, grep_search, workspace_map, symbol_search, terminal_exec, create_artifact, store_memory, recall_memory, list_skills, read_skill) quand nécessaire. \
 {} \
@@ -369,6 +371,7 @@ Environnement réel capturé : {}. \
 Adapte tes commandes au shell et à l'OS indiqués ci-dessus. \
 En cours de mission, n'émets pas de phrase d'annonce sans appel d'outil : appelle directement l'outil suivant. \
 Quand ta mission est entièrement accomplie et vérifiée sur disque, fournis directement ta réponse finale complète sans appel d'outil.{}",
+            now_str,
             skills_summary,
             env_context,
             earnest_md

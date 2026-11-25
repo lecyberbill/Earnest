@@ -82,8 +82,20 @@ pub fn sanitize_report(input: &str) -> SanitizeReport {
         redactions.push(Redaction { kind: SecretKind::EnvAssignment, count: env_count });
     }
 
+    // Passe 6 (`dotenv_shield`) : JWT hors Bearer, Slack xox[sa]-, et secrets haute entropie dans JSON/TOML/code
+    let extra_findings = dotenv_shield::scan_secrets(&step5);
+    let step6 = if extra_findings.is_empty() {
+        step5
+    } else {
+        redactions.push(Redaction {
+            kind: SecretKind::ApiKeyToken,
+            count: extra_findings.len(),
+        });
+        dotenv_shield::redact_secrets(&step5)
+    };
+
     SanitizeReport {
-        sanitized: step5,
+        sanitized: step6,
         redactions,
     }
 }

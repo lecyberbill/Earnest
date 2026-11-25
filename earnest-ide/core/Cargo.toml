@@ -35,5 +35,6 @@ react-resilience = { path = "../../crates/react-resilience" }
 stream-cleaner = { path = "../../crates/stream-cleaner" }
 web-reader = { path = "../../crates/web-reader" }
 shell-guard = { path = "../../crates/shell-guard" }
+dotenv_shield = { path = "../../crates/dotenv-shield" }
 
 

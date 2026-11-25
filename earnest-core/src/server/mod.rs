@@ -970,6 +970,52 @@ fn handle_request(mut req: tiny_http::Request) {
             return;
         }
 
+        if path == "/api/vault/import_dotenv" {
+            let tenant = body["tenant"].as_str().unwrap_or("default");
+            let content = body["content"].as_str().unwrap_or("");
+            let vaults_dir = chromatix_vault::resolve_vaults_dir();
+            let resp = match dotenv_shield::parse_dotenv(content) {
+                Ok(mut entries) => {
+                    dotenv_shield::resolve_entries(&mut entries);
+                    let masked_template = dotenv_shield::mask_dotenv_template(content).unwrap_or_default();
+                    match chromatix_vault::TenantVault::from_env(&vaults_dir) {
+                        Ok(vault) => {
+                            let mut imported = 0usize;
+                            let mut first_err: Option<String> = None;
+                            for entry in &entries {
+                                match vault.set(tenant, &entry.key, &entry.value) {
+                                    Ok(()) => imported += 1,
+                                    Err(e) => {
+                                        first_err = Some(e);
+                                        break;
+                                    }
+                                }
+                            }
+                            if let Some(e) = first_err {
+                                Response::from_string(serde_json::json!({"status": "error", "error": e}).to_string()).with_status_code(500)
+                            } else {
+                                let keys = vault.list_keys(tenant).unwrap_or_default();
+                                Response::from_string(serde_json::json!({
+                                    "status": "ok",
+                                    "tenant": tenant,
+                                    "imported_count": imported,
+                                    "keys": keys,
+                                    "masked_template": masked_template
+                                }).to_string())
+                            }
+                        }
+                        Err(e) => Response::from_string(serde_json::json!({"status": "error", "error": e}).to_string()).with_status_code(400),
+                    }
+                }
+                Err(e) => Response::from_string(serde_json::json!({
+                    "status": "error",
+                    "error": format!("Fichier .env invalide (ligne {}) : {}", e.line(), e)
+                }).to_string()).with_status_code(400),
+            };
+            req.respond(resp.with_header(json_header).with_header(cors_header)).ok();
+            return;
+        }
+
         if path == "/api/vault/delete" {
             let tenant = body["tenant"].as_str().unwrap_or("default");
             let key = body["key"].as_str().unwrap_or("").trim();

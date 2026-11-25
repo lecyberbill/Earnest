@@ -1,0 +1,16 @@
+[package]
+name = "dotenv_shield"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.70"
+description = "Strict .env parser with a high-precision secret detector and redactor (std only, zero dependencies)."
+license = "MIT OR Apache-2.0"
+readme = "README.md"
+keywords = ["dotenv", "env", "secrets", "redaction", "security"]
+categories = ["parser-implementations", "command-line-utilities"]
+
+[dependencies]
+
+[lib]
+name = "dotenv_shield"
+path = "src/lib.rs"

@@ -6,4 +6,4 @@ description = "Pure-Rust secret detector and redactor for LLM contexts, logs, an
 license = "MIT"
 
 [dependencies]
-# Zero external dependencies — std only
+dotenv_shield = { path = "../dotenv-shield" }

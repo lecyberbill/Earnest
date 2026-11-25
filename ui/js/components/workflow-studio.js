@@ -806,6 +806,14 @@ export class WorkflowStudio {
                         <input id="wfs-vt-val" type="password" placeholder="Mot de passe / Token..." style="flex:1;min-width:160px;background:#0b1326;border:1px solid var(--border-subtle);color:#fff;padding:4px 6px;border-radius:4px;font-family:var(--font-mono);font-size:0.72rem;">
                         <button id="wfs-vt-eye" type="button" class="btn-bubble-action" style="padding:4px 7px;font-size:0.72rem;" title="Afficher/masquer">👁️</button>
                         <button id="wfs-vt-save" type="button" class="btn-primary" style="padding:4px 10px;font-size:0.72rem;">🔒 Enregistrer</button>
+                        <button id="wfs-vt-env-btn" type="button" class="btn-bubble-action" style="padding:4px 8px;font-size:0.72rem;" title="Importer un fichier .env et générer .env.example">📥 Import .env</button>
+                    </div>
+                    <div id="wfs-vt-env-panel" style="display:none;flex-direction:column;gap:5px;margin-top:4px;">
+                        <textarea id="wfs-vt-env-txt" rows="4" placeholder="Collez votre contenu .env ici (supporte export, quotes, interpolation \${VAR})..." style="width:100%;background:#0b1326;border:1px solid var(--border-subtle);color:#fff;padding:6px;border-radius:4px;font-family:var(--font-mono);font-size:0.7rem;"></textarea>
+                        <div style="display:flex;gap:6px;align-items:center;">
+                            <button id="wfs-vt-env-import" type="button" class="btn-primary" style="padding:3px 10px;font-size:0.7rem;">Chiffrer dans le coffre</button>
+                            <button id="wfs-vt-env-copy-tpl" type="button" class="btn-bubble-action" style="display:none;padding:3px 8px;font-size:0.7rem;">📋 Copier .env.example masqué</button>
+                        </div>
                     </div>
                     <div id="wfs-vt-msg" style="font-size:0.68rem;color:#34d399;"></div>
                 `;
@@ -846,6 +854,55 @@ export class WorkflowStudio {
                     } else {
                         box.querySelector('#wfs-vt-msg').style.color = '#fda4af';
                         box.querySelector('#wfs-vt-msg').textContent = res.error || 'Erreur';
+                    }
+                });
+                let lastMaskedTemplate = '';
+                box.querySelector('#wfs-vt-env-btn')?.addEventListener('click', () => {
+                    const p = box.querySelector('#wfs-vt-env-panel');
+                    if (p) p.style.display = p.style.display === 'none' ? 'flex' : 'none';
+                });
+                box.querySelector('#wfs-vt-env-copy-tpl')?.addEventListener('click', () => {
+                    if (lastMaskedTemplate) {
+                        navigator.clipboard?.writeText(lastMaskedTemplate);
+                        box.querySelector('#wfs-vt-msg').style.color = '#34d399';
+                        box.querySelector('#wfs-vt-msg').textContent = 'Modèle .env.example copié dans le presse-papiers.';
+                    }
+                });
+                box.querySelector('#wfs-vt-env-import')?.addEventListener('click', async () => {
+                    const content = box.querySelector('#wfs-vt-env-txt')?.value || '';
+                    if (!content.trim()) return;
+                    const r = await fetch('/api/vault/import_dotenv', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ tenant, content })
+                    });
+                    const res = await r.json();
+                    if (res.status === 'ok') {
+                        lastMaskedTemplate = res.masked_template || '';
+                        await renderVault();
+                        this.renderInspector();
+                        const msgEl = box.querySelector('#wfs-vt-msg');
+                        if (msgEl) {
+                            msgEl.style.color = '#34d399';
+                            msgEl.textContent = `${res.imported_count} clé(s) importée(s) et chiffrée(s) dans ${tenant}.vault.png`;
+                        }
+                        if (lastMaskedTemplate) {
+                            const panel = box.querySelector('#wfs-vt-env-panel');
+                            const tplBtn = box.querySelector('#wfs-vt-env-copy-tpl');
+                            const txt = box.querySelector('#wfs-vt-env-txt');
+                            if (panel) panel.style.display = 'flex';
+                            if (txt) txt.value = lastMaskedTemplate;
+                            if (tplBtn) {
+                                tplBtn.style.display = 'inline-block';
+                                tplBtn.addEventListener('click', () => navigator.clipboard?.writeText(lastMaskedTemplate));
+                            }
+                        }
+                    } else {
+                        const msgEl = box.querySelector('#wfs-vt-msg');
+                        if (msgEl) {
+                            msgEl.style.color = '#fda4af';
+                            msgEl.textContent = res.error || 'Erreur import .env';
+                        }
                     }
                 });
             };

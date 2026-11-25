@@ -39,3 +39,12 @@ fn avoids_false_positives_on_normal_code_and_placeholders() {
     assert!(!contains_secrets(safe));
     assert_eq!(sanitize_text(safe), safe);
 }
+
+#[test]
+fn redacts_jwt_and_inline_high_entropy_secrets_via_dotenv_shield() {
+    let raw = "{\"jwt\":\"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.SflKxwRJSMeKKF2QT4fwpMeJf36POk6yJV_adQssw5c\",\"client_secret\":\"a8Fk2LmQ9zXr4TbV7nPw9QxZ\"}";
+    let report = sanitize_report(raw);
+    assert!(!report.sanitized.contains("SflKxwRJSMeKKF2QT4fwpMeJf36POk6yJV_adQssw5c"));
+    assert!(!report.sanitized.contains("a8Fk2LmQ9zXr4TbV7nPw9QxZ"));
+    assert!(report.total_redacted() >= 2);
+}

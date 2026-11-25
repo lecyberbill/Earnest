@@ -38,6 +38,7 @@ jobs:
           cargo test --manifest-path crates/cron-pulse/Cargo.toml --verbose
           cargo test --manifest-path crates/dotenv-shield/Cargo.toml --verbose
           cargo test --manifest-path crates/log-sanitizer/Cargo.toml --verbose
+          cargo test --manifest-path crates/glob-ignore/Cargo.toml --verbose
 
       - name: Check & Test earnest-wf-engine
         run: |

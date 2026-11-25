@@ -1,0 +1,22 @@
+[package]
+name = "glob_ignore"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.70"
+description = "A complete path filtering engine: .gitignore-compatible rules and POSIX/Windows glob patterns, with guaranteed polynomial-time matching."
+license = "MIT OR Apache-2.0"
+repository = "https://example.invalid/glob_ignore"
+readme = "README.md"
+keywords = ["glob", "gitignore", "ignore", "pattern", "path"]
+categories = ["filesystem", "parsing"]
+
+[dependencies]
+
+[dev-dependencies]
+
+[lints.rust]
+unsafe_code = "forbid"
+missing_docs = "deny"
+
+[lints.clippy]
+all = "deny"

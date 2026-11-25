@@ -1352,30 +1352,9 @@ fn eval_arithmetic(raw: &str) -> Option<Value> {
 }
 
 fn glob_match(pattern: &str, text: &str) -> bool {
-    let p: Vec<char> = pattern.chars().collect();
-    let t: Vec<char> = text.chars().collect();
-    let (mut pi, mut ti) = (0usize, 0usize);
-    let (mut star_pi, mut match_ti) = (None, 0usize);
-    while ti < t.len() {
-        if pi < p.len() && (p[pi] == '?' || p[pi] == t[ti]) {
-            pi += 1;
-            ti += 1;
-        } else if pi < p.len() && p[pi] == '*' {
-            star_pi = Some(pi);
-            match_ti = ti;
-            pi += 1;
-        } else if let Some(sp) = star_pi {
-            pi = sp + 1;
-            match_ti += 1;
-            ti = match_ti;
-        } else {
-            return false;
-        }
-    }
-    while pi < p.len() && p[pi] == '*' {
-        pi += 1;
-    }
-    pi == p.len()
+    glob_ignore::GlobPattern::parse(pattern)
+        .map(|g| g.matches(text))
+        .unwrap_or(false)
 }
 
 fn collect_vfs_list(

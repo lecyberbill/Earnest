@@ -8,6 +8,7 @@ description = "WFL (Workflow Language) AST, YAML parser, JSON schema generator a
 chromatix-vault = { path = "../../../crates/chromatix-vault" }
 chrono = "0.4"
 cron_pulse = { path = "../../../crates/cron-pulse" }
+glob_ignore = { path = "../../../crates/glob-ignore" }
 log-sanitizer = { path = "../../../crates/log-sanitizer" }
 regex = "1.10"
 reqwest = { version = "0.12", features = ["blocking", "json"] }

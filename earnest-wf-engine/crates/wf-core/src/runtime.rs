@@ -1054,7 +1054,12 @@ fn exec_leaf_action(ctx: &mut RuntimeCtx<'_>, step: &StepSpec) -> Result<Option<
                     .collect();
                 format!("{} {}", program, quoted_args.join(" "))
             };
-            match shell_guard::inspect_command(&composed_cmd) {
+            let effective_ws: Option<std::path::PathBuf> = params
+                .cwd
+                .as_ref()
+                .map(|c| std::path::PathBuf::from(ctx.render_str(c)))
+                .or_else(|| std::env::current_dir().ok());
+            match shell_guard::inspect_command_in_workspace(&composed_cmd, effective_ws.as_deref()) {
                 shell_guard::Verdict::DangerousBlocked { command: c, reason } => {
                     return Err(format!("sys.exec bloqué par shell-guard ('{}'): {}", c, reason));
                 }

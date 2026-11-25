@@ -83,24 +83,25 @@ export class RunConsole extends HTMLElement {
                         </button>
                     </div>
 
-                    <!-- Bannière d'approbation Human-In-The-Loop (HITL) -->
+                    <!-- Bannière d'approbation Human-In-The-Loop (HITL / Shell-Guard) -->
                     <div id="approval-banner" class="hitl-banner" style="display: none;">
                         <div style="display: flex; align-items: center; gap: 0.5rem; color: var(--error); font-weight: 700; margin-bottom: 0.4rem; font-family: var(--font-mono); font-size: 0.85rem;">
                             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"></path><line x1="12" y1="9" x2="12" y2="13"></line><line x1="12" y1="17" x2="12.01" y2="17"></line></svg>
-                            <span data-i18n="run.hitl_title">VALIDATION REQUISE (HUMAN-IN-THE-LOOP)</span>
+                            <span id="approval-title" data-i18n="run.hitl_title">COMMANDE INTERCEPTÉE PAR SHELL-GUARD</span>
                         </div>
-                        <div data-i18n="run.hitl_desc" style="color: var(--text-primary); margin-bottom: 0.5rem;">
-                            L'agent souhaite exécuter une commande sensible ayant un impact potentiel :
+                        <div id="approval-reason-text" style="color: var(--text-primary); font-size: 0.82rem; margin-bottom: 0.4rem;">
+                            L'agent souhaite exécuter une commande bloquée :
                         </div>
-                        <pre id="approval-command-text" style="background: rgba(0,0,0,0.5); padding: 0.5rem; border-radius: 4px; color: #fde68a; overflow-x: auto; font-size: 0.78rem; margin-bottom: 0.65rem; white-space: pre-wrap;"></pre>
+                        <pre id="approval-command-text" style="background: rgba(0,0,0,0.5); padding: 0.5rem; border-radius: 4px; color: #fde68a; overflow-x: auto; font-size: 0.78rem; margin-bottom: 0.45rem; white-space: pre-wrap;"></pre>
+                        <div id="approval-scope-note" style="color: var(--text-muted); font-size: 0.74rem; margin-bottom: 0.65rem;"></div>
                         <div style="display: flex; gap: 0.65rem;">
                             <button id="btn-approve" class="btn-primary" style="background: var(--accent-emerald); border-color: var(--accent-emerald); font-size: 0.78rem; padding: 0.35rem 0.85rem; cursor: pointer; display: inline-flex; align-items: center; gap: 0.35rem;">
                                 <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>
-                                Autoriser l'action
+                                🔓 Débloquer (session + ce dossier)
                             </button>
                             <button id="btn-reject" class="btn-secondary" style="background: rgba(244, 63, 94, 0.2); border-color: var(--accent-rose); color: var(--accent-rose); font-size: 0.78rem; padding: 0.35rem 0.85rem; cursor: pointer; display: inline-flex; align-items: center; gap: 0.35rem;">
                                 <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
-                                Refuser
+                                Refuser (forcer alternative)
                             </button>
                         </div>
                     </div>
@@ -133,30 +134,37 @@ export class RunConsole extends HTMLElement {
 
         this.currentAttachment = null;
         this.currentRunId = null;
+        this.currentApprovalId = null;
 
         if (btnApprove) {
             btnApprove.addEventListener('click', async () => {
-                if (this.currentRunId) {
-                    approvalBanner.style.display = 'none';
-                    await fetch('/api/run/approve', {
-                        method: 'POST',
-                        headers: {'Content-Type': 'application/json'},
-                        body: JSON.stringify({ run_id: this.currentRunId, approved: true })
-                    });
-                }
+                approvalBanner.style.display = 'none';
+                await fetch('/api/run/approve', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({
+                        run_id: this.currentRunId || '',
+                        approval_id: this.currentApprovalId || '',
+                        approved: true
+                    })
+                });
+                this.currentApprovalId = null;
             });
         }
 
         if (btnReject) {
             btnReject.addEventListener('click', async () => {
-                if (this.currentRunId) {
-                    approvalBanner.style.display = 'none';
-                    await fetch('/api/run/approve', {
-                        method: 'POST',
-                        headers: {'Content-Type': 'application/json'},
-                        body: JSON.stringify({ run_id: this.currentRunId, approved: false })
-                    });
-                }
+                approvalBanner.style.display = 'none';
+                await fetch('/api/run/approve', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({
+                        run_id: this.currentRunId || '',
+                        approval_id: this.currentApprovalId || '',
+                        approved: false
+                    })
+                });
+                this.currentApprovalId = null;
             });
         }
 
@@ -349,14 +357,28 @@ export class RunConsole extends HTMLElement {
                     if (eventType === 'init') {
                         this.currentRunId = data.run_id;
                     } else if (eventType === 'approval_request') {
-                        // Afficher la bannière Human-In-The-Loop
+                        this.currentApprovalId = data.approval_id || '';
                         const banner = this.querySelector('#approval-banner');
                         const cmdText = this.querySelector('#approval-command-text');
+                        const reasonText = this.querySelector('#approval-reason-text');
+                        const scopeNote = this.querySelector('#approval-scope-note');
+                        const titleEl = this.querySelector('#approval-title');
                         if (banner && cmdText) {
+                            if (titleEl) {
+                                titleEl.textContent = data.kind === 'dangerous'
+                                    ? '🛑 COMMANDE CRITIQUE INTERCEPTÉE PAR SHELL-GUARD'
+                                    : '🛡️ COMMANDE INTERACTIVE INTERCEPTÉE PAR SHELL-GUARD';
+                            }
+                            if (reasonText) {
+                                reasonText.textContent = `${data.reason || 'Commande bloquée'}${data.suggestion ? ' — Alternative : ' + data.suggestion : ''}`;
+                            }
+                            if (scopeNote) {
+                                scopeNote.textContent = `📁 Portée du déblocage : session en cours uniquement, limitée au dossier ${data.workspace || '.'}`;
+                            }
                             cmdText.textContent = data.command;
                             banner.style.display = 'block';
                         }
-                        this.appendTrace('thought', `En attente d'approbation humaine pour la commande : \`${data.command}\``);
+                        this.appendTrace('thought', `⏸️ Shell-Guard attend votre décision pour \`${data.command}\` (${data.workspace || '.'})`);
                     } else if (eventType === 'trace') {
                         const t = data;
                         const prefix = t.tool_name ? `[${t.tool_name}]` : `[${t.step_type.toUpperCase()}]`;

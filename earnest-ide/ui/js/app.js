@@ -2466,6 +2466,16 @@ document.addEventListener('DOMContentLoaded', () => {
                                             root_cause_analysis: outObj.root_cause_analysis,
                                             next_attempt_strategy: outObj.next_attempt_strategy
                                         });
+                                    } else if (outObj.action === 'shell_guard_blocked') {
+                                        openGovernanceApproval({
+                                            type: 'shell_guard_blocked',
+                                            kind: outObj.kind,
+                                            full_command: outObj.full_command,
+                                            command_name: outObj.command_name,
+                                            reason: outObj.reason,
+                                            suggestion: outObj.suggestion,
+                                            workspace: outObj.workspace
+                                        });
                                     }
                                 }
                             } catch (_) { }
@@ -3268,6 +3278,30 @@ document.addEventListener('DOMContentLoaded', () => {
                     <div><strong>Stratégie pour la reprise :</strong> ${escapeHtml(approvalData.next_attempt_strategy)}</div>
                 </div>
             `;
+        } else if (approvalData.type === 'shell_guard_blocked') {
+            const isDang = approvalData.kind === 'dangerous';
+            const accent = isDang ? '#f87171' : '#fbbf24';
+            govModalTitle.textContent = '🛡️ COMMANDE BLOQUÉE PAR SHELL-GUARD';
+            govModalBadge.textContent = isDang ? 'Risque Critique' : 'Commande Interactive';
+            govModalBadge.style.background = isDang ? 'rgba(239, 68, 68, 0.2)' : 'rgba(251, 191, 36, 0.2)';
+            govModalBadge.style.color = accent;
+            btnGovApprove.style.display = '';
+            btnGovApprove.textContent = '🔓 Débloquer (session + ce dossier)';
+
+            govModalBody.innerHTML = `
+                <div style="background: rgba(15, 23, 42, 0.6); padding: 0.75rem; border-radius: 4px; border-left: 3px solid ${accent};">
+                    <div style="color: ${accent}; font-weight: 700; margin-bottom: 0.35rem;">Programme intercepté : <code>${escapeHtml(approvalData.command_name || '')}</code></div>
+                    <div style="margin-bottom: 0.35rem;"><strong>Motif :</strong> ${escapeHtml(approvalData.reason || '')}</div>
+                    ${approvalData.suggestion ? `<div style="color: #4ade80;"><strong>Alternative non-interactive :</strong> ${escapeHtml(approvalData.suggestion)}</div>` : ''}
+                </div>
+                <div style="margin-top: 0.5rem;">
+                    <label style="color: var(--text-muted); font-size: 0.7rem; font-weight: 700;">Commande complète demandée :</label>
+                    <pre style="background: #0b0f19; padding: 0.5rem; border-radius: 4px; border: 1px solid var(--border-subtle); color: #fde68a; overflow-x: auto; white-space: pre-wrap;">${escapeHtml(approvalData.full_command || '')}</pre>
+                </div>
+                <div style="color: var(--text-muted); font-size: 0.72rem; margin-top: 0.35rem;">
+                    📁 <strong>Portée stricte :</strong> ce déblocage s'applique uniquement en mémoire pour la <strong>session actuelle</strong> et le dossier <code>${escapeHtml(approvalData.workspace || state.currentRoot || '.')}</code>.
+                </div>
+            `;
         }
 
         govApprovalModal.classList.add('open');
@@ -3276,6 +3310,16 @@ document.addEventListener('DOMContentLoaded', () => {
     if (btnGovReject) {
         btnGovReject.addEventListener('click', () => {
             const pending = currentPendingApproval;
+            if (pending && pending.type === 'shell_guard_blocked') {
+                govApprovalModal.classList.remove('open');
+                currentPendingApproval = null;
+                if (agentPrompt) {
+                    const hint = pending.suggestion ? ` Suggestion : ${pending.suggestion}` : '';
+                    agentPrompt.value = `L'utilisateur a maintenu le blocage de la commande \`${pending.full_command}\`.${hint} Ne relance pas cette commande bloquée : utilise une alternative non-interactive ou sûre.`;
+                    executeAgentPrompt();
+                }
+                return;
+            }
             const reason = pending
                 ? prompt("Motif du refus (sera transmis à l'agent, laisser vide pour juste fermer) :", "")
                 : "";
@@ -3293,6 +3337,7 @@ document.addEventListener('DOMContentLoaded', () => {
         btnGovApprove.addEventListener('click', async () => {
             if (!currentPendingApproval) return;
             const root = state.currentRoot || '.';
+            let resumePrompt = "Approbation validée et scellée. Poursuis l'exécution.";
 
             try {
                 if (currentPendingApproval.type === 'architecture_review') {
@@ -3332,6 +3377,20 @@ document.addEventListener('DOMContentLoaded', () => {
                         })
                     });
                     alert(`Tentative #4 autorisée pour la sonde ${currentPendingApproval.failed_probe_id}. L'agent peut reprendre.`);
+                } else if (currentPendingApproval.type === 'shell_guard_blocked') {
+                    const targetWs = currentPendingApproval.workspace || root;
+                    const cmdToRetry = currentPendingApproval.full_command || '';
+                    await fetch('/api/ide/shell_guard/allow', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                            root: targetWs,
+                            full_command: cmdToRetry,
+                            command_name: currentPendingApproval.command_name || '',
+                            kind: currentPendingApproval.kind || 'interactive'
+                        })
+                    });
+                    resumePrompt = `Commande débloquée par l'utilisateur pour cette session dans le dossier courant : tu peux relancer \`${cmdToRetry}\` via terminal_exec et poursuivre.`;
                 }
             } catch (err) {
                 alert(`Erreur validation gouvernance : ${err.message}`);
@@ -3341,7 +3400,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 currentPendingApproval = null;
                 refreshGovernanceStatus();
                 if (hadApproval && agentPrompt) {
-                    agentPrompt.value = "Approbation validée et scellée. Poursuis l'exécution.";
+                    agentPrompt.value = resumePrompt;
                     executeAgentPrompt();
                 }
             }

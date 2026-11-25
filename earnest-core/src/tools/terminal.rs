@@ -1,36 +1,201 @@
+use std::collections::HashMap;
 use std::io::Read;
+use std::path::PathBuf;
 use std::process::{Command, Stdio};
+use std::sync::{mpsc, Mutex, OnceLock};
+use std::thread::ThreadId;
 use std::time::{Duration, Instant};
 use serde_json::Value;
-use shell_guard::{inspect_command, Verdict};
+use shell_guard::{allow_for_session, inspect_command_in_workspace, AllowScope, Verdict};
+
+static LIVE_STREAMS: OnceLock<Mutex<HashMap<ThreadId, mpsc::Sender<Vec<u8>>>>> = OnceLock::new();
+static PENDING_DECISIONS: OnceLock<Mutex<HashMap<String, mpsc::Sender<bool>>>> = OnceLock::new();
+
+pub struct LiveApprovalStreamGuard {
+    tid: ThreadId,
+}
+
+impl Drop for LiveApprovalStreamGuard {
+    fn drop(&mut self) {
+        if let Some(lock) = LIVE_STREAMS.get() {
+            if let Ok(mut map) = lock.lock() {
+                map.remove(&self.tid);
+            }
+        }
+    }
+}
+
+pub fn attach_live_approval_stream(tx: mpsc::Sender<Vec<u8>>) -> LiveApprovalStreamGuard {
+    let tid = std::thread::current().id();
+    let lock = LIVE_STREAMS.get_or_init(|| Mutex::new(HashMap::new()));
+    if let Ok(mut map) = lock.lock() {
+        map.insert(tid, tx);
+    }
+    LiveApprovalStreamGuard { tid }
+}
+
+pub fn resolve_pending_approval(approval_id: &str, approved: bool) -> bool {
+    let lock = PENDING_DECISIONS.get_or_init(|| Mutex::new(HashMap::new()));
+    let sender = if let Ok(mut map) = lock.lock() {
+        if approval_id.is_empty() {
+            let first_key = map.keys().next().cloned();
+            first_key.and_then(|k| map.remove(&k))
+        } else {
+            map.remove(approval_id)
+        }
+    } else {
+        None
+    };
+    if let Some(tx) = sender {
+        let _ = tx.send(approved);
+        true
+    } else {
+        false
+    }
+}
+
+fn ask_live_stream_approval(
+    full_command: &str,
+    cmd_name: &str,
+    kind: &str,
+    reason: &str,
+    suggestion: &str,
+    workspace: &PathBuf,
+) -> Option<bool> {
+    let tid = std::thread::current().id();
+    let sse_tx = LIVE_STREAMS
+        .get()
+        .and_then(|l| l.lock().ok())
+        .and_then(|m| m.get(&tid).cloned())?;
+
+    let approval_id = format!("sg_{}", &uuid::Uuid::new_v4().to_string().replace('-', "")[..10]);
+    let (dec_tx, dec_rx) = mpsc::channel::<bool>();
+    {
+        let lock = PENDING_DECISIONS.get_or_init(|| Mutex::new(HashMap::new()));
+        if let Ok(mut map) = lock.lock() {
+            map.insert(approval_id.clone(), dec_tx);
+        }
+    }
+
+    let event_payload = serde_json::json!({
+        "approval_id": approval_id,
+        "kind": kind,
+        "command": full_command,
+        "command_name": cmd_name,
+        "reason": reason,
+        "suggestion": suggestion,
+        "workspace": workspace.display().to_string()
+    });
+    if sse_tx
+        .send(format!("event: approval_request\ndata: {}\n\n", event_payload).into_bytes())
+        .is_err()
+    {
+        if let Some(lock) = PENDING_DECISIONS.get() {
+            if let Ok(mut map) = lock.lock() {
+                map.remove(&approval_id);
+            }
+        }
+        return None;
+    }
+
+    let deadline = Instant::now() + Duration::from_secs(120);
+    while Instant::now() < deadline {
+        if crate::llm::client::is_cancelled() {
+            break;
+        }
+        match dec_rx.recv_timeout(Duration::from_millis(200)) {
+            Ok(decision) => return Some(decision),
+            Err(mpsc::RecvTimeoutError::Timeout) => continue,
+            Err(mpsc::RecvTimeoutError::Disconnected) => break,
+        }
+    }
+
+    if let Some(lock) = PENDING_DECISIONS.get() {
+        if let Ok(mut map) = lock.lock() {
+            map.remove(&approval_id);
+        }
+    }
+    Some(false)
+}
 
 pub fn is_forbidden(command: &str) -> bool {
-    matches!(inspect_command(command), Verdict::DangerousBlocked { .. })
+    matches!(
+        inspect_command_in_workspace(command, None),
+        Verdict::DangerousBlocked { .. }
+    )
 }
 
 pub fn execute_terminal(command: &str, timeout_secs: u64) -> Result<Value, String> {
-    match inspect_command(command) {
-        Verdict::DangerousBlocked { command: cmd_name, reason } => {
-            return Err(format!(
-                "Commande destructrice bloquée par shell-guard ('{}') : {}",
-                cmd_name, reason
-            ));
+    let cwd = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
+
+    match inspect_command_in_workspace(command, Some(&cwd)) {
+        Verdict::DangerousBlocked {
+            command: cmd_name,
+            reason,
+        } => {
+            if let Some(approved) =
+                ask_live_stream_approval(command, &cmd_name, "dangerous", &reason, "", &cwd)
+            {
+                if approved {
+                    allow_for_session(&cwd, command, &cmd_name, AllowScope::ExactCommand);
+                } else {
+                    return Ok(serde_json::json!({
+                        "status": "blocked_by_user",
+                        "exit_code": -1,
+                        "stdout": "",
+                        "stderr": format!(
+                            "Commande destructrice refusée par l'utilisateur ('{}') : {}",
+                            cmd_name, reason
+                        ),
+                        "duration_ms": 0
+                    }));
+                }
+            } else {
+                return Err(format!(
+                    "Commande destructrice bloquée par shell-guard ('{}') : {}",
+                    cmd_name, reason
+                ));
+            }
         }
         Verdict::InteractiveBlocked {
             command: cmd_name,
             reason,
             suggestion,
         } => {
-            return Ok(serde_json::json!({
-                "status": "blocked_interactive",
-                "exit_code": -1,
-                "stdout": "",
-                "stderr": format!(
-                    "Commande interactive bloquée ('{}') : {} Suggestion non-interactive : {}",
-                    cmd_name, reason, suggestion
-                ),
-                "duration_ms": 0
-            }));
+            if let Some(approved) = ask_live_stream_approval(
+                command,
+                &cmd_name,
+                "interactive",
+                &reason,
+                &suggestion,
+                &cwd,
+            ) {
+                if approved {
+                    allow_for_session(&cwd, command, &cmd_name, AllowScope::ProgramName);
+                } else {
+                    return Ok(serde_json::json!({
+                        "status": "blocked_interactive",
+                        "exit_code": -1,
+                        "stdout": "",
+                        "stderr": format!(
+                            "Blocage maintenu par l'utilisateur ('{}') : {} Suggestion non-interactive : {}",
+                            cmd_name, reason, suggestion
+                        ),
+                        "duration_ms": 0
+                    }));
+                }
+            } else {
+                return Ok(serde_json::json!({
+                    "status": "blocked_interactive",
+                    "exit_code": -1,
+                    "stdout": "",
+                    "stderr": format!(
+                        "Commande interactive bloquée ('{}') : {} Suggestion non-interactive : {}",
+                        cmd_name, reason, suggestion
+                    ),
+                    "duration_ms": 0
+                }));
+            }
         }
         Verdict::Allowed { .. } => {}
     }

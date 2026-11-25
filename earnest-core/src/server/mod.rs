@@ -1200,6 +1200,7 @@ fn handle_request(mut req: tiny_http::Request) {
                 let mut engine = ReActEngine::new(&conn, &router, &project_id);
                 engine.think_effort = think_effort;
 
+                let _approval_guard = crate::tools::terminal::attach_live_approval_stream(tx.clone());
                 let tx_trace = tx.clone();
                 let cb = move |_run_id: &str, step_order: usize, step_type: &str, tool_name: Option<&str>, payload: &str, backend: &str| {
                     let trace_obj = serde_json::json!({
@@ -1384,7 +1385,14 @@ fn handle_request(mut req: tiny_http::Request) {
             return;
         }
         if path == "/api/run/approve" {
-            let resp = Response::from_string(serde_json::json!({"status": "ok"}).to_string())
+            let approval_id = body["approval_id"].as_str().unwrap_or("");
+            let approved = body["approved"].as_bool().unwrap_or(false);
+            let resolved = crate::tools::terminal::resolve_pending_approval(approval_id, approved);
+            let resp = Response::from_string(serde_json::json!({
+                "status": "ok",
+                "resolved": resolved,
+                "approved": approved
+            }).to_string())
                 .with_header(json_header)
                 .with_header(cors_header);
             req.respond(resp).ok();

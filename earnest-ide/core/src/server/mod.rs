@@ -2266,6 +2266,27 @@ Garde l'indentation appropriée.";
             return;
         }
 
+        // --- SHELL-GUARD : DÉBLOCAGE TEMPORAIRE (SESSION EN COURS + DOSSIER ACTIF UNIQUEMENT) ---
+        if path == "/api/ide/shell_guard/allow" {
+            let root = payload["root"].as_str().unwrap_or(".");
+            let full_cmd = payload["full_command"].as_str().unwrap_or("");
+            let cmd_name = payload["command_name"].as_str().unwrap_or("");
+            let kind = payload["kind"].as_str().unwrap_or("interactive");
+            let scope = if kind == "dangerous" {
+                shell_guard::AllowScope::ExactCommand
+            } else {
+                shell_guard::AllowScope::ProgramName
+            };
+            shell_guard::allow_for_session(std::path::Path::new(root), full_cmd, cmd_name, scope);
+            let resp = Response::from_string(serde_json::json!({
+                "status": "ALLOWED_FOR_SESSION",
+                "workspace": root,
+                "command": full_cmd
+            }).to_string()).with_header(json_header).with_header(cors_header);
+            req.respond(resp).ok();
+            return;
+        }
+
         // --- BASE DE CONNAISSANCES D'EXPÉRIENCE (BCPE) : ANNOTATION & VALIDATION ---
         if path == "/api/ide/kb/annotate" {
             let entry_id = payload["entry_id"].as_i64().unwrap_or(0);

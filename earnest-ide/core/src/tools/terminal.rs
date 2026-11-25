@@ -1,48 +1,107 @@
 use std::io::Read;
+use std::path::{Path, PathBuf};
 use std::process::Stdio;
 use std::time::{Duration, Instant};
 use serde_json::Value;
-use shell_guard::{inspect_command, Verdict};
+use shell_guard::{inspect_command_in_workspace, Verdict};
 
 pub fn is_forbidden(command: &str) -> bool {
-    matches!(inspect_command(command), Verdict::DangerousBlocked { .. })
+    matches!(
+        inspect_command_in_workspace(command, None),
+        Verdict::DangerousBlocked { .. }
+    )
 }
 
 pub fn execute_terminal(command: &str, timeout_secs: u64) -> Result<Value, String> {
     execute_terminal_in_dir(command, timeout_secs, None)
 }
 
-pub fn execute_terminal_in_dir(
+pub fn execute_terminal_with_approval(
     command: &str,
     timeout_secs: u64,
-    cwd: Option<&std::path::Path>,
-) -> Result<Value, String> {
-    match inspect_command(command) {
-        Verdict::DangerousBlocked { command: cmd_name, reason } => {
-            return Err(format!(
-                "Commande destructrice bloquée par shell-guard ('{}') : {}",
-                cmd_name, reason
-            ));
+    cwd: Option<&Path>,
+    request_ui_approval: bool,
+) -> (Result<Value, String>, Option<String>) {
+    let effective_dir: PathBuf = cwd
+        .map(Path::to_path_buf)
+        .or_else(|| std::env::current_dir().ok())
+        .unwrap_or_else(|| PathBuf::from("."));
+
+    match inspect_command_in_workspace(command, Some(&effective_dir)) {
+        Verdict::DangerousBlocked {
+            command: cmd_name,
+            reason,
+        } => {
+            if request_ui_approval {
+                let payload = serde_json::json!({
+                    "status": "awaiting_approval",
+                    "action": "shell_guard_blocked",
+                    "kind": "dangerous",
+                    "full_command": command,
+                    "command_name": cmd_name,
+                    "reason": reason,
+                    "suggestion": "",
+                    "workspace": effective_dir.display().to_string(),
+                    "message": format!("Commande critique bloquée ('{}'). En attente de décision utilisateur pour ce dossier/session...", cmd_name)
+                });
+                return (Ok(payload), Some("AwaitingShellGuardApproval".to_string()));
+            }
+            return (
+                Err(format!(
+                    "Commande destructrice bloquée par shell-guard ('{}') : {}",
+                    cmd_name, reason
+                )),
+                None,
+            );
         }
         Verdict::InteractiveBlocked {
             command: cmd_name,
             reason,
             suggestion,
         } => {
-            return Ok(serde_json::json!({
-                "status": "blocked_interactive",
-                "exit_code": -1,
-                "stdout": "",
-                "stderr": format!(
-                    "Commande interactive bloquée ('{}') : {} Suggestion non-interactive : {}",
-                    cmd_name, reason, suggestion
-                ),
-                "duration_ms": 0
-            }));
+            if request_ui_approval {
+                let payload = serde_json::json!({
+                    "status": "awaiting_approval",
+                    "action": "shell_guard_blocked",
+                    "kind": "interactive",
+                    "full_command": command,
+                    "command_name": cmd_name,
+                    "reason": reason,
+                    "suggestion": suggestion,
+                    "workspace": effective_dir.display().to_string(),
+                    "message": format!("Commande interactive bloquée ('{}'). En attente de déblocage utilisateur ou d'alternative...", cmd_name)
+                });
+                return (Ok(payload), Some("AwaitingShellGuardApproval".to_string()));
+            }
+            return (
+                Ok(serde_json::json!({
+                    "status": "blocked_interactive",
+                    "exit_code": -1,
+                    "stdout": "",
+                    "stderr": format!(
+                        "Commande interactive bloquée ('{}') : {} Suggestion non-interactive : {}",
+                        cmd_name, reason, suggestion
+                    ),
+                    "duration_ms": 0
+                })),
+                None,
+            );
         }
         Verdict::Allowed { .. } => {}
     }
 
+    (run_subprocess(command, timeout_secs, Some(&effective_dir)), None)
+}
+
+pub fn execute_terminal_in_dir(
+    command: &str,
+    timeout_secs: u64,
+    cwd: Option<&Path>,
+) -> Result<Value, String> {
+    execute_terminal_with_approval(command, timeout_secs, cwd, false).0
+}
+
+fn run_subprocess(command: &str, timeout_secs: u64, cwd: Option<&Path>) -> Result<Value, String> {
     #[cfg(target_os = "windows")]
     let mut cmd = {
         let mut c = crate::hidden_command("powershell");
@@ -58,7 +117,9 @@ pub fn execute_terminal_in_dir(
     };
 
     if let Some(dir) = cwd {
-        cmd.current_dir(dir);
+        if dir.is_dir() {
+            cmd.current_dir(dir);
+        }
     }
     cmd.stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::piped());
 

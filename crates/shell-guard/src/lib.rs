@@ -38,6 +38,12 @@
 pub mod normalize;
 pub mod rules;
 pub mod segment;
+pub mod session;
+
+pub use session::{
+    allow_for_session, clear_session_overrides, inspect_command_in_workspace,
+    normalize_workspace_key, AllowScope,
+};
 
 use std::cmp;
 

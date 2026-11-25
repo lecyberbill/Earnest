@@ -56,7 +56,7 @@ use crate::llm::client::ChatMessage;
 use crate::llm::router::LLMRouter;
 use crate::tools::fs::{read_file, write_file, edit_file};
 use crate::tools::search::{grep_search, list_files};
-use crate::tools::terminal::execute_terminal;
+use crate::tools::terminal::{execute_terminal, execute_terminal_with_approval};
 use crate::tools::web::{search_web, fetch_web_page};
 use crate::tools::{get_ide_tools_schemas, get_governance_tools_schemas};
 use crate::governance::{
@@ -900,8 +900,9 @@ impl<'a> ReActEngine<'a> {
                 }
                 let cmd = args["command"].as_str().unwrap_or("");
                 let timeout = args["timeout_sec"].as_u64().unwrap_or(60);
-                match execute_terminal(cmd, timeout) {
-                    Ok(res) => (res.to_string(), None),
+                let (res, interrupt) = execute_terminal_with_approval(cmd, timeout, Some(&self.workspace_root), true);
+                match res {
+                    Ok(val) => (val.to_string(), interrupt),
                     Err(e) => (serde_json::json!({"status": "error", "error": e}).to_string(), None),
                 }
             }
@@ -1430,7 +1431,7 @@ impl<'a> ReActEngine<'a> {
         // Injection de l'historique multi-tours récent (5 derniers runs réussis du projet)
         let mut has_history = false;
         if let Ok(mut stmt) = self.conn.prepare(
-            "SELECT prompt, final_answer FROM runs WHERE project_id = ?1 AND status = 'success' AND final_answer IS NOT NULL AND final_answer != '' ORDER BY rowid DESC LIMIT 12"
+            "SELECT prompt, final_answer FROM runs WHERE project_id = ?1 AND status IN ('success', 'awaiting_approval') AND final_answer IS NOT NULL AND final_answer != '' ORDER BY rowid DESC LIMIT 12"
         ) {
             if let Ok(rows) = stmt.query_map(params![self.project_id], |row| {
                 Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
@@ -1754,9 +1755,10 @@ impl<'a> ReActEngine<'a> {
             cache_stats.hits, cache_stats.misses, cache_stats.len, budget_stats.failures, budget_stats.is_open
         );
                     println!("  ⏸️ [GOUVERNANCE IDE] Interruption (awaiting_approval:{}, {}ms)", action, duration_ms);
+                    let saved_interrupt = context_trimmer::truncate_tool_output(&tool_output, 4_000);
                     self.conn.execute(
-                        "UPDATE runs SET status = 'awaiting_approval', completed_at = CURRENT_TIMESTAMP, duration_ms = ?1, total_tokens = ?2 WHERE id = ?3",
-                        params![duration_ms as i64, total_tokens as i64, run_id],
+                        "UPDATE runs SET status = 'awaiting_approval', completed_at = CURRENT_TIMESTAMP, duration_ms = ?1, total_tokens = ?2, final_answer = ?4 WHERE id = ?3",
+                        params![duration_ms as i64, total_tokens as i64, run_id, saved_interrupt],
                     ).ok();
 
                     return Ok(ReActResult {

@@ -1,17 +1,12 @@
-//! Présentation de `shell_guard`.
+# shell-guard
 
-# shell_guard
+Pure-Rust static shell command analyzer (POSIX `sh`/`bash` and Windows `PowerShell`/`cmd`) designed to guard AI agent terminal execution before spawning any subprocess.
 
-Analyseur statique de lignes de commande shell (POSIX sh/bash et Windows
-PowerShell/cmd) destiné à sécuriser l'exécution de commandes générées par un
-agent IA.
+- Pure Rust 2021, **zero external dependencies** (`std` only, `#![forbid(unsafe_code)]`).
+- Never executes the inspected command: analysis is 100% static and deterministic.
+- Never panics on adversarial inputs (unclosed quotes, truncated subshells, deep nesting, control bytes, or large payloads).
 
-- Rust pur, édition 2021, **zéro dépendance externe** (`std` uniquement).
-- Ne lance jamais la commande analysée : l'analyse est purement textuelle.
-- Ne panique jamais, même sur une entrée hostile (quote non fermée,
-  sous-commande tronquée, profondeur d'imbrication extrême).
-
-## API
+## Public API
 
 ```rust
 use shell_guard::{inspect_command, RiskLevel, Verdict};
@@ -27,36 +22,24 @@ assert!(matches!(
 ));
 ```
 
-Trois verdicts :
+### Verdicts
 
-| Verdict | Signification |
+| Verdict | Meaning |
 | --- | --- |
-| `Allowed { risk }` | Exécutable ; `RiskLevel::ReadOnly` ou `RiskLevel::Mutating`. |
-| `InteractiveBlocked { command, reason, suggestion }` | La commande attendrait un humain et ne rendrait pas la main. |
-| `DangerousBlocked { command, reason }` | Opération critique irréversible. |
+| `Allowed { risk }` | Safe to execute; `RiskLevel::ReadOnly` or `RiskLevel::Mutating`. |
+| `InteractiveBlocked { command, reason, suggestion }` | Command would block waiting for interactive human input; includes a concrete non-interactive alternative. |
+| `DangerousBlocked { command, reason }` | Irreversible or host-destructive operation. |
 
 ## Pipeline
 
-1. `segment::split_segments` — découpage conscient des quotes `'…'` / `"…"`, des
-   échappements `\` et `` ` ``, des sous-commandes `$( … )` et des séparateurs
-   `;`, `&&`, `||`, `|`, retour à la ligne.
-2. `normalize::normalize` — identification de la commande réelle : suppression des
-   préfixes (`sudo`, `env`, `timeout`, `nice`, `nohup`…) et traversée des shells
-   embarqués (`bash -c`, `pwsh -Command`, `cmd /c`).
-3. `rules::dangerous` — blocage des opérations critiques (racine du système de
-   fichiers, formatage, écriture sur périphérique bloc, arrêt de l'hôte,
-   `curl … | sh`, fork bomb).
-4. `rules::interactive` — blocage des commandes bloquantes : éditeurs, pagineurs,
-   `read` sans entrée pipée, REPL d'interpréteurs, clients de base de données,
-   `git commit` sans `-m`, `tail -f`, `docker run -it`, etc.
-5. `rules::classify` — qualification du risque (`ReadOnly` uniquement si démontré,
-   conservateur sinon).
-
-Priorité : un danger critique l'emporte sur un blocage interactif, où qu'il soit
-placé dans la ligne.
+1. **`segment::split_segments`** — Quote-aware (`'...'` / `"..."`), escape-aware (`\` and PowerShell `` ` ``) and bounded `$()` subcommand splitter across `;`, `&&`, `||`, `|`, and newlines.
+2. **`normalize::normalize`** — Unwraps command prefixes (`sudo`, `env`, `timeout`, `nice`, `nohup`, etc.) and embedded shell wrappers (`bash -lc`, `pwsh -Command`, `cmd /c`) while handling Windows paths and extensions case-insensitively.
+3. **`rules::dangerous`** — Blocks catastrophic root deletions, disk formatting, raw block-device writes, host shutdown/reboot, remote pipe-to-shell (`curl ... | sh`), and fork bombs.
+4. **`rules::interactive`** — Blocks editors, pagers, bare REPLs, unpiped `read`/`Read-Host`/`pause`, interactive SQL clients, `git commit` without `-m`, `npm init` without `-y`, `apt install` without `-y`, `tail -f`, `docker run -it`, etc.
+5. **`rules::classify`** — Classifies allowed commands into `RiskLevel::ReadOnly` vs `RiskLevel::Mutating`.
 
 ## Tests
 
-```text
-cargo test
+```bash
+cargo test --manifest-path crates/shell-guard/Cargo.toml
 ```

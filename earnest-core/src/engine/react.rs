@@ -451,7 +451,7 @@ Quand ta mission est entièrement accomplie et vérifiée sur disque, fournis di
             }
 
             let is_final_answer = chat_res.tool_calls.is_empty()
-                && !(empty_tool_nudges < 3 && looks_like_unfinished_thought(&chat_res.content));
+                && !(empty_tool_nudges < 5 && looks_like_unfinished_thought(&chat_res.content));
 
             if !chat_res.content.is_empty() {
                 if !is_final_answer {
@@ -463,12 +463,12 @@ Quand ta mission est entièrement accomplie et vérifiée sur disque, fournis di
                 messages.push(ChatMessage { role: "assistant".to_string(), content: chat_res.content.clone(), images: None });
             }
 
-            // S'il n'y a aucun appel d'outil, vérifier si le modèle s'est juste arrêté sur une annonce intermédiaire
+            // S'il n'y a aucun appel d'outil, vérifier si le modèle s'est juste arrêté sur une annonce intermédiaire (tolérance 5 tours)
             if chat_res.tool_calls.is_empty() {
-                if empty_tool_nudges < 3 && looks_like_unfinished_thought(&chat_res.content) {
+                if empty_tool_nudges < 5 && looks_like_unfinished_thought(&chat_res.content) {
                     empty_tool_nudges += 1;
-                    push_live_log("WARN", &format!("🔄 [ANTI-STALL] Annonce sans outil ({}/3), relance automatique", empty_tool_nudges));
-                    eprintln!("  🔄 [ANTI-STALL] Annonce sans outil ({}/3), relance automatique...", empty_tool_nudges);
+                    push_live_log("WARN", &format!("🔄 [ANTI-STALL] Annonce/réflexion sans outil ({}/5), relance automatique", empty_tool_nudges));
+                    eprintln!("  🔄 [ANTI-STALL] Annonce/réflexion sans outil ({}/5), relance automatique...", empty_tool_nudges);
                     messages.push(ChatMessage {
                         role: "user".to_string(),
                         content: "Continue : n'annonce pas ton action en texte seul, appelle immédiatement l'outil nécessaire (ou fournis ta réponse finale complète si toute la mission est terminée et vérifiée).".to_string(),

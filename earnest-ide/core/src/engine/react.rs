@@ -1534,18 +1534,21 @@ impl<'a> ReActEngine<'a> {
             let truncated_in_thought = chat_res.content.trim().is_empty()
                 && chat_res.reasoning_content.as_deref().map(|r| !r.trim().is_empty()).unwrap_or(false);
             let has_code_fence = chat_res.content.contains("```");
+            let unfinished_announcement = react_resilience::looks_like_unfinished_thought(&chat_res.content);
             let normal_stalled = chat_res.tool_calls.is_empty()
                 && policy.mode == GovernanceMode::Normal
-                && empty_tool_nudges < 2
-                && (chat_res.content.matches("```").count() % 2 == 1 || truncated_in_thought);
+                && empty_tool_nudges < 5
+                && (chat_res.content.matches("```").count() % 2 == 1
+                    || truncated_in_thought
+                    || unfinished_announcement);
             let arch_stalled = chat_res.tool_calls.is_empty()
                 && policy.mode == GovernanceMode::Architecture
-                && empty_tool_nudges < 3;
+                && empty_tool_nudges < 5;
             let constrained_stalled = chat_res.tool_calls.is_empty()
                 && policy.mode == GovernanceMode::Constrained
                 && !merged_successfully
-                && empty_tool_nudges < 2
-                && (truncated_in_thought || has_code_fence || staged_in_run);
+                && empty_tool_nudges < 5
+                && (truncated_in_thought || has_code_fence || staged_in_run || unfinished_announcement);
             let is_final_answer = chat_res.tool_calls.is_empty()
                 && !normal_stalled
                 && !arch_stalled
@@ -1560,28 +1563,31 @@ impl<'a> ReActEngine<'a> {
                 messages.push(ChatMessage { role: "assistant".to_string(), content: chat_res.content.clone(), images: None });
             }
 
-            // S'il n'y a aucun appel d'outil, conclusion (sauf si Mode 2/3 en cours, ou Mode 1 tronqué en plein code)
+            // S'il n'y a aucun appel d'outil, conclusion (tolérance 5 tours de réflexion/transition avant arrêt)
             if chat_res.tool_calls.is_empty() {
-                if policy.mode == GovernanceMode::Normal && empty_tool_nudges < 2 {
-                    let has_unclosed_fence = chat_res.content.matches("```").count() % 2 == 1;
-                    if has_unclosed_fence || truncated_in_thought {
-                        empty_tool_nudges += 1;
-                        println!("  🔄 [ANTI-STALL] Réponse tronquée en Mode 1 ({}/2 consécutifs), relance automatique...", empty_tool_nudges);
-                        messages.push(ChatMessage {
-                            role: "user".to_string(),
-                            content: "Ta réponse précédente a été tronquée avant d'appeler un outil. N'écris pas le code en texte libre : appelle immédiatement `write_file` (avec `append: true` si tu écris un gros fichier en plusieurs morceaux) ou `edit_file`.".to_string(),
-                            images: None,
-                        });
-                        continue;
-                    }
-                }
-                if policy.mode == GovernanceMode::Architecture && empty_tool_nudges < 3 {
+                if normal_stalled {
                     empty_tool_nudges += 1;
-                    println!("  🔄 [ANTI-STALL] Texte seul en Mode 3 ({}/3 consécutifs), relance automatique...", empty_tool_nudges);
-                    let msg = if chat_res.content.is_empty() {
-                        "Ta réflexion a été tronquée avant d'appeler un outil. Sois très concis (n'écris aucun code dans ta pensée) et appelle immédiatement `add_invariant` pour le premier contrat, puis `request_architecture_review`."
+                    let has_unclosed_fence = chat_res.content.matches("```").count() % 2 == 1;
+                    println!("  🔄 [ANTI-STALL] Transition/réflexion sans outil en Mode 1 ({}/5 consécutifs), relance automatique...", empty_tool_nudges);
+                    let msg = if has_unclosed_fence || truncated_in_thought {
+                        "Ta réponse précédente a été tronquée avant d'appeler un outil. N'écris pas le code en texte libre : appelle immédiatement `write_file` (avec `append: true` si tu écris un gros fichier en plusieurs morceaux) ou `edit_file`."
                     } else {
-                        "En Mode 3 Architecture, n'écris pas le code en texte libre : appelle immédiatement `add_invariant` pour formaliser chaque contrat (id, title, statement, target_file, test_query), puis appelle `request_architecture_review` pour soumettre l'architecture à validation (ou `ask_user_question` si la consigne est ambiguë)."
+                        "Poursuis : si tu as fini ta réflexion intermédiaire, appelle immédiatement l'outil suivant (`terminal_exec`, `edit_file`, `write_file`, `read_file`...). Si toute la mission est réellement terminée et vérifiée, fournis ton bilan complet final."
+                    };
+                    messages.push(ChatMessage {
+                        role: "user".to_string(),
+                        content: msg.to_string(),
+                        images: None,
+                    });
+                    continue;
+                }
+                if arch_stalled {
+                    empty_tool_nudges += 1;
+                    println!("  🔄 [ANTI-STALL] Réflexion sans outil en Mode 3 ({}/5 consécutifs), relance automatique...", empty_tool_nudges);
+                    let msg = if chat_res.content.is_empty() {
+                        "Ta réflexion a été tronquée avant d'appeler un outil. Quand ton plan est prêt, appelle `add_invariant` pour chaque contrat, puis `request_architecture_review`."
+                    } else {
+                        "En Mode 3 Architecture, dès que ta réflexion d'architecture est prête, appelle `add_invariant` pour formaliser chaque contrat (id, title, statement, target_file, test_query), puis `request_architecture_review` pour soumettre le plan à validation (ou `ask_user_question` si la consigne est ambiguë)."
                     };
                     messages.push(ChatMessage {
                         role: "user".to_string(),
@@ -1592,10 +1598,10 @@ impl<'a> ReActEngine<'a> {
                 }
                 if constrained_stalled {
                     empty_tool_nudges += 1;
-                    println!("  🔄 [ANTI-STALL] Texte seul en Mode 2 ({}/2 consécutifs), relance automatique...", empty_tool_nudges);
+                    println!("  🔄 [ANTI-STALL] Transition/réflexion sans outil en Mode 2 ({}/5 consécutifs), relance automatique...", empty_tool_nudges);
                     messages.push(ChatMessage {
                         role: "user".to_string(),
-                        content: "Ta réponse précédente n'a pas appelé d'outil alors que des modifications sont en attente ou que du code a été écrit en texte libre : appelle immédiatement `write_code` (ou `shadow_validate_and_merge` si les fichiers sont déjà stagés dans le shadow worktree, ou `ask_user_question` en cas d'ambiguïté).".to_string(),
+                        content: "Poursuis : appelle l'outil suivant (`write_code`, `shadow_check`, ou `shadow_validate_and_merge` si les fichiers sont déjà stagés dans le shadow worktree, ou `ask_user_question` en cas d'ambiguïté).".to_string(),
                         images: None,
                     });
                     continue;

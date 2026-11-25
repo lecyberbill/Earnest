@@ -100,7 +100,7 @@ pub fn edit_file(path_str: &str, target: &str, replacement: &str) -> Result<Valu
                     "path": path_str,
                     "bytes_written": new_content.len(),
                     "diff_lines": diff.lines.len(),
-                    "diff_preview": diff.preview
+                    "diff_preview": context_trimmer::truncate_tool_output(&diff.preview, 1_000)
                 })),
                 atomic_patch::TransactionOutcome::RolledBack { reason, .. } => {
                     Err(format!("Échec commit atomique ({}): {}", path_str, reason))

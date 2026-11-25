@@ -198,9 +198,14 @@ pub fn looks_like_unfinished_thought(content: &str) -> bool {
         "utilisons ",
         "exécutons ",
         "let me ",
+        "let's ",
+        "now let",
         "i will ",
         "i'll ",
         "next, i ",
+        "je corrige",
+        "j'ajoute",
+        "je modifie",
         "séparateur powershell",
     ]
     .iter()
@@ -327,5 +332,21 @@ mod tests {
         assert_eq!(sug.repetitions, 2);
         assert!(sug.pattern_summary.contains("read_file -> terminal_exec"));
         assert!(sug.yaml.contains("enabled: false"));
+    }
+
+    #[test]
+    fn detects_english_and_french_unfinished_thoughts() {
+        assert!(looks_like_unfinished_thought(
+            "Let me verify the new validate_calendar body and build/test."
+        ));
+        assert!(looks_like_unfinished_thought(
+            "Let's run cargo test and fix any remaining issues."
+        ));
+        assert!(looks_like_unfinished_thought(
+            "Je corrige le dernier invariant avant de lancer cargo test."
+        ));
+        assert!(!looks_like_unfinished_thought(
+            "Tous les contrats et tests unitaires sont au vert (30/30). Le README a été généré."
+        ));
     }
 }

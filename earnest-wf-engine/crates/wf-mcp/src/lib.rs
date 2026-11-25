@@ -230,7 +230,24 @@ impl WfMcpServer {
                 let wf_name = args["name"].as_str().unwrap_or("");
                 let cron = args["cron_expr"].as_str();
                 self.store.set_workflow_cron(wf_name, cron)?;
-                Ok(json!({ "name": wf_name, "cron_expr": cron }))
+                let (desc_fr, next_unix) = cron
+                    .map(str::trim)
+                    .filter(|s| !s.is_empty())
+                    .and_then(|c| wf_core::parse_wfl_cron(c).ok())
+                    .map(|s| {
+                        let now = std::time::SystemTime::now()
+                            .duration_since(std::time::UNIX_EPOCH)
+                            .map(|d| d.as_secs())
+                            .unwrap_or(0);
+                        (Some(s.describe_fr()), s.next_after(now))
+                    })
+                    .unwrap_or((None, None));
+                Ok(json!({
+                    "name": wf_name,
+                    "cron_expr": cron,
+                    "description_fr": desc_fr,
+                    "next_run_unix": next_unix
+                }))
             }
             "wfl_list_runs" => {
                 let wf_name = args["workflow_name"].as_str();

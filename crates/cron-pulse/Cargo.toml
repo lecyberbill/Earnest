@@ -1,0 +1,20 @@
+[package]
+name = "cron_pulse"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.70"
+description = "Pure-Rust (std only) parser, validator, next-occurrence calculator and human-readable describer for 5-field UTC cron expressions."
+license = "MIT OR Apache-2.0"
+readme = "README.md"
+keywords = ["cron", "schedule", "parser", "utc", "calendar"]
+categories = ["date-and-time", "parser-implementations", "no-std"]
+
+# zero_dep: this crate intentionally has no external dependency (std only).
+[dependencies]
+
+[lib]
+name = "cron_pulse"
+path = "src/lib.rs"
+
+[profile.release]
+opt-level = 3

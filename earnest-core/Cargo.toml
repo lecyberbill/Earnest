@@ -32,3 +32,4 @@ wf-core = { path = "../earnest-wf-engine/crates/wf-core" }
 chromatix-vault = { path = "../crates/chromatix-vault" }
 web-reader = { path = "../crates/web-reader" }
 shell-guard = { path = "../crates/shell-guard" }
+cron_pulse = { path = "../crates/cron-pulse" }

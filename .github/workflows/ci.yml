@@ -31,10 +31,11 @@ jobs:
       - name: Rust Cache
         uses: Swatinem/rust-cache@v2
 
-      - name: Check & Test web-reader and shell-guard
+      - name: Check & Test web-reader, shell-guard, and cron-pulse
         run: |
           cargo test --manifest-path crates/web-reader/Cargo.toml --verbose
           cargo test --manifest-path crates/shell-guard/Cargo.toml --verbose
+          cargo test --manifest-path crates/cron-pulse/Cargo.toml --verbose
 
       - name: Check & Test earnest-wf-engine
         run: |

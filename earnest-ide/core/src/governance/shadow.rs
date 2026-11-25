@@ -476,8 +476,13 @@ impl ShadowRunner {
         let mut all_passed = true;
         let mut first_failure = None;
 
+        let probe_target = if contract.target_file.trim().is_empty() {
+            primary_target
+        } else {
+            contract.target_file.as_str()
+        };
         for probe in &contract.probes {
-            let res = self.execute_probe(probe, primary_target);
+            let res = self.execute_probe(probe, probe_target);
             if !res.passed {
                 all_passed = false;
                 if first_failure.is_none() {
@@ -564,8 +569,10 @@ impl ShadowRunner {
         let mut cmds = Vec::new();
 
         // 1. Rust (Cargo workspace, crate racine, crates/* ou sous-dossier immédiat)
+        // Note : `cargo test` (sans `--all-targets`) exécute unit tests + integration tests + doctests (`--doc`),
+        // tandis que `cargo clippy --all-targets` vérifie aussi benches/examples.
         if self.shadow_path.join("Cargo.toml").is_file() {
-            cmds.push(("rust", "cargo test --all-targets".to_string()));
+            cmds.push(("rust", "cargo test".to_string()));
             cmds.push(("rust-clippy", "cargo clippy --all-targets -- -D warnings".to_string()));
         } else {
             let mut rust_manifests = Vec::new();
@@ -598,7 +605,7 @@ impl ShadowRunner {
             for manifest in rust_manifests {
                 if let Ok(rel) = manifest.strip_prefix(&self.shadow_path) {
                     let rel_str = rel.to_string_lossy().replace('\\', "/");
-                    cmds.push(("rust", format!("cargo test --manifest-path {} --all-targets", rel_str)));
+                    cmds.push(("rust", format!("cargo test --manifest-path {}", rel_str)));
                     cmds.push(("rust-clippy", format!("cargo clippy --manifest-path {} --all-targets -- -D warnings", rel_str)));
                 }
             }
@@ -757,7 +764,7 @@ impl ShadowRunner {
             } else if check_only {
                 args_owned.extend(["check".to_string(), "--all-targets".to_string()]);
             } else {
-                args_owned.extend(["test".to_string(), "--all-targets".to_string()]);
+                args_owned.push("test".to_string());
                 if let Some(f) = clean_filter {
                     args_owned.push(f.to_string());
                 }

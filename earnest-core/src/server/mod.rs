@@ -53,6 +53,9 @@ pub fn start_http_server(host: &str, port: u16) {
     // Initialisation schéma SQLite
     init_db(None).ok();
 
+    // Démon planificateur périodique UTC (scheduled_tasks + workflows WFL scellés)
+    crate::scheduler::start_background_scheduler();
+
     // Pool de threads pour requêtes concurrentes non-bloquantes
     for _ in 0..4 {
         let server = server.clone();
@@ -69,7 +72,7 @@ pub fn start_http_server(host: &str, port: u16) {
     }
 }
 
-fn discover_wf_workspace() -> std::path::PathBuf {
+pub(crate) fn discover_wf_workspace() -> std::path::PathBuf {
     let cwd = std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("."));
     for anc in cwd.ancestors().take(6) {
         if anc.join(".wf").join("wf.db").exists() {
@@ -475,16 +478,35 @@ fn handle_request(mut req: tiny_http::Request) {
         if path == "/api/tasks" {
             let conn = get_connection(None).unwrap();
             let proj_id = query.get("project_id").map(|s| s.as_str()).unwrap_or("default_workspace");
+            let now_secs = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_secs())
+                .unwrap_or(0);
             let mut list = Vec::new();
-            if let Ok(mut stmt) = conn.prepare("SELECT id, name, prompt, cron_expr, project_id, is_active, last_run_at, created_at FROM scheduled_tasks WHERE project_id = ?") {
+            if let Ok(mut stmt) = conn.prepare("SELECT id, name, prompt, cron_expr, project_id, is_active, last_run_at, created_at FROM scheduled_tasks WHERE project_id = ? ORDER BY created_at DESC") {
                 if let Ok(rows) = stmt.query_map([proj_id], |row| {
+                    let cron_expr: String = row.get(3)?;
+                    let is_active = row.get::<_, i32>(5)? == 1;
+                    let (cron_desc, next_run_utc) = match cron_pulse::CronSchedule::parse(&cron_expr) {
+                        Ok(sched) => {
+                            let next_str = if is_active && now_secs > 0 {
+                                sched.next_after(now_secs).map(crate::scheduler::format_utc_minute)
+                            } else {
+                                None
+                            };
+                            (Some(sched.describe_fr()), next_str)
+                        }
+                        Err(e) => (Some(format!("Invalide : {}", e)), None),
+                    };
                     Ok(serde_json::json!({
                         "id": row.get::<_, String>(0)?,
                         "name": row.get::<_, String>(1)?,
                         "prompt": row.get::<_, String>(2)?,
-                        "cron_expr": row.get::<_, String>(3)?,
+                        "cron_expr": cron_expr,
+                        "cron_desc": cron_desc,
+                        "next_run_utc": next_run_utc,
                         "project_id": row.get::<_, String>(4)?,
-                        "is_active": row.get::<_, i32>(5)? == 1,
+                        "is_active": is_active,
                         "last_run_at": row.get::<_, Option<String>>(6)?,
                         "created_at": row.get::<_, String>(7)?
                     }))
@@ -1055,17 +1077,65 @@ fn handle_request(mut req: tiny_http::Request) {
         if path == "/api/tasks" {
             let conn = get_connection(None).unwrap();
             let task_id = body["id"].as_str().map(|s| s.to_string()).unwrap_or_else(|| format!("task_{}", &uuid::Uuid::new_v4().to_string().replace('-', "")[..8]));
-            let name = body["name"].as_str().unwrap_or("");
-            let prompt = body["prompt"].as_str().unwrap_or("");
-            let cron_expr = body["cron_expr"].as_str().unwrap_or("");
+            let name = body["name"].as_str().unwrap_or("").trim();
+            let prompt = body["prompt"].as_str().unwrap_or("").trim();
+            let cron_expr = body["cron_expr"].as_str().unwrap_or("").trim();
             let proj_id = body["project_id"].as_str().unwrap_or("default_workspace");
+
+            let sched = match cron_pulse::CronSchedule::parse(cron_expr) {
+                Ok(s) => s,
+                Err(e) => {
+                    let resp = Response::from_string(
+                        serde_json::json!({
+                            "status": "error",
+                            "error": format!("Expression cron invalide ('{}') : {}", cron_expr, e)
+                        })
+                        .to_string(),
+                    )
+                    .with_status_code(400)
+                    .with_header(json_header)
+                    .with_header(cors_header);
+                    req.respond(resp).ok();
+                    return;
+                }
+            };
 
             conn.execute(
                 "INSERT INTO scheduled_tasks (id, name, prompt, cron_expr, project_id) VALUES (?, ?, ?, ?, ?)",
                 rusqlite::params![task_id, name, prompt, cron_expr, proj_id],
             ).ok();
 
-            let resp = Response::from_string(serde_json::json!({"status": "ok", "task_id": task_id}).to_string())
+            let resp = Response::from_string(serde_json::json!({
+                "status": "ok",
+                "task_id": task_id,
+                "cron_desc": sched.describe_fr()
+            }).to_string())
+                .with_header(json_header)
+                .with_header(cors_header);
+            req.respond(resp).ok();
+            return;
+        }
+
+        if path == "/api/tasks/toggle" {
+            let conn = get_connection(None).unwrap();
+            let id = body["id"].as_str().unwrap_or("");
+            let is_active = body["is_active"].as_bool().unwrap_or(true);
+            conn.execute(
+                "UPDATE scheduled_tasks SET is_active = ?1 WHERE id = ?2",
+                rusqlite::params![i32::from(is_active), id],
+            ).ok();
+            let resp = Response::from_string(serde_json::json!({"status": "ok", "id": id, "is_active": is_active}).to_string())
+                .with_header(json_header)
+                .with_header(cors_header);
+            req.respond(resp).ok();
+            return;
+        }
+
+        if path == "/api/tasks/delete" {
+            let conn = get_connection(None).unwrap();
+            let id = body["id"].as_str().unwrap_or("");
+            conn.execute("DELETE FROM scheduled_tasks WHERE id = ?1", rusqlite::params![id]).ok();
+            let resp = Response::from_string(serde_json::json!({"status": "ok", "deleted": id}).to_string())
                 .with_header(json_header)
                 .with_header(cors_header);
             req.respond(resp).ok();

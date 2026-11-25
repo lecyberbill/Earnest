@@ -57,6 +57,28 @@ class Store {
             headers: {'Content-Type': 'application/json'},
             body: JSON.stringify(task)
         });
+        const data = await res.json();
+        if (!res.ok || data.status === 'error') {
+            throw new Error(data.error || 'Expression cron invalide');
+        }
+        return data;
+    }
+
+    async toggleTask(id, isActive) {
+        const res = await fetch(`${this.apiBase}/api/tasks/toggle`, {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({ id, is_active: isActive })
+        });
+        return res.json();
+    }
+
+    async deleteTask(id) {
+        const res = await fetch(`${this.apiBase}/api/tasks/delete`, {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({ id })
+        });
         return res.json();
     }
 

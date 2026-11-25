@@ -94,12 +94,20 @@ pub fn validate_workflow(spec: &WorkflowSpec) -> ValidationReport {
                     message: format!("Connexion '{}' inexistante dans `connections`", conn),
                 });
             }
-            TriggerSpec::Cron { expr, .. } if expr.trim().is_empty() => {
-                errors.push(ValidationError {
-                    code: "INVALID_CRON",
-                    path: format!("triggers[{}].expr", idx),
-                    message: "Expression cron vide".into(),
-                });
+            TriggerSpec::Cron { expr, .. } => {
+                if expr.trim().is_empty() {
+                    errors.push(ValidationError {
+                        code: "INVALID_CRON",
+                        path: format!("triggers[{}].expr", idx),
+                        message: "Expression cron vide".into(),
+                    });
+                } else if let Err(e) = crate::parse_wfl_cron(expr) {
+                    errors.push(ValidationError {
+                        code: "INVALID_CRON",
+                        path: format!("triggers[{}].expr", idx),
+                        message: format!("Expression cron invalide ('{}'): {}", expr, e),
+                    });
+                }
             }
             _ => {}
         }

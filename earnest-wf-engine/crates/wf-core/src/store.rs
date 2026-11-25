@@ -276,6 +276,10 @@ impl WfStore {
 
     pub fn set_workflow_cron(&self, name: &str, cron_expr: Option<&str>) -> Result<(), String> {
         let clean = cron_expr.map(str::trim).filter(|s| !s.is_empty());
+        if let Some(expr) = clean {
+            crate::parse_wfl_cron(expr)
+                .map_err(|e| format!("Expression cron invalide ('{}'): {}", expr, e))?;
+        }
         let changed = self
             .conn
             .execute(
@@ -380,6 +384,16 @@ impl WfStore {
         name: &str,
         opts: ExecutionOptions,
     ) -> Result<(String, RunReport), String> {
+        self.execute_and_record_with_trigger(name, "manual", None, opts)
+    }
+
+    pub fn execute_and_record_with_trigger(
+        &self,
+        name: &str,
+        trigger_type: &str,
+        started_override_secs: Option<u64>,
+        opts: ExecutionOptions,
+    ) -> Result<(String, RunReport), String> {
         let rec = self
             .get_workflow(name)?
             .ok_or_else(|| format!("Workflow '{}' introuvable", name))?;
@@ -410,12 +424,14 @@ impl WfStore {
         }
 
         let run_id = gen_run_id();
-        let started_at = now_epoch_str();
+        let started_at = started_override_secs
+            .map(|s| s.to_string())
+            .unwrap_or_else(now_epoch_str);
         self.conn
             .execute(
                 "INSERT INTO runs (run_id, workflow_name, workflow_sha256, trigger_type, dry_run, status, started_at)
-                 VALUES (?1, ?2, ?3, 'manual', ?4, 'running', ?5)",
-                params![run_id, name, disk_sha, i32::from(opts.dry_run), started_at],
+                 VALUES (?1, ?2, ?3, ?4, ?5, 'running', ?6)",
+                params![run_id, name, disk_sha, trigger_type, i32::from(opts.dry_run), started_at],
             )
             .map_err(|e| e.to_string())?;
 
@@ -450,6 +466,59 @@ impl WfStore {
         }
 
         Ok((run_id, report))
+    }
+
+    /// Déclenche une seule fois par minute UTC tous les workflows `sealed` + `enabled`
+    /// dont l'expression `cron_expr` correspond à `now_unix_secs`.
+    pub fn run_due_cron_workflows(&self, now_unix_secs: u64) -> Result<Vec<(String, String)>, String> {
+        let now_minute = now_unix_secs / 60;
+        let workflows = self.list_workflows()?;
+        let mut triggered = Vec::new();
+
+        for wf in workflows {
+            if !wf.enabled || wf.status != "sealed" {
+                continue;
+            }
+            let Some(expr) = wf.cron_expr.as_deref() else {
+                continue;
+            };
+            let Ok(sched) = crate::parse_wfl_cron(expr) else {
+                continue;
+            };
+            if !sched.matches(now_unix_secs) {
+                continue;
+            }
+
+            let already_ran_this_minute = self
+                .conn
+                .query_row(
+                    "SELECT started_at FROM runs WHERE workflow_name = ?1 AND trigger_type = 'cron' ORDER BY rowid DESC LIMIT 1",
+                    params![wf.name],
+                    |r| r.get::<_, String>(0),
+                )
+                .ok()
+                .and_then(|s| s.parse::<u64>().ok())
+                .map(|ts| ts / 60 == now_minute)
+                .unwrap_or(false);
+
+            if already_ran_this_minute {
+                continue;
+            }
+
+            if let Ok((run_id, _)) = self.execute_and_record_with_trigger(
+                &wf.name,
+                "cron",
+                Some(now_unix_secs),
+                ExecutionOptions {
+                    dry_run: false,
+                    ..Default::default()
+                },
+            ) {
+                triggered.push((wf.name, run_id));
+            }
+        }
+
+        Ok(triggered)
     }
 
     pub fn inspect_run(&self, run_id: &str) -> Result<Option<RunDetails>, String> {
@@ -502,5 +571,60 @@ impl WfStore {
             error_summary: row.get(8).map_err(|e| e.to_string())?,
             step_logs,
         }))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn cron_validation_and_idempotent_due_execution() {
+        let tmp_dir = std::env::temp_dir().join(format!(
+            "wf_cron_test_{}",
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .map(|d| d.as_nanos())
+                .unwrap_or(0)
+        ));
+        let _ = fs::create_dir_all(&tmp_dir);
+        let db_path = tmp_dir.join("wf.db");
+        let wf_file = tmp_dir.join("ping.wf.yaml");
+        let store = WfStore::open(&db_path).expect("open store");
+
+        let yaml = r#"
+version: "0.1"
+name: "cron_ping"
+steps:
+  - id: s1
+    action: sys.log
+    params:
+      message: "ping"
+"#;
+        let spec = parse_workflow_yaml(yaml).expect("parse yaml");
+        store.save_draft(&spec, &wf_file).expect("save draft");
+
+        // Impossible calendar date and zero step must be rejected
+        assert!(store.set_workflow_cron("cron_ping", Some("* * 31 2 *")).is_err());
+        assert!(store.set_workflow_cron("cron_ping", Some("*/0 * * * *")).is_err());
+
+        // Valid cron accepted, but draft workflow must NOT auto-fire
+        store
+            .set_workflow_cron("cron_ping", Some("0 9 * * MON-FRI"))
+            .expect("valid cron");
+        let friday_9am = cron_pulse::unix_from_civil(2024, 3, 15, 9, 0, 10).unwrap();
+        assert!(store.run_due_cron_workflows(friday_9am).unwrap().is_empty());
+
+        // Once sealed, fires exactly once in that UTC minute
+        store.seal_workflow("cron_ping").expect("seal");
+        let fired1 = store.run_due_cron_workflows(friday_9am).unwrap();
+        assert_eq!(fired1.len(), 1);
+        assert_eq!(fired1[0].0, "cron_ping");
+
+        // 30 seconds later in the same UTC minute -> no duplicate run
+        let fired2 = store.run_due_cron_workflows(friday_9am + 30).unwrap();
+        assert!(fired2.is_empty());
+
+        let _ = fs::remove_dir_all(&tmp_dir);
     }
 }

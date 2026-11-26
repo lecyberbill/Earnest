@@ -4,12 +4,12 @@ export class ContextInspector extends HTMLElement {
     connectedCallback() {
         this.innerHTML = `
             <div class="context-inspector-pane">
-                <div style="display: flex; flex-direction: column; gap: 0.75rem; overflow: hidden;">
+                <div style="display: flex; flex-direction: column; gap: 0.75rem; overflow: hidden; min-height: 0; height: 100%;">
                     <h3 style="margin-top: 0; display: flex; align-items: center; gap: 0.5rem;">
                         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><polyline points="12 6 12 12 16 14"></polyline></svg>
                         <span data-i18n="inspector.history_title">Historique des Exécutions</span>
                     </h3>
-                    <div class="history-list" id="runs-history-list" style="flex: 1; overflow-y: auto;">
+                    <div class="history-list" id="runs-history-list" style="flex: 1; min-height: 0; max-height: none; overflow-y: auto;">
                         <div data-i18n="inspector.history_loading" style="color: var(--text-muted); font-size: 0.8rem; text-align: center; padding: 1rem;">Chargement de l'historique...</div>
                     </div>
                 </div>

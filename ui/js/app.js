@@ -108,6 +108,7 @@ document.addEventListener('DOMContentLoaded', () => {
         btnRefreshHud.addEventListener('click', async () => {
             btnRefreshHud.innerHTML = `<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="animation: spin 1s linear infinite;"><path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l5.67-5.67"/></svg> <span data-i18n="hud.probing">${window.t ? window.t('hud.probing') : 'Sonde...'}</span>`;
             await updateTelemetry();
+            document.querySelector('pixel-agent-stage')?.loadBackends?.();
             btnRefreshHud.innerHTML = `<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l5.67-5.67"/></svg> <span data-i18n="hud.probe">${window.t ? window.t('hud.probe') : 'Sonde'}</span>`;
         });
     }

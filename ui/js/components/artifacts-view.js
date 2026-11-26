@@ -168,12 +168,12 @@ export class ArtifactsView extends HTMLElement {
                 let iconSvg = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline></svg>`;
 
                 item.innerHTML = `
-                    <div style="display: flex; align-items: center; gap: 0.45rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
-                        <input type="checkbox" class="art-select-cb" ${this.selectedPaths.has(art.path) ? 'checked' : ''} style="cursor: pointer; accent-color: var(--accent-rose); flex-shrink: 0;" />
-                        <span style="display: flex; align-items: center; opacity: 0.8;">${iconSvg}</span>
-                        <strong style="color: var(--text-primary); font-family: var(--font-mono);">${art.name}</strong>
+                    <div style="display: flex; align-items: center; gap: 0.45rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; flex: 1;">
+                        <input type="checkbox" class="art-select-cb" ${this.selectedPaths.has(art.path) ? 'checked' : ''} style="width: 14px; height: 14px; min-width: 14px; margin: 0; padding: 0; cursor: pointer; accent-color: var(--accent-rose); flex-shrink: 0;" />
+                        <span style="display: flex; align-items: center; opacity: 0.8; flex-shrink: 0;">${iconSvg}</span>
+                        <strong style="color: var(--text-primary); font-family: var(--font-mono); overflow: hidden; text-overflow: ellipsis;">${art.name}</strong>
                     </div>
-                    <span style="color: var(--text-muted); font-size: 0.72rem;">${art.size_kb} KB</span>
+                    <span style="color: var(--text-muted); font-size: 0.72rem; flex-shrink: 0; margin-left: 0.5rem;">${art.size_kb} KB</span>
                 `;
 
                 const cb = item.querySelector('.art-select-cb');

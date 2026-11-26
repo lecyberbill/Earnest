@@ -1,0 +1,8 @@
+[package]
+name = "circuit_guard"
+version = "0.1.0"
+edition = "2021"
+description = "Deterministic resilience primitives for LLM and HTTP calls: circuit breaker, token-bucket rate limiter, and bounded exponential backoff with deterministic jitter."
+license = "MIT"
+
+[dependencies]

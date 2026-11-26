@@ -40,6 +40,7 @@ jobs:
           cargo test --manifest-path crates/log-sanitizer/Cargo.toml --verbose
           cargo test --manifest-path crates/glob-ignore/Cargo.toml --verbose
           cargo test --manifest-path crates/expr-eval/Cargo.toml --verbose
+          cargo test --manifest-path crates/circuit-guard/Cargo.toml --verbose
 
       - name: Check & Test earnest-wf-engine
         run: |

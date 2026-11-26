@@ -37,6 +37,7 @@ export class ArtifactsView extends HTMLElement {
                             <div style="display: flex; gap: 0.5rem; align-items: center;">
                                 <button class="btn-bubble-action" id="btn-toggle-edit" data-i18n="art.edit" style="display: none; cursor: pointer;">Éditer</button>
                                 <button class="btn-bubble-action" id="btn-save-artifact" data-i18n="art.save" style="display: none; background: rgba(16, 185, 129, 0.2); border-color: var(--accent-emerald); color: var(--accent-emerald); cursor: pointer;">Enregistrer</button>
+                                <button class="btn-bubble-action" id="btn-download-artifact" style="display: none; cursor: pointer;">💾 Enregistrer sous...</button>
                                 <button class="btn-bubble-action" id="btn-copy-artifact" data-i18n="art.copy">Copier</button>
                                 <button class="btn-bubble-action" id="btn-delete-artifact" data-i18n="art.delete" style="display: none; background: rgba(244, 63, 94, 0.15); border-color: var(--accent-rose); color: var(--accent-rose); cursor: pointer;">Supprimer</button>
                             </div>
@@ -55,6 +56,7 @@ export class ArtifactsView extends HTMLElement {
 
         this.querySelector('#btn-refresh-artifacts').addEventListener('click', () => this.loadArtifacts());
         this.querySelector('#btn-copy-artifact').addEventListener('click', () => this.copyContent());
+        this.querySelector('#btn-download-artifact').addEventListener('click', () => this.saveArtifactAs());
 
         const btnEdit = this.querySelector('#btn-toggle-edit');
         const btnSave = this.querySelector('#btn-save-artifact');
@@ -193,11 +195,13 @@ export class ArtifactsView extends HTMLElement {
         
         const btnEdit = this.querySelector('#btn-toggle-edit');
         const btnSave = this.querySelector('#btn-save-artifact');
+        const btnDownload = this.querySelector('#btn-download-artifact');
         const btnDelete = this.querySelector('#btn-delete-artifact');
         
         btnEdit.style.display = 'inline-block';
         btnEdit.textContent = 'Éditer';
         btnSave.style.display = 'none';
+        if (btnDownload) btnDownload.style.display = 'inline-block';
         btnDelete.style.display = 'inline-block';
 
         const preview = this.querySelector('#preview-content');
@@ -286,6 +290,34 @@ export class ArtifactsView extends HTMLElement {
                 <pre class="language-${lang}" style="margin: 0; background: #03060d; border: 1px solid var(--border-subtle); border-radius: var(--radius-sm); padding: 1.25rem; overflow: auto; flex: 1;"><code class="language-${lang}" style="font-family: var(--font-mono); font-size: 0.85rem; line-height: 1.6;">${highlightedHtml}</code></pre>
             `;
         }
+    }
+
+    async saveArtifactAs() {
+        if (!this.selectedArtifact) return;
+        const filename = (this.selectedArtifact.name || this.selectedArtifact.path || 'artifact.txt')
+            .split(/[/\\]/)
+            .pop();
+        const content = this.selectedContent ?? '';
+        if (window.showSaveFilePicker) {
+            try {
+                const handle = await window.showSaveFilePicker({ suggestedName: filename });
+                const writable = await handle.createWritable();
+                await writable.write(content);
+                await writable.close();
+                return;
+            } catch (err) {
+                if (err && err.name === 'AbortError') return;
+            }
+        }
+        const blob = new Blob([content], { type: 'text/plain;charset=utf-8' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = filename;
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+        URL.revokeObjectURL(url);
     }
 
     copyContent() {

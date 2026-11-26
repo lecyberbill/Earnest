@@ -19,7 +19,7 @@ export class ChatView extends HTMLElement {
             <div class="card" style="height: calc(100vh - 120px); display: flex; flex-direction: column; margin-bottom: 0; padding: 1.5rem;">
                 <div style="display: flex; justify-content: space-between; align-items: center; gap: 0.75rem; flex-wrap: wrap; border-bottom: 1px solid var(--border-subtle); padding-bottom: 0.85rem; margin-bottom: 1rem;">
                     <div style="display: flex; align-items: center; gap: 0.85rem;">
-                        <agent-mascot id="chat-mascot"></agent-mascot>
+                        <agent-mascot id="chat-mascot" variant="psy"></agent-mascot>
                         <div>
                             <h2 style="display: flex; align-items: center; gap: 0.5rem; margin: 0;">
                                 <span data-i18n="chat.title">Salon de Discussion Directe</span>

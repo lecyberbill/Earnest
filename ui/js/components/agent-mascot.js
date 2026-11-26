@@ -76,6 +76,14 @@ class AgentMascot extends HTMLElement {
     }
 
     render() {
+        const isPsy = this.getAttribute('variant') === 'psy';
+        const glassesHtml = isPsy
+            ? `<g id="psy-glasses" stroke="#fbbf24" stroke-width="3.2" fill="rgba(56,189,248,0.12)">
+                   <circle cx="126" cy="115" r="15"/>
+                   <circle cx="174" cy="115" r="15"/>
+                   <line x1="141" y1="115" x2="159" y2="115" stroke-linecap="round"/>
+               </g>`
+            : '';
         this.shadowRoot.innerHTML = `
             <style>
                 :host { display: inline-block; width: 78px; height: 78px; flex-shrink: 0; }
@@ -147,6 +155,7 @@ class AgentMascot extends HTMLElement {
                                 <path d="M164 116 Q174 124 184 116" stroke="#818cf8" stroke-width="3.5" stroke-linecap="round" fill="none"/>
                                 <circle cx="150" cy="128" r="3.5" fill="#818cf8" opacity="0.8"/>
                             </g>
+                            ${glassesHtml}
                         </g>
                         <g id="arm-left"><rect x="74" y="176" width="24" height="42" rx="12" fill="url(#bGrad)" stroke="#94a3b8" stroke-width="3"/></g>
                         <g id="arm-right"><rect x="202" y="176" width="24" height="42" rx="12" fill="url(#bGrad)" stroke="#94a3b8" stroke-width="3"/></g>

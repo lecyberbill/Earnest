@@ -5,6 +5,7 @@ export class ArtifactsView extends HTMLElement {
         super();
         this.artifacts = [];
         this.selectedArtifact = null;
+        this.selectedPaths = new Set();
     }
 
     connectedCallback() {
@@ -18,10 +19,13 @@ export class ArtifactsView extends HTMLElement {
                         </h2>
                         <p class="card-desc" data-i18n="art.desc" style="margin-bottom: 0;">Fichiers générés, rapports Markdown, code source et schémas matérialisés sur le disque.</p>
                     </div>
-                    <button class="btn-primary" id="btn-refresh-artifacts" style="padding: 0.35rem 0.85rem; font-size: 0.8rem; display: inline-flex; align-items: center; gap: 0.35rem;">
-                        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l5.67-5.67"/></svg>
-                        <span data-i18n="art.refresh">Rafraîchir</span>
-                    </button>
+                    <div style="display: flex; gap: 0.5rem; align-items: center;">
+                        <button class="btn-bubble-action" id="btn-delete-selected" style="display: none; background: rgba(244, 63, 94, 0.15); border-color: var(--accent-rose); color: var(--accent-rose); cursor: pointer; font-size: 0.8rem;">🗑 Supprimer la sélection (0)</button>
+                        <button class="btn-primary" id="btn-refresh-artifacts" style="padding: 0.35rem 0.85rem; font-size: 0.8rem; display: inline-flex; align-items: center; gap: 0.35rem;">
+                            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l5.67-5.67"/></svg>
+                            <span data-i18n="art.refresh">Rafraîchir</span>
+                        </button>
+                    </div>
                 </div>
 
                 <div style="display: grid; grid-template-columns: 280px 1fr; gap: 1.25rem; flex: 1; overflow: hidden;">
@@ -57,6 +61,7 @@ export class ArtifactsView extends HTMLElement {
         this.querySelector('#btn-refresh-artifacts').addEventListener('click', () => this.loadArtifacts());
         this.querySelector('#btn-copy-artifact').addEventListener('click', () => this.copyContent());
         this.querySelector('#btn-download-artifact').addEventListener('click', () => this.saveArtifactAs());
+        this.querySelector('#btn-delete-selected').addEventListener('click', () => this.deleteSelectedArtifacts());
 
         const btnEdit = this.querySelector('#btn-toggle-edit');
         const btnSave = this.querySelector('#btn-save-artifact');
@@ -163,12 +168,21 @@ export class ArtifactsView extends HTMLElement {
                 let iconSvg = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline></svg>`;
 
                 item.innerHTML = `
-                    <div style="display: flex; align-items: center; gap: 0.4rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
+                    <div style="display: flex; align-items: center; gap: 0.45rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
+                        <input type="checkbox" class="art-select-cb" ${this.selectedPaths.has(art.path) ? 'checked' : ''} style="cursor: pointer; accent-color: var(--accent-rose); flex-shrink: 0;" />
                         <span style="display: flex; align-items: center; opacity: 0.8;">${iconSvg}</span>
                         <strong style="color: var(--text-primary); font-family: var(--font-mono);">${art.name}</strong>
                     </div>
                     <span style="color: var(--text-muted); font-size: 0.72rem;">${art.size_kb} KB</span>
                 `;
+
+                const cb = item.querySelector('.art-select-cb');
+                cb.addEventListener('click', (e) => e.stopPropagation());
+                cb.addEventListener('change', () => {
+                    if (cb.checked) this.selectedPaths.add(art.path);
+                    else this.selectedPaths.delete(art.path);
+                    this.updateBatchDeleteButton();
+                });
 
                 item.addEventListener('click', () => {
                     this.querySelectorAll('#artifacts-list > div').forEach(el => {
@@ -290,6 +304,31 @@ export class ArtifactsView extends HTMLElement {
                 <pre class="language-${lang}" style="margin: 0; background: #03060d; border: 1px solid var(--border-subtle); border-radius: var(--radius-sm); padding: 1.25rem; overflow: auto; flex: 1;"><code class="language-${lang}" style="font-family: var(--font-mono); font-size: 0.85rem; line-height: 1.6;">${highlightedHtml}</code></pre>
             `;
         }
+    }
+
+    updateBatchDeleteButton() {
+        const btn = this.querySelector('#btn-delete-selected');
+        if (!btn) return;
+        const n = this.selectedPaths.size;
+        btn.style.display = n > 0 ? 'inline-block' : 'none';
+        btn.textContent = `🗑 Supprimer la sélection (${n})`;
+    }
+
+    async deleteSelectedArtifacts() {
+        if (this.selectedPaths.size === 0) return;
+        const paths = Array.from(this.selectedPaths);
+        for (const p of paths) {
+            try {
+                await fetch('/api/artifacts/delete', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ path: p })
+                });
+            } catch {}
+        }
+        this.selectedPaths.clear();
+        this.updateBatchDeleteButton();
+        this.loadArtifacts();
     }
 
     async saveArtifactAs() {

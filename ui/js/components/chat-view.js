@@ -1,5 +1,6 @@
 import { store } from '../store.js';
 import { renderMarkdown } from '../markdown.js';
+import './agent-mascot.js';
 
 export class ChatView extends HTMLElement {
     constructor() {
@@ -18,9 +19,7 @@ export class ChatView extends HTMLElement {
             <div class="card" style="height: calc(100vh - 120px); display: flex; flex-direction: column; margin-bottom: 0; padding: 1.5rem;">
                 <div style="display: flex; justify-content: space-between; align-items: center; gap: 0.75rem; flex-wrap: wrap; border-bottom: 1px solid var(--border-subtle); padding-bottom: 0.85rem; margin-bottom: 1rem;">
                     <div style="display: flex; align-items: center; gap: 0.85rem;">
-                        <div style="position: relative; width: 58px; height: 58px; border-radius: var(--radius-sm); background: rgba(15, 23, 42, 0.85); border: 1px solid rgba(99, 102, 241, 0.35); display: flex; align-items: center; justify-content: center; flex-shrink: 0;">
-                            <canvas id="psy-bot-canvas" width="56" height="56" style="image-rendering: pixelated;"></canvas>
-                        </div>
+                        <agent-mascot id="chat-mascot"></agent-mascot>
                         <div>
                             <h2 style="display: flex; align-items: center; gap: 0.5rem; margin: 0;">
                                 <span data-i18n="chat.title">Salon de Discussion Directe</span>
@@ -225,6 +224,7 @@ export class ChatView extends HTMLElement {
         // Placeholder temporaire assistant
         const thinkingBubble = this.appendPlaceholder('Dr. Earnest ajuste ses lunettes et réfléchit...');
         this.setPsyState('thinking');
+        this.querySelector('#chat-mascot')?.setState('think');
 
         try {
             const backendSel = this.querySelector('#chat-backend-select');
@@ -246,6 +246,7 @@ export class ChatView extends HTMLElement {
                 thinkingBubble.className = 'chat-bubble assistant error';
                 thinkingBubble.textContent = `Erreur: ${err.error || 'Erreur réseau'}`;
                 this.setPsyState('idle');
+                this.querySelector('#chat-mascot')?.setState('sleep');
                 return;
             }
 
@@ -256,12 +257,17 @@ export class ChatView extends HTMLElement {
             this.renderBubble('assistant', reply);
             this.messages.push({ role: 'assistant', content: reply });
             this.setPsyState('nod');
-            setTimeout(() => this.setPsyState('idle'), 1400);
+            this.querySelector('#chat-mascot')?.setState('work');
+            setTimeout(() => {
+                this.setPsyState('idle');
+                this.querySelector('#chat-mascot')?.setState('sleep');
+            }, 1400);
             this.loadSessions();
         } catch (e) {
             thinkingBubble.className = 'chat-bubble assistant error';
             thinkingBubble.textContent = `Erreur de connexion : ${e.message}`;
             this.setPsyState('idle');
+            this.querySelector('#chat-mascot')?.setState('sleep');
         }
     }
 

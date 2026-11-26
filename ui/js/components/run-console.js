@@ -1,6 +1,7 @@
 import { store } from '../store.js';
 import { renderMarkdown } from '../markdown.js';
 import './pixel-agent-stage.js';
+import './agent-mascot.js';
 
 export class RunConsole extends HTMLElement {
     connectedCallback() {
@@ -10,13 +11,18 @@ export class RunConsole extends HTMLElement {
                 <pixel-agent-stage id="pixel-stage"></pixel-agent-stage>
 
                 <div class="card" style="margin-bottom: 0;">
-                    <h2>
-                        <span style="display: inline-flex; align-items: center; justify-content: center; width: 24px; height: 24px; background: rgba(255,255,255,0.08); border-radius: 4px; color: #ffffff;">
-                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"></polygon></svg>
-                        </span>
-                        <span data-i18n="run.title">Console Opérationnelle & Streaming ReAct</span>
-                    </h2>
-                    <p class="card-desc" data-i18n="run.desc">Exécution d'instructions agentiques avec traçabilité complète et monitoring des modèles en direct.</p>
+                    <div style="display: flex; justify-content: space-between; align-items: center; gap: 1rem;">
+                        <div>
+                            <h2>
+                                <span style="display: inline-flex; align-items: center; justify-content: center; width: 24px; height: 24px; background: rgba(255,255,255,0.08); border-radius: 4px; color: #ffffff;">
+                                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"></polygon></svg>
+                                </span>
+                                <span data-i18n="run.title">Console Opérationnelle & Streaming ReAct</span>
+                            </h2>
+                            <p class="card-desc" data-i18n="run.desc">Exécution d'instructions agentiques avec traçabilité complète et monitoring des modèles en direct.</p>
+                        </div>
+                        <agent-mascot id="run-mascot"></agent-mascot>
+                    </div>
                     
                     <!-- Ligne 1 : Zone de saisie large et confortable -->
                     <div style="margin-bottom: 0.85rem; position: relative;">
@@ -290,6 +296,7 @@ export class RunConsole extends HTMLElement {
         const btn = this.querySelector('#btn-run');
         const btnCancel = this.querySelector('#btn-cancel');
         const pixelStage = this.querySelector('#pixel-stage');
+        const mascot = this.querySelector('#run-mascot');
         const selector = this.querySelector('#backend-selector');
         const prompt = promptInput.value.trim();
         if (!prompt) return;
@@ -304,6 +311,7 @@ export class RunConsole extends HTMLElement {
         terminal.innerHTML = '';
         this.appendTrace('thought', `Démarrage de la tâche : "${prompt}"`);
         if (pixelStage) pixelStage.setAgentState('thought');
+        if (mascot) mascot.setState('think');
 
         try {
             const effortSelector = this.querySelector('#effort-selector');
@@ -392,6 +400,7 @@ export class RunConsole extends HTMLElement {
                     } else if (eventType === 'error') {
                         this.appendTrace('error', `Erreur: ${data.error}`);
                         if (pixelStage) pixelStage.setAgentState('error');
+                        if (mascot) mascot.setState('sleep');
                     }
                 }
             }

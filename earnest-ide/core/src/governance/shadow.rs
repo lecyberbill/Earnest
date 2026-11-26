@@ -611,10 +611,23 @@ impl ShadowRunner {
             }
         }
 
-        // 2. Python (pytest ou unittest)
+        // 2. Python (pytest ou unittest) — uniquement si un marqueur Python existe
+        // (pyproject.toml, pytest.ini, ou un fichier .py dans tests/ — évite de lancer pytest sur tests/integration.rs d'un projet Rust)
+        let has_python_tests = self.shadow_path.join("tests").is_dir()
+            && fs::read_dir(self.shadow_path.join("tests"))
+                .map(|rd| {
+                    rd.flatten().any(|e| {
+                        e.path()
+                            .extension()
+                            .and_then(|ext| ext.to_str())
+                            .map(|ext| ext.eq_ignore_ascii_case("py"))
+                            .unwrap_or(false)
+                    })
+                })
+                .unwrap_or(false);
         if self.shadow_path.join("pyproject.toml").is_file()
             || self.shadow_path.join("pytest.ini").is_file()
-            || self.shadow_path.join("tests").is_dir()
+            || has_python_tests
         {
             cmds.push(("python", "python -m pytest -q".to_string()));
         }

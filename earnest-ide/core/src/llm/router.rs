@@ -24,6 +24,7 @@ pub struct ProbeResult {
     pub error: Option<String>,
 }
 
+#[derive(Clone)]
 pub struct LLMRouter {
     pub backends: Vec<BackendConfig>,
 }

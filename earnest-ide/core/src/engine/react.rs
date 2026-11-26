@@ -65,6 +65,25 @@ use crate::governance::{
     ShadowRunner
 };
 
+fn prioritize_router_for_model(base: &LLMRouter, model_hint: Option<&str>) -> LLMRouter {
+    let mut cloned = base.clone();
+    let Some(hint) = model_hint.map(str::trim).filter(|s| !s.is_empty()) else {
+        return cloned;
+    };
+    let needle = hint.to_ascii_lowercase();
+    cloned.backends.sort_by_key(|b| {
+        let is_local = needle == "local"
+            && matches!(b.provider_type.to_ascii_lowercase().as_str(), "ollama" | "lmstudio");
+        let matches_hint = is_local
+            || b.id.to_ascii_lowercase().contains(&needle)
+            || b.provider_type.to_ascii_lowercase().contains(&needle)
+            || b.name.to_ascii_lowercase().contains(&needle)
+            || b.model.to_ascii_lowercase().contains(&needle);
+        if matches_hint { 0 } else { 1 }
+    });
+    cloned
+}
+
 pub struct ReActResult {
     pub run_id: String,
     pub status: String,
@@ -959,10 +978,18 @@ impl<'a> ReActEngine<'a> {
                 let role = args["role"].as_str().unwrap_or("Specialized Subagent");
                 let task = args["task"].as_str().unwrap_or("");
                 let readonly = args["readonly"].as_bool().unwrap_or(false);
+                let model_hint = args["model"].as_str().map(str::trim).filter(|s| !s.is_empty());
+
+                let sub_router = prioritize_router_for_model(self.router, model_hint);
+                let active_model = sub_router
+                    .backends
+                    .first()
+                    .map(|b| format!("{}/{}", b.provider_type, b.model))
+                    .unwrap_or_else(|| "default".to_string());
 
                 let sub_engine = SubAgentRunner {
                     conn: self.conn,
-                    router: self.router,
+                    router: &sub_router,
                     project_id: format!("{}/sub_{}", self.project_id, &uuid::Uuid::new_v4().to_string().replace('-', "")[..6]),
                     role: role.to_string(),
                     readonly,
@@ -973,11 +1000,13 @@ impl<'a> ReActEngine<'a> {
                     Ok(report) => (serde_json::json!({
                         "status": "success",
                         "subagent_role": role,
+                        "model_used": active_model,
                         "report": report
                     }).to_string(), None),
                     Err(e) => (serde_json::json!({
                         "status": "error",
                         "subagent_role": role,
+                        "model_used": active_model,
                         "error": e
                     }).to_string(), None),
                 }

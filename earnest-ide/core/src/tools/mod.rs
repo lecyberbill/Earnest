@@ -289,7 +289,8 @@ pub fn get_ide_tools_schemas() -> Vec<Value> {
                     "properties": {
                         "role": { "type": "string", "description": "Rôle du sous-agent (ex: 'Code Explorer', 'Test Runner', 'API Researcher')" },
                         "task": { "type": "string", "description": "Instruction précise et objectif clair assigné au sous-agent" },
-                        "readonly": { "type": "boolean", "description": "Si true (recommandé pour exploration), le sous-agent a accès uniquement aux outils de recherche/lecture" }
+                        "readonly": { "type": "boolean", "description": "Si true (recommandé pour exploration), le sous-agent a accès uniquement aux outils de recherche/lecture" },
+                        "model": { "type": "string", "description": "Modèle ou provider cible optionnel (ex: 'local', 'ollama', 'lmstudio', 'deepseek', ou nom d'un backend configuré). Si omis, hérite du modèle parent." }
                     },
                     "required": ["role", "task"]
                 }

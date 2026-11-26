@@ -38,7 +38,8 @@ Ernet IDE
 <img width="1725" height="1046" alt="image" src="https://github.com/user-attachments/assets/3a7d032b-e9e5-46a7-b35f-87bdfcb0b33d" />
 
 Ernest Agent center 
-<img width="1717" height="958" alt="image" src="https://github.com/user-attachments/assets/c4a3965d-9b2e-4e06-a0eb-1d0f71782c87" />
+<img width="1695" height="1013" alt="image" src="https://github.com/user-attachments/assets/f4589a73-e905-409e-a4e6-66c1b73954c4" />
+
 <img width="1707" height="978" alt="image" src="https://github.com/user-attachments/assets/79342eef-8e01-4adc-9826-631788b48966" />
 
 

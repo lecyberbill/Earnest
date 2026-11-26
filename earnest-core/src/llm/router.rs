@@ -164,19 +164,72 @@ impl LLMRouter {
             if crate::llm::client::is_cancelled() {
                 return Err("Run annulé par l'utilisateur.".to_string());
             }
+            let now_ms = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_millis() as u64)
+                .unwrap_or(0);
+            if let Err(wait_ms) = breaker_allow(&b.id, now_ms) {
+                last_err = format!(
+                    "Moteur {} temporairement isolé par circuit_guard ({} ms restants)",
+                    b.name, wait_ms
+                );
+                continue;
+            }
             let client = LLMClient::new(&b.provider_type, &b.base_url, &b.model, b.api_key.clone());
             match client.chat_completion(messages, tools, think_effort) {
-                Ok(resp) => return Ok((resp, b.id.clone())),
+                Ok(resp) => {
+                    breaker_record_success(&b.id, now_ms);
+                    return Ok((resp, b.id.clone()));
+                }
                 Err(e) => {
                     if crate::llm::client::is_cancelled() || e.to_lowercase().contains("annulé") {
                         return Err(e);
                     }
+                    breaker_record_failure(&b.id, now_ms);
                     last_err = format!("Moteur {} échoué: {}", b.name, e);
                 }
             }
         }
 
         Err(format!("Tous les moteurs LLM ont échoué. Dernière erreur: {}", last_err))
+    }
+}
+
+fn backend_breakers() -> &'static std::sync::Mutex<std::collections::HashMap<String, circuit_guard::CircuitBreaker>> {
+    static BREAKERS: std::sync::OnceLock<
+        std::sync::Mutex<std::collections::HashMap<String, circuit_guard::CircuitBreaker>>,
+    > = std::sync::OnceLock::new();
+    BREAKERS.get_or_init(|| std::sync::Mutex::new(std::collections::HashMap::new()))
+}
+
+fn breaker_allow(backend_id: &str, now_ms: u64) -> Result<(), u64> {
+    let Ok(mut map) = backend_breakers().lock() else {
+        return Ok(());
+    };
+    let breaker = map
+        .entry(backend_id.to_string())
+        .or_insert_with(|| circuit_guard::CircuitBreaker::new(3, 30_000, 1));
+    match breaker.allow_request(now_ms) {
+        Ok(_) => Ok(()),
+        Err(circuit_guard::CircuitError::Open { retry_after_ms }) => Err(retry_after_ms),
+        Err(circuit_guard::CircuitError::HalfOpenSaturated) => Err(1_000),
+    }
+}
+
+fn breaker_record_success(backend_id: &str, now_ms: u64) {
+    if let Ok(mut map) = backend_breakers().lock() {
+        if let Some(b) = map.get_mut(backend_id) {
+            b.record_success(now_ms);
+        }
+    }
+}
+
+fn breaker_record_failure(backend_id: &str, now_ms: u64) {
+    if let Ok(mut map) = backend_breakers().lock() {
+        let b = map
+            .entry(backend_id.to_string())
+            .or_insert_with(|| circuit_guard::CircuitBreaker::new(3, 30_000, 1));
+        b.record_failure(now_ms);
     }
 }
 

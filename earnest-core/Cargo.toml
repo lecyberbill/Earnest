@@ -34,3 +34,4 @@ web-reader = { path = "../crates/web-reader" }
 shell-guard = { path = "../crates/shell-guard" }
 cron_pulse = { path = "../crates/cron-pulse" }
 dotenv_shield = { path = "../crates/dotenv-shield" }
+circuit_guard = { path = "../crates/circuit-guard" }

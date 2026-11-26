@@ -1,0 +1,9 @@
+[package]
+name = "expr_eval"
+version = "0.1.0"
+edition = "2021"
+description = "A secure, deterministic, zero-dependency expression evaluator for business rules and workflows."
+license = "MIT"
+
+[lib]
+name = "expr_eval"

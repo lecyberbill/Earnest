@@ -219,7 +219,74 @@ impl<'a> RuntimeCtx<'a> {
         Ok(out)
     }
 
+    fn to_expr_eval_context(&self) -> expr_eval::EvalContext {
+        fn json_to_expr(v: &Value) -> expr_eval::Value {
+            match v {
+                Value::Null => expr_eval::Value::Null,
+                Value::Bool(b) => expr_eval::Value::Bool(*b),
+                Value::Number(n) => {
+                    if let Some(i) = n.as_i64() {
+                        expr_eval::Value::Int(i)
+                    } else {
+                        expr_eval::Value::Float(n.as_f64().unwrap_or(0.0))
+                    }
+                }
+                Value::String(s) => expr_eval::Value::Str(s.clone()),
+                Value::Array(arr) => expr_eval::Value::List(arr.iter().map(json_to_expr).collect()),
+                Value::Object(obj) => {
+                    let mut map = std::collections::BTreeMap::new();
+                    for (k, val) in obj {
+                        map.insert(k.clone(), json_to_expr(val));
+                    }
+                    expr_eval::Value::Map(map)
+                }
+            }
+        }
+
+        let mut ctx = expr_eval::EvalContext::new();
+        let mut inputs_map = std::collections::BTreeMap::new();
+        for (k, v) in &self.inputs {
+            let ev = json_to_expr(v);
+            ctx.set_variable(k, ev.clone());
+            inputs_map.insert(k.clone(), ev);
+        }
+        ctx.set_variable("inputs", expr_eval::Value::Map(inputs_map));
+
+        let mut vars_map = std::collections::BTreeMap::new();
+        for (k, v) in &self.vars {
+            let ev = json_to_expr(v);
+            ctx.set_variable(k, ev.clone());
+            vars_map.insert(k.clone(), ev);
+        }
+        ctx.set_variable("vars", expr_eval::Value::Map(vars_map));
+
+        for (k, v) in &self.outputs {
+            ctx.set_variable(k, json_to_expr(v));
+        }
+        ctx
+    }
+
     fn eval_condition(&self, cond: &str) -> bool {
+        let normalized = cond
+            .replace("{{", "")
+            .replace("}}", "")
+            .replace("${", "")
+            .replace('}', "");
+        if let Ok(expr) = expr_eval::compile(&normalized) {
+            let eval_ctx = self.to_expr_eval_context();
+            if let Ok(val) = expr.eval(&eval_ctx) {
+                return match val {
+                    expr_eval::Value::Bool(b) => b,
+                    expr_eval::Value::Int(i) => i != 0,
+                    expr_eval::Value::Float(f) => f != 0.0,
+                    expr_eval::Value::Str(s) => !s.is_empty(),
+                    expr_eval::Value::List(l) => !l.is_empty(),
+                    expr_eval::Value::Map(m) => !m.is_empty(),
+                    expr_eval::Value::Null => false,
+                };
+            }
+        }
+
         let c = unwrap_outer_parens(cond.trim());
         if c == "true" {
             return true;

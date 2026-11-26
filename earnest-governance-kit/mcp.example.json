@@ -1,0 +1,12 @@
+{
+  "mcpServers": {
+    "earnest-governance": {
+      "command": "earnest_gov_mcp",
+      "args": ["--workspace", "."]
+    },
+    "earnest-bcpe": {
+      "command": "kb",
+      "args": ["mcp"]
+    }
+  }
+}

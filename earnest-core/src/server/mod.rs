@@ -713,6 +713,85 @@ fn handle_request(mut req: tiny_http::Request) {
     // ==========================================
     // 2. ENDPOINTS POST
     // ==========================================
+    if path == "/api/transcribe/status" {
+        let wdir = get_data_dir().join("whisper");
+        let bin_name = if cfg!(windows) { "whisper-server.exe" } else { "whisper-server" };
+        let has_bin = wdir.join(bin_name).exists() && (!cfg!(windows) || (wdir.join("ggml.dll").exists() && wdir.join("ggml-cuda.dll").exists()));
+        let has_model = wdir.join("ggml-large-v3-turbo-q5_0.bin").exists();
+        let installed = has_bin && has_model;
+        let err_msg = fs::read_to_string(wdir.join("install_error.txt")).ok().filter(|s| !s.trim().is_empty());
+        let mut total_bytes: u64 = 0;
+        for f in ["whisper-bin-x64.zip", bin_name, "ggml-large-v3-turbo-q5_0.bin"] {
+            if let Ok(m) = fs::metadata(wdir.join(f)) {
+                total_bytes += m.len();
+            }
+        }
+        let downloaded_mb = total_bytes / (1024 * 1024);
+        let stage = if !has_bin { "bin" } else if !has_model { "model" } else { "done" };
+        let _ = req.respond(
+            Response::from_string(serde_json::json!({
+                "installed": installed,
+                "error": err_msg,
+                "downloaded_mb": downloaded_mb,
+                "stage": stage,
+                "dir": wdir.display().to_string()
+            }).to_string())
+            .with_status_code(200)
+            .with_header(Header::from_bytes("Content-Type", "application/json").unwrap())
+            .with_header(Header::from_bytes("Access-Control-Allow-Origin", "*").unwrap()),
+        );
+        return;
+    }
+
+    if path == "/api/transcribe/install" {
+        let wdir = get_data_dir().join("whisper");
+        if let Err(e) = fs::create_dir_all(&wdir) {
+            let _ = req.respond(Response::from_string(serde_json::json!({"status": "error", "error": e.to_string()}).to_string()).with_status_code(500));
+            return;
+        }
+        let _ = fs::remove_file(wdir.join("install_error.txt"));
+        thread::spawn(move || {
+            let bin_name = if cfg!(windows) { "whisper-server.exe" } else { "whisper-server" };
+            if !wdir.join(bin_name).exists() || (cfg!(windows) && (!wdir.join("ggml.dll").exists() || !wdir.join("ggml-cuda.dll").exists())) {
+                let zip_path = wdir.join("whisper-bin-x64.zip");
+                let ps_cmd = format!(
+                    "$ErrorActionPreference='Stop'; try {{ curl.exe -L -f -s -S 'https://github.com/ggml-org/whisper.cpp/releases/download/b5907/whisper-bin-win-cuda-12.4.0-x64.zip' -o '{}'; if ($LASTEXITCODE -ne 0) {{ throw 'Echec curl zip CUDA' }}; Expand-Archive -Path '{}' -DestinationPath '{}' -Force; Remove-Item '{}' -Force; Get-ChildItem -Path '{}' -Recurse -Include 'whisper-server.exe','whisper-cli.exe','*.dll' | ForEach-Object {{ Move-Item $_.FullName -Destination '{}' -Force -ErrorAction SilentlyContinue }} }} catch {{ $_.Exception.Message | Out-File -FilePath '{}' -Encoding utf8 }}",
+                    zip_path.display(), zip_path.display(), wdir.display(), zip_path.display(), wdir.display(), wdir.display(), wdir.join("install_error.txt").display()
+                );
+                let mut cmd = std::process::Command::new("powershell");
+                cmd.args(["-NoProfile", "-WindowStyle", "Hidden", "-Command", &ps_cmd]);
+                #[cfg(windows)]
+                {
+                    use std::os::windows::process::CommandExt;
+                    cmd.creation_flags(0x08000000);
+                }
+                let _ = cmd.output();
+            }
+            if !wdir.join("ggml-large-v3-turbo-q5_0.bin").exists() {
+                let model_path = wdir.join("ggml-large-v3-turbo-q5_0.bin");
+                let ps_cmd = format!(
+                    "$ErrorActionPreference='Stop'; try {{ curl.exe -L -f -s -S 'https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-large-v3-turbo-q5_0.bin' -o '{}'; if ($LASTEXITCODE -ne 0) {{ throw 'Echec curl modele' }} }} catch {{ $_.Exception.Message | Out-File -FilePath '{}' -Encoding utf8 }}",
+                    model_path.display(), wdir.join("install_error.txt").display()
+                );
+                let mut cmd = std::process::Command::new("powershell");
+                cmd.args(["-NoProfile", "-WindowStyle", "Hidden", "-Command", &ps_cmd]);
+                #[cfg(windows)]
+                {
+                    use std::os::windows::process::CommandExt;
+                    cmd.creation_flags(0x08000000);
+                }
+                let _ = cmd.output();
+            }
+        });
+        let _ = req.respond(
+            Response::from_string(serde_json::json!({"status": "installing"}).to_string())
+                .with_status_code(200)
+                .with_header(Header::from_bytes("Content-Type", "application/json").unwrap())
+                .with_header(Header::from_bytes("Access-Control-Allow-Origin", "*").unwrap()),
+        );
+        return;
+    }
+
     if method == Method::Post {
         let mut body_str = String::new();
         req.as_reader().read_to_string(&mut body_str).ok();
@@ -1276,11 +1355,108 @@ fn handle_request(mut req: tiny_http::Request) {
             return;
         }
 
+        if path == "/api/transcribe" && method == Method::Post {
+            let wdir = get_data_dir().join("whisper");
+            let bin_name = if cfg!(windows) { "whisper-server.exe" } else { "whisper-server" };
+            let bin_path = wdir.join(bin_name);
+            let model_path = wdir.join("ggml-large-v3-turbo-q5_0.bin");
+            if !bin_path.exists() || !model_path.exists() {
+                let _ = req.respond(Response::from_string(serde_json::json!({"status": "error", "error": "Whisper non installé"}).to_string()).with_status_code(400));
+                return;
+            }
+            let b64_raw = body["audio_base64"].as_str().unwrap_or("");
+            let b64_data = b64_raw.split(',').nth(1).unwrap_or(b64_raw);
+            let mut bytes = Vec::with_capacity(b64_data.len() * 3 / 4);
+            let mut val: u32 = 0;
+            let mut valb: i32 = -8;
+            for c in b64_data.bytes() {
+                if c == b'=' || c.is_ascii_whitespace() { continue; }
+                let d = match c {
+                    b'A'..=b'Z' => c - b'A',
+                    b'a'..=b'z' => c - b'a' + 26,
+                    b'0'..=b'9' => c - b'0' + 52,
+                    b'+' => 62,
+                    b'/' => 63,
+                    _ => continue,
+                } as u32;
+                val = (val << 6) + d;
+                valb += 6;
+                if valb >= 0 {
+                    bytes.push(((val >> valb) & 0xFF) as u8);
+                    valb -= 8;
+                }
+            }
+            let wav_path = std::env::temp_dir().join("earnest_voice.wav");
+            if let Err(e) = fs::write(&wav_path, &bytes) {
+                let _ = req.respond(Response::from_string(serde_json::json!({"status": "error", "error": e.to_string()}).to_string()).with_status_code(500));
+                return;
+            }
+            // Démarrer whisper-server.exe sur 127.0.0.1:8089 si pas déjà en écoute
+            if std::net::TcpStream::connect("127.0.0.1:8089").is_err() {
+                let mut srv = std::process::Command::new(&bin_path);
+                srv.args(["-m", &model_path.to_string_lossy(), "--port", "8089", "-l", "auto", "-t", "8"]);
+                #[cfg(windows)]
+                {
+                    use std::os::windows::process::CommandExt;
+                    srv.creation_flags(0x08000000);
+                }
+                let _ = srv.spawn();
+                for _ in 0..40 {
+                    if std::net::TcpStream::connect("127.0.0.1:8089").is_ok() {
+                        break;
+                    }
+                    thread::sleep(std::time::Duration::from_millis(250));
+                }
+            }
+            let mut cmd = std::process::Command::new("curl.exe");
+            cmd.args([
+                "-s",
+                "-F",
+                &format!("file=@{}", wav_path.to_string_lossy()),
+                "-F",
+                "response_format=json",
+                "http://127.0.0.1:8089/inference",
+            ]);
+            #[cfg(windows)]
+            {
+                use std::os::windows::process::CommandExt;
+                cmd.creation_flags(0x08000000);
+            }
+            let out = cmd.output();
+            let _ = fs::remove_file(&wav_path);
+            match out {
+                Ok(o) if o.status.success() => {
+                    let raw = String::from_utf8_lossy(&o.stdout).to_string();
+                    let text = serde_json::from_str::<Value>(&raw)
+                        .ok()
+                        .and_then(|v| v["text"].as_str().map(|s| s.trim().to_string()))
+                        .unwrap_or_else(|| raw.trim().to_string());
+                    let _ = req.respond(
+                        Response::from_string(serde_json::json!({"status": "ok", "text": text}).to_string())
+                            .with_status_code(200)
+                            .with_header(Header::from_bytes("Content-Type", "application/json").unwrap())
+                            .with_header(Header::from_bytes("Access-Control-Allow-Origin", "*").unwrap()),
+                    );
+                }
+                Ok(o) => {
+                    let err = String::from_utf8_lossy(&o.stderr).trim().to_string();
+                    let _ = req.respond(Response::from_string(serde_json::json!({"status": "error", "error": err}).to_string()).with_status_code(500));
+                }
+                Err(e) => {
+                    let _ = req.respond(Response::from_string(serde_json::json!({"status": "error", "error": e.to_string()}).to_string()).with_status_code(500));
+                }
+            }
+            return;
+        }
+
         if path == "/api/run/stream" {
             let prompt = body["prompt"].as_str().unwrap_or("").to_string();
             let project_id = body["project_id"].as_str().unwrap_or("default_workspace").to_string();
             let think_effort = body["think_effort"].as_str().unwrap_or("off").to_string();
             let backend_choice = body["backend"].as_str().unwrap_or("auto").to_string();
+            let output_dir = body["output_dir"].as_str().map(|s| s.trim().to_string()).filter(|s| !s.is_empty());
+            let paranoid_mode = body["paranoid_mode"].as_bool().unwrap_or(false);
+            let goal_mode = body["goal_mode"].as_bool().unwrap_or(false);
 
             let (tx, rx) = mpsc::channel::<Vec<u8>>();
             let _ = tx.send(format!("event: init\ndata: {}\n\n", serde_json::json!({
@@ -1315,6 +1491,9 @@ fn handle_request(mut req: tiny_http::Request) {
                 }
                 let mut engine = ReActEngine::new(&conn, &router, &project_id);
                 engine.think_effort = think_effort;
+                engine.output_dir = output_dir;
+                engine.paranoid_mode = paranoid_mode;
+                engine.goal_mode = goal_mode;
 
                 let _approval_guard = crate::tools::terminal::attach_live_approval_stream(tx.clone());
                 let tx_trace = tx.clone();

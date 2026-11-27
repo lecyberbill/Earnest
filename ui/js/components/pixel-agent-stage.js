@@ -68,10 +68,13 @@ export class PixelAgentStage extends HTMLElement {
             }
 
             if (list.length > 0) {
-                this.providers = list.map(p => ({
+                const mapped = list.map(p => ({
                     ...p,
                     is_online: onlineMap.has(p.id) ? onlineMap.get(p.id) : (p.is_online === true)
                 }));
+                this.providers = onlineMap.size > 0
+                    ? mapped.filter(p => p.is_online === true && p.is_enabled !== 0)
+                    : mapped.filter(p => p.is_enabled !== 0);
             } else {
                 // Fallback sur les 3 moteurs standard
                 this.providers = [

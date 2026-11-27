@@ -98,6 +98,7 @@ export class ChatView extends HTMLElement {
         const input = this.querySelector('#chat-input');
 
         if (!this.isListening) {
+            if (window.ensureWhisperReady && !(await window.ensureWhisperReady())) return;
             try {
                 const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
                 this.audioChunks = [];
@@ -111,28 +112,27 @@ export class ChatView extends HTMLElement {
                     icon.innerHTML = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="animation: spin 1s linear infinite;"><path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l5.67-5.67"/></svg>`;
                     btn.style.borderColor = 'var(--accent-amber)';
 
-                    const reader = new FileReader();
-                    reader.onloadend = async () => {
-                        try {
-                            const res = await fetch('/api/transcribe', {
-                                method: 'POST',
-                                headers: { 'Content-Type': 'application/json' },
-                                body: JSON.stringify({ audio_base64: reader.result })
-                            });
-                            const data = await res.json();
-                            if (data.status === 'ok' && data.text) {
-                                input.value = (input.value ? input.value + ' ' : '') + data.text;
-                            } else if (data.error) {
-                                alert(`Erreur Whisper: ${data.error}`);
-                            }
-                        } catch (err) {
-                            alert(`Erreur réseau transcription: ${err.message}`);
-                        } finally {
-                            icon.innerHTML = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"></path><path d="M19 10v1a7 7 0 0 1-14 0v-1"></path><line x1="12" y1="19" x2="12" y2="23"></line><line x1="8" y1="23" x2="16" y2="23"></line></svg>`;
-                            btn.style.borderColor = 'var(--border-subtle)';
+                    try {
+                        const base64Audio = window.blobToWavBase64
+                            ? await window.blobToWavBase64(audioBlob)
+                            : await new Promise(r => { const fr = new FileReader(); fr.onloadend = () => r(fr.result); fr.readAsDataURL(audioBlob); });
+                        const res = await fetch('/api/transcribe', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ audio_base64: base64Audio })
+                        });
+                        const data = await res.json();
+                        if (data.status === 'ok' && data.text) {
+                            input.value = (input.value ? input.value + ' ' : '') + data.text;
+                        } else if (data.error) {
+                            alert(`Erreur Whisper: ${data.error}`);
                         }
-                    };
-                    reader.readAsDataURL(audioBlob);
+                    } catch (err) {
+                        alert(`Erreur réseau transcription: ${err.message}`);
+                    } finally {
+                        icon.innerHTML = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"></path><path d="M19 10v1a7 7 0 0 1-14 0v-1"></path><line x1="12" y1="19" x2="12" y2="23"></line><line x1="8" y1="23" x2="16" y2="23"></line></svg>`;
+                        btn.style.borderColor = 'var(--border-subtle)';
+                    }
                 };
 
                 this.mediaRecorder.start();

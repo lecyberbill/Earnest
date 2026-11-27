@@ -1,0 +1,10 @@
+[package]
+name = "js-syntax-check"
+version = "0.1.0"
+edition = "2021"
+description = "Verifie la syntaxe JS (node --check) de fichiers .js et des blocs <script> inline .html, sans aucune dependance externe."
+license = "MIT"
+
+[lib]
+name = "js_syntax_check"
+path = "src/lib.rs"

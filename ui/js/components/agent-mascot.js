@@ -34,6 +34,30 @@ class AgentMascot extends HTMLElement {
         const pSleep = root.getElementById('prop-sleep');
         if (!wrap || !master) return;
 
+        const goalScene = root.getElementById('goal-scene');
+        if (state === 'goal') {
+            master.style.opacity = '0';
+            if (goalScene) goalScene.style.opacity = '1';
+            wrap.style.background = 'radial-gradient(circle, rgba(34,197,94,0.25) 0%, rgba(16,185,129,0.08) 70%)';
+            wrap.style.borderColor = 'rgba(34,197,94,0.65)';
+            wrap.style.animation = '';
+            return;
+        }
+        master.style.opacity = '1';
+        if (goalScene) goalScene.style.opacity = '0';
+        if (state === 'paranoid') {
+            if (fThink) fThink.style.opacity = '1';
+            if (pThink) pThink.style.opacity = '1';
+            wrap.style.background = 'radial-gradient(circle, rgba(239,68,68,0.28) 0%, rgba(127,29,29,0.12) 70%)';
+            wrap.style.borderColor = 'rgba(239,68,68,0.65)';
+            wrap.style.animation = 'mascot-paranoid-shake 0.14s infinite alternate';
+            if (bulb) bulb.style.fill = '#ef4444';
+            if (chest) chest.style.fill = '#ef4444';
+            return;
+        }
+        wrap.style.background = '';
+        wrap.style.borderColor = '';
+        wrap.style.animation = '';
         [fWork, fThink, fSleep, pWork, pThink, pSleep].forEach(el => {
             if (el) el.style.opacity = '0';
         });
@@ -86,6 +110,18 @@ class AgentMascot extends HTMLElement {
             : '';
         this.shadowRoot.innerHTML = `
             <style>
+                @keyframes mascot-paranoid-shake {
+                    0% { transform: translate(-2px, 1px) rotate(-2deg); }
+                    50% { transform: translate(2px, -1px) rotate(2deg); }
+                    100% { transform: translate(-1px, -2px) rotate(-1.5deg); }
+                }
+                @keyframes goal-ball-kick {
+                    0% { transform: translate(0px, 0px) scale(1) rotate(0deg); }
+                    45% { transform: translate(0px, -68px) scale(0.82) rotate(180deg); }
+                    60% { transform: translate(0px, -62px) scale(0.84) rotate(220deg); }
+                    100% { transform: translate(0px, 0px) scale(1) rotate(360deg); }
+                }
+                .goal-ball { transform-origin: 150px 215px; animation: goal-ball-kick 1.4s ease-in-out infinite; }
                 :host { display: inline-block; width: 78px; height: 78px; flex-shrink: 0; }
                 .wrap {
                     width: 78px; height: 78px; border-radius: 16px;
@@ -125,6 +161,30 @@ class AgentMascot extends HTMLElement {
                         <linearGradient id="bGrad" x1="0%" y1="0%" x2="100%" y2="100%"><stop offset="0%" stop-color="#f8fafc"/><stop offset="100%" stop-color="#cbd5e1"/></linearGradient>
                         <linearGradient id="sGrad" x1="0%" y1="0%" x2="0%" y2="100%"><stop offset="0%" stop-color="#1e293b"/><stop offset="100%" stop-color="#0f172a"/></linearGradient>
                     </defs>
+                    <g id="goal-scene" style="opacity:0">
+                        <!-- Pelouse -->
+                        <ellipse cx="150" cy="242" rx="115" ry="18" fill="rgba(34,197,94,0.22)" stroke="#22c55e" stroke-width="2"/>
+                        <!-- Filet du but -->
+                        <polygon points="75,78 225,78 212,158 88,158" fill="rgba(255,255,255,0.06)" stroke="rgba(255,255,255,0.25)" stroke-width="1.5"/>
+                        <line x1="105" y1="78" x2="112" y2="158" stroke="rgba(255,255,255,0.2)" stroke-width="1.2"/>
+                        <line x1="135" y1="78" x2="137" y2="158" stroke="rgba(255,255,255,0.2)" stroke-width="1.2"/>
+                        <line x1="165" y1="78" x2="163" y2="158" stroke="rgba(255,255,255,0.2)" stroke-width="1.2"/>
+                        <line x1="195" y1="78" x2="188" y2="158" stroke="rgba(255,255,255,0.2)" stroke-width="1.2"/>
+                        <line x1="80" y1="104" x2="220" y2="104" stroke="rgba(255,255,255,0.2)" stroke-width="1.2"/>
+                        <line x1="84" y1="130" x2="216" y2="130" stroke="rgba(255,255,255,0.2)" stroke-width="1.2"/>
+                        <!-- Poteaux et barre transversale -->
+                        <polyline points="72,162 72,76 228,76 228,162" fill="none" stroke="#f8fafc" stroke-width="7" stroke-linecap="round" stroke-linejoin="round"/>
+                        <!-- Ballon de foot animé -->
+                        <g class="goal-ball">
+                            <circle cx="150" cy="215" r="22" fill="#f8fafc" stroke="#0f172a" stroke-width="3"/>
+                            <polygon points="150,203 159,210 155,221 145,221 141,210" fill="#0f172a"/>
+                            <line x1="150" y1="203" x2="150" y2="193" stroke="#0f172a" stroke-width="2"/>
+                            <line x1="159" y1="210" x2="170" y2="206" stroke="#0f172a" stroke-width="2"/>
+                            <line x1="141" y1="210" x2="130" y2="206" stroke="#0f172a" stroke-width="2"/>
+                            <line x1="155" y1="221" x2="162" y2="232" stroke="#0f172a" stroke-width="2"/>
+                            <line x1="145" y1="221" x2="138" y2="232" stroke="#0f172a" stroke-width="2"/>
+                        </g>
+                    </g>
                     <g id="robot-master">
                         <rect x="132" y="152" width="36" height="16" rx="6" fill="#94a3b8"/>
                         <rect x="102" y="164" width="96" height="72" rx="28" fill="url(#bGrad)" stroke="#94a3b8" stroke-width="3"/>

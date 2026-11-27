@@ -18,6 +18,24 @@ pub fn run() {
       }
       Ok(())
     })
-    .run(tauri::generate_context!())
-    .expect("error while running tauri application");
+    .build(tauri::generate_context!())
+    .expect("error while building tauri application")
+    .run(|_app_handle, event| {
+      if matches!(event, tauri::RunEvent::Exit | tauri::RunEvent::ExitRequested { .. }) {
+        #[cfg(windows)]
+        {
+          use std::os::windows::process::CommandExt;
+          let _ = std::process::Command::new("taskkill")
+            .args(["/F", "/IM", "whisper-server.exe"])
+            .creation_flags(0x08000000)
+            .output();
+        }
+        #[cfg(not(windows))]
+        {
+          let _ = std::process::Command::new("pkill")
+            .args(["-f", "whisper-server"])
+            .output();
+        }
+      }
+    });
 }

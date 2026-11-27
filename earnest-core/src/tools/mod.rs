@@ -266,6 +266,20 @@ pub fn get_primitive_tools_schemas() -> Vec<Value> {
         serde_json::json!({
             "type": "function",
             "function": {
+                "name": "check_js_syntax",
+                "description": "Vérifie la syntaxe JavaScript d'un fichier .js ou des blocs <script> inline d'un fichier .html via node --check. Retourne ok, scripts_checked, error et le numéro de ligne exact.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "path": { "type": "string", "description": "Chemin du fichier .js ou .html à vérifier" }
+                    },
+                    "required": ["path"]
+                }
+            }
+        }),
+        serde_json::json!({
+            "type": "function",
+            "function": {
                 "name": "list_skills",
                 "description": "Liste les skills spécialisés disponibles pour l'agent (dont 'earnest-wfl' pour concevoir des workflows WFL).",
                 "parameters": {

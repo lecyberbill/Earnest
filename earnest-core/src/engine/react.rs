@@ -72,6 +72,9 @@ pub struct ReActEngine<'a> {
     pub project_id: String,
     pub max_steps: usize,
     pub think_effort: String,
+    pub output_dir: Option<String>,
+    pub paranoid_mode: bool,
+    pub goal_mode: bool,
 }
 
 impl<'a> ReActEngine<'a> {
@@ -82,7 +85,22 @@ impl<'a> ReActEngine<'a> {
             project_id: project_id.to_string(),
             max_steps: 0, // 0 = illimité (protégé par anti-loop et compaction)
             think_effort: "off".to_string(),
+            output_dir: None,
+            paranoid_mode: false,
+            goal_mode: false,
         }
+    }
+
+    pub fn resolve_output_dir(custom: Option<&str>) -> std::path::PathBuf {
+        let dir = if let Some(s) = custom.map(str::trim).filter(|s| !s.is_empty()) {
+            std::path::PathBuf::from(s)
+        } else if let Ok(home) = std::env::var("USERPROFILE").or_else(|_| std::env::var("HOME")) {
+            std::path::PathBuf::from(home).join("Documents").join("Earnest")
+        } else {
+            std::path::PathBuf::from("Earnest")
+        };
+        let _ = std::fs::create_dir_all(&dir);
+        dir
     }
 
     fn ensure_checkpoint_table(&self) {
@@ -134,7 +152,32 @@ impl<'a> ReActEngine<'a> {
     }
 
     fn dispatch_tool(&self, name: &str, args: &Value, run_id: &str) -> String {
+        if self.paranoid_mode
+            && matches!(
+                name,
+                "terminal_exec"
+                    | "read_file"
+                    | "edit_file"
+                    | "write_file"
+                    | "list_dir"
+                    | "list_files"
+                    | "grep_search"
+                    | "symbol_search"
+                    | "workspace_map"
+                    | "check_js_syntax"
+            )
+        {
+            return serde_json::json!({
+                "status": "blocked",
+                "error": "Mode Paranoïaque actif : aucun accès au disque ou au terminal n'est autorisé."
+            })
+            .to_string();
+        }
         match name {
+            "check_js_syntax" => {
+                let path = args["path"].as_str().unwrap_or("");
+                js_syntax_check::check_file(std::path::Path::new(path)).to_json()
+            }
             "web_search" => {
                 let query = args["query"].as_str().unwrap_or("");
                 let max = args["max_results"].as_u64().unwrap_or(5) as usize;
@@ -358,22 +401,31 @@ impl<'a> ReActEngine<'a> {
         ).map_err(|e| e.to_string())?;
 
         let env_context = detect_runtime_environment();
+        let output_dir = Self::resolve_output_dir(self.output_dir.as_deref());
         let skills_summary = crate::tools::skills::skills_prompt_summary();
         let earnest_md = crate::tools::skills::load_earnest_md(std::path::Path::new("."));
         let now_str = chrono::Local::now().format("%Y-%m-%d %H:%M (%:z)").to_string();
+        let goal_note = if self.goal_mode {
+            " MODE GOAL ACTIF : ne t'arrête jamais sur une réponse partielle. Découpe l'objectif en jalons, vérifie chaque livrable sur disque ou par tests, et termine uniquement quand 100 % de l'objectif est atteint."
+        } else {
+            ""
+        };
         let system_prompt = format!(
             "Tu es Earnest, un système agentique autonome propulsé par un moteur Rust natif ultra-robuste. \
 Date et heure actuelles : {}. \
 Tu résous la tâche pas à pas (ReAct). Tu disposes d'un accès complet à Internet et au web via 'web_search' et 'web_fetch'. \
-Utilise également les autres outils mis à disposition (read_file, edit_file, list_dir, grep_search, workspace_map, symbol_search, terminal_exec, create_artifact, store_memory, recall_memory, list_skills, read_skill) quand nécessaire. \
+Utilise également les autres outils mis à disposition (read_file, edit_file, list_dir, grep_search, workspace_map, symbol_search, terminal_exec, create_artifact, check_js_syntax, store_memory, recall_memory, list_skills, read_skill) quand nécessaire. \
 {} \
 Environnement réel capturé : {}. \
+Dossier de sortie des livrables : {}. Sauf indication contraire explicite dans la consigne, écris tous les fichiers livrables et scripts générés dans ce dossier (jamais dans target\\release ou un dossier système). \
 Adapte tes commandes au shell et à l'OS indiqués ci-dessus. \
 En cours de mission, n'émets pas de phrase d'annonce sans appel d'outil : appelle directement l'outil suivant. \
-Quand ta mission est entièrement accomplie et vérifiée sur disque, fournis directement ta réponse finale complète sans appel d'outil.{}",
+Quand ta mission est entièrement accomplie et vérifiée sur disque, fournis directement ta réponse finale complète sans appel d'outil.{}{}",
             now_str,
             skills_summary,
             env_context,
+            output_dir.display(),
+            goal_note,
             earnest_md
         );
 
@@ -400,6 +452,7 @@ Quand ta mission est entièrement accomplie et vérifiée sur disque, fournis di
             .unwrap_or(60_000);
         let mut last_backend_id = String::new();
         let mut empty_tool_nudges: usize = 0;
+        let mut goal_verifications: usize = 0;
         let mut last_tool_sig = String::new();
         let mut repeat_tool_count: usize = 0;
         let mut loop_detector = loop_detector::LoopDetector::new(
@@ -479,6 +532,16 @@ Quand ta mission est entièrement accomplie et vérifiée sur disque, fournis di
                     });
                     continue;
                 }
+                if self.goal_mode && goal_verifications < 2 {
+                    goal_verifications += 1;
+                    push_live_log("GOAL", &format!("🎯 [GOAL GATE {}/2] Vérification d'achèvement...", goal_verifications));
+                    messages.push(ChatMessage {
+                        role: "user".to_string(),
+                        content: "GOAL GATE : Avant de conclure, vérifie factuellement (sur disque ou via tests/outils) que 100 % de l'objectif initial est accompli et complet. S'il manque quoi que ce soit, corrige-le immédiatement avec tes outils ; sinon, fournis ta réponse finale définitive.".to_string(),
+                        images: None,
+                    });
+                    continue;
+                }
                 final_answer = chat_res.content;
                 push_live_log("ANSWER", &format!("✅ Run {} terminé ({} tokens)", run_id, total_tokens));
                 self.record_trace(&run_id, step_order, "answer", None, &final_answer);
@@ -487,8 +550,12 @@ Quand ta mission est entièrement accomplie et vérifiée sur disque, fournis di
             }
             empty_tool_nudges = 0;
 
-            // Exécution des outils demandés
+            // Exécution des outils demandés (dédupliqués sur le tour)
+            let mut seen_calls = std::collections::HashSet::new();
             for call in chat_res.tool_calls {
+                if !seen_calls.insert((call.name.clone(), call.arguments.to_string())) {
+                    continue;
+                }
                 let fn_name = &call.name;
                 let fn_args = &call.arguments;
                 tool_history.push((fn_name.clone(), fn_args.to_string()));
@@ -665,6 +732,7 @@ Quand ta mission est entièrement accomplie et vérifiée sur disque, fournis di
             .map(|b| self.router.estimate_context_chars(&b.id))
             .unwrap_or(60_000);
         let mut empty_tool_nudges = 0usize;
+        let mut goal_verifications = 0usize;
         let mut final_answer = String::new();
         let mut step_idx = 0usize;
         crate::llm::client::reset_cancel();
@@ -711,13 +779,27 @@ Quand ta mission est entièrement accomplie et vérifiée sur disque, fournis di
                     messages.push(ChatMessage { role: "user".to_string(), content: "Continue : appelle immédiatement l'outil suivant.".to_string(), images: None });
                     continue;
                 }
+                if self.goal_mode && goal_verifications < 2 {
+                    goal_verifications += 1;
+                    push_live_log("GOAL", &format!("🎯 [GOAL GATE {}/2] Vérification d'achèvement...", goal_verifications));
+                    messages.push(ChatMessage {
+                        role: "user".to_string(),
+                        content: "GOAL GATE : Avant de conclure, vérifie factuellement (sur disque ou via tests/outils) que 100 % de l'objectif initial est accompli et complet. S'il manque quoi que ce soit, corrige-le immédiatement avec tes outils ; sinon, fournis ta réponse finale définitive.".to_string(),
+                        images: None,
+                    });
+                    continue;
+                }
                 final_answer = chat_res.content;
                 self.record_trace(run_id, step_order as usize, "answer", None, &final_answer);
                 on_trace(run_id, step_order as usize, "answer", None, &final_answer, &active_backend);
                 break;
             }
             empty_tool_nudges = 0;
+            let mut seen_calls = std::collections::HashSet::new();
             for call in chat_res.tool_calls {
+                if !seen_calls.insert((call.name.clone(), call.arguments.to_string())) {
+                    continue;
+                }
                 let output = self.dispatch_tool(&call.name, &call.arguments, run_id);
                 self.record_trace(run_id, step_order as usize, "tool_output", Some(&call.name), &output);
                 on_trace(run_id, step_order as usize, "tool_output", Some(&call.name), &output, &active_backend);
@@ -805,6 +887,9 @@ Quand ta mission est entièrement accomplie et vérifiée sur disque, fournis di
                     project_id: self.project_id.clone(),
                     max_steps: 6,
                     think_effort: self.think_effort.clone(),
+                    output_dir: self.output_dir.clone(),
+                    paranoid_mode: self.paranoid_mode,
+                    goal_mode: self.goal_mode,
                 };
                 let fix_prompt = format!("{}\n\n--- RETOUR CRITIQUE À CORRIGER ---\n{}", prompt, crit.content);
                 if let Ok(fix_res) = fix_engine.run_with_callback(&fix_prompt, &mut on_trace) {
@@ -1104,6 +1189,9 @@ mod tests {
             project_id: "test".to_string(),
             max_steps: 2,
             think_effort: "low".to_string(),
+            output_dir: None,
+            paranoid_mode: false,
+            goal_mode: false,
         };
         let args = serde_json::json!({
             "query": "SymbolIndex",
@@ -1130,6 +1218,9 @@ mod tests {
             project_id: "test".to_string(),
             max_steps: 2,
             think_effort: "low".to_string(),
+            output_dir: None,
+            paranoid_mode: false,
+            goal_mode: false,
         };
         let args = serde_json::json!({
             "path": "../crates/symbol-index",

@@ -97,6 +97,24 @@ export class SettingsView extends HTMLElement {
                     </table>
                 </div>
 
+                <!-- Section 0 : Dossier de sortie & Mode Paranoïaque -->
+                <div class="card" style="margin-bottom: 1.5rem;">
+                    <h2 style="display: flex; align-items: center; gap: 0.5rem;">
+                        <span>🛡️</span>
+                        <span data-i18n="settings.security_title">Sécurité &amp; Dossier de sortie</span>
+                    </h2>
+                    <div style="display: flex; flex-direction: column; gap: 0.9rem; margin-top: 0.75rem;">
+                        <div style="display: flex; gap: 0.75rem; align-items: center; flex-wrap: wrap;">
+                            <label for="setting-default-output-dir" data-i18n="settings.default_output_dir" style="font-size: 0.85rem; color: var(--text-muted); min-width: 210px;">Dossier de sortie par défaut :</label>
+                            <input type="text" id="setting-default-output-dir" placeholder="Documents\\Earnest" value="${localStorage.getItem('earnest_default_output_dir') || ''}" style="flex: 1; min-width: 240px;" />
+                        </div>
+                        <label style="display: flex; align-items: center; gap: 0.6rem; cursor: pointer; font-size: 0.88rem; color: var(--text-primary);">
+                            <input type="checkbox" id="setting-paranoid-mode" ${localStorage.getItem('earnest_paranoid_mode') === 'true' ? 'checked' : ''} />
+                            <span><strong data-i18n="settings.paranoid_label">Mode Paranoïaque</strong> — <span data-i18n="settings.paranoid_desc">Bloquer tout accès au disque et au terminal pour les modèles (isolation type VM)</span></span>
+                        </label>
+                    </div>
+                </div>
+
                 <!-- Section 3 : Serveurs MCP Externes (Model Context Protocol) -->
                 <div class="card">
                     <h2 style="display: flex; align-items: center; gap: 0.5rem;">
@@ -160,6 +178,21 @@ export class SettingsView extends HTMLElement {
             this.querySelector('#add-model-panel').style.display = 'none';
         });
         this.querySelector('#btn-save-new-model').addEventListener('click', () => this.saveNewModelProvider());
+        const defaultDirEl = this.querySelector('#setting-default-output-dir');
+        if (defaultDirEl) {
+            defaultDirEl.addEventListener('change', (e) => {
+                localStorage.setItem('earnest_default_output_dir', e.target.value.trim());
+            });
+        }
+        const paranoidEl = this.querySelector('#setting-paranoid-mode');
+        if (paranoidEl) {
+            paranoidEl.addEventListener('change', (e) => {
+                const enabled = e.target.checked;
+                localStorage.setItem('earnest_paranoid_mode', enabled ? 'true' : 'false');
+                document.body.classList.toggle('paranoid-mode', enabled);
+                document.querySelectorAll('agent-mascot').forEach(m => m.setState?.(enabled ? 'paranoid' : 'sleep'));
+            });
+        }
 
         this.querySelector('#btn-add-resource').addEventListener('click', () => this.addResource());
         this.querySelector('#btn-add-mcp').addEventListener('click', () => this.addMCPServer());

@@ -48,6 +48,7 @@ export class RunConsole extends HTMLElement {
                                 <option value="medium">Effort : Medium</option>
                                 <option value="high">Effort : High</option>
                             </select>
+                            <input type="text" id="output-dir-input" data-i18n-placeholder="run.output_dir_ph" data-i18n-title="run.output_dir_title" placeholder="Dossier cible (défaut : Documents\\Earnest)" title="Dossier de sortie optionnel pour les livrables (laisser vide pour Documents\\Earnest)" style="background: rgba(15, 23, 42, 0.9); border: 1px solid var(--border-subtle); color: var(--text-primary); border-radius: var(--radius-sm); height: 36px; padding: 0 0.75rem; font-family: var(--font-mono); font-size: 0.78rem; width: 240px; outline: none;" />
                         </div>
 
                         <!-- Groupe Droit : Pièce jointe, Micro et Boutons d'Exécution -->
@@ -68,6 +69,10 @@ export class RunConsole extends HTMLElement {
                                     <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect></svg>
                                     <span data-i18n="run.stop">Arrêter</span>
                                 </span>
+                            </button>
+
+                            <button class="btn-secondary" id="btn-goal-mode" type="button" style="height: 36px; padding: 0 0.85rem; cursor: pointer; border-color: var(--border-subtle); color: var(--text-muted);" data-i18n-title="run.goal_title" title="Mode Goal : exécution autonome avec vérification finale obligatoire">
+                                <span data-i18n="run.goal_btn">⚽ Goal</span>
                             </button>
 
                             <button class="btn-primary" id="btn-run" style="height: 36px; padding: 0 1.25rem;">
@@ -130,6 +135,18 @@ export class RunConsole extends HTMLElement {
         }
 
         const btn = this.querySelector('#btn-run');
+        this.goalMode = false;
+        const goalBtn = this.querySelector('#btn-goal-mode');
+        if (goalBtn) {
+            goalBtn.addEventListener('click', () => {
+                this.goalMode = !this.goalMode;
+                goalBtn.style.borderColor = this.goalMode ? '#22c55e' : 'var(--border-subtle)';
+                goalBtn.style.background = this.goalMode ? 'rgba(34, 197, 94, 0.18)' : '';
+                goalBtn.style.color = this.goalMode ? '#4ade80' : 'var(--text-muted)';
+                const mascot = this.querySelector('#run-mascot');
+                if (mascot) mascot.setState(this.goalMode ? 'goal' : (localStorage.getItem('earnest_paranoid_mode') === 'true' ? 'paranoid' : 'sleep'));
+            });
+        }
         const btnCancel = this.querySelector('#btn-cancel');
         const input = this.querySelector('#prompt-input');
         const fileInput = this.querySelector('#file-input');
@@ -232,6 +249,7 @@ export class RunConsole extends HTMLElement {
         if (micBtn) {
             micBtn.addEventListener('click', async () => {
                 if (!isRecording) {
+                    if (window.ensureWhisperReady && !(await window.ensureWhisperReady())) return;
                     try {
                         const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
                         audioChunks = [];
@@ -245,30 +263,28 @@ export class RunConsole extends HTMLElement {
                             micIcon.innerHTML = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="animation: spin 1s linear infinite;"><path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l5.67-5.67"/></svg>`;
                             micBtn.style.borderColor = 'var(--accent-amber)';
 
-                            // Conversion en base64 pour envoi à /api/transcribe
-                            const reader = new FileReader();
-                            reader.onloadend = async () => {
-                                try {
-                                    const base64Audio = reader.result;
-                                    const res = await fetch('/api/transcribe', {
-                                        method: 'POST',
-                                        headers: {'Content-Type': 'application/json'},
-                                        body: JSON.stringify({ audio_base64: base64Audio })
-                                    });
-                                    const data = await res.json();
-                                    if (data.status === 'ok' && data.text) {
-                                        input.value = (input.value ? input.value + ' ' : '') + data.text;
-                                    } else if (data.error) {
-                                        alert(`Erreur Whisper: ${data.error}`);
-                                    }
-                                } catch (err) {
-                                    alert(`Erreur transcription réseau: ${err.message}`);
-                                } finally {
-                                    micIcon.innerHTML = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"></path><path d="M19 10v1a7 7 0 0 1-14 0v-1"></path><line x1="12" y1="19" x2="12" y2="23"></line><line x1="8" y1="23" x2="16" y2="23"></line></svg>`;
-                                    micBtn.style.borderColor = 'var(--border-subtle)';
+                            // Conversion en WAV 16kHz base64 pour /api/transcribe
+                            try {
+                                const base64Audio = window.blobToWavBase64
+                                    ? await window.blobToWavBase64(audioBlob)
+                                    : await new Promise(r => { const fr = new FileReader(); fr.onloadend = () => r(fr.result); fr.readAsDataURL(audioBlob); });
+                                const res = await fetch('/api/transcribe', {
+                                    method: 'POST',
+                                    headers: {'Content-Type': 'application/json'},
+                                    body: JSON.stringify({ audio_base64: base64Audio })
+                                });
+                                const data = await res.json();
+                                if (data.status === 'ok' && data.text) {
+                                    input.value = (input.value ? input.value + ' ' : '') + data.text;
+                                } else if (data.error) {
+                                    alert(`Erreur Whisper: ${data.error}`);
                                 }
-                            };
-                            reader.readAsDataURL(audioBlob);
+                            } catch (err) {
+                                alert(`Erreur transcription réseau: ${err.message}`);
+                            } finally {
+                                micIcon.innerHTML = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"></path><path d="M19 10v1a7 7 0 0 1-14 0v-1"></path><line x1="12" y1="19" x2="12" y2="23"></line><line x1="8" y1="23" x2="16" y2="23"></line></svg>`;
+                                micBtn.style.borderColor = 'var(--border-subtle)';
+                            }
                         };
 
                         mediaRecorder.start();
@@ -294,6 +310,18 @@ export class RunConsole extends HTMLElement {
         const promptInput = this.querySelector('#prompt-input');
         const terminal = this.querySelector('#terminal');
         const btn = this.querySelector('#btn-run');
+        this.goalMode = false;
+        const goalBtn = this.querySelector('#btn-goal-mode');
+        if (goalBtn) {
+            goalBtn.addEventListener('click', () => {
+                this.goalMode = !this.goalMode;
+                goalBtn.style.borderColor = this.goalMode ? '#22c55e' : 'var(--border-subtle)';
+                goalBtn.style.background = this.goalMode ? 'rgba(34, 197, 94, 0.18)' : '';
+                goalBtn.style.color = this.goalMode ? '#4ade80' : 'var(--text-muted)';
+                const mascot = this.querySelector('#run-mascot');
+                if (mascot) mascot.setState(this.goalMode ? 'goal' : (localStorage.getItem('earnest_paranoid_mode') === 'true' ? 'paranoid' : 'sleep'));
+            });
+        }
         const btnCancel = this.querySelector('#btn-cancel');
         const pixelStage = this.querySelector('#pixel-stage');
         const mascot = this.querySelector('#run-mascot');
@@ -310,16 +338,25 @@ export class RunConsole extends HTMLElement {
         }
         terminal.innerHTML = '';
         this.appendTrace('thought', `Démarrage de la tâche : "${prompt}"`);
-        if (pixelStage) pixelStage.setAgentState('thought');
-        if (mascot) mascot.setState('think');
+        if (pixelStage) pixelStage.setAgentState('thought', '', selector ? selector.value : 'ollama');
+        const isParanoid = localStorage.getItem('earnest_paranoid_mode') === 'true';
+        document.body.classList.toggle('paranoid-mode', isParanoid);
+        if (mascot) mascot.setState(this.goalMode ? 'goal' : (isParanoid ? 'paranoid' : 'think'));
 
         try {
             const effortSelector = this.querySelector('#effort-selector');
+            const outputDirInput = this.querySelector('#output-dir-input');
+            const outputDirVal = outputDirInput ? outputDirInput.value.trim() : '';
+            const defaultDir = localStorage.getItem('earnest_default_output_dir') || '';
+            const paranoidMode = localStorage.getItem('earnest_paranoid_mode') === 'true';
             const payload = {
                 prompt,
                 project_id: 'default_workspace',
                 backend: selector ? selector.value : 'auto',
                 think_effort: effortSelector ? effortSelector.value : 'off',
+                output_dir: outputDirVal || defaultDir || null,
+                paranoid_mode: paranoidMode,
+                goal_mode: !!this.goalMode,
                 attachment: this.currentAttachment
             };
 
@@ -531,8 +568,15 @@ export class RunConsole extends HTMLElement {
                     </div>
                     ${timeBadge}
                 </div>
-                <div class="react-node-body">${renderMarkdown(cleanText)}</div>
+                <div class="react-node-body"></div>
             `;
+            const bodyEl = item.querySelector('.react-node-body');
+            if (bodyEl && bodyEl.attachShadow) {
+                const shadow = bodyEl.attachShadow({ mode: 'open' });
+                shadow.innerHTML = `<style>:host{display:block;color:#e2e8f0;font-family:var(--font-sans,sans-serif);line-height:1.55;} a{color:#38bdf8;} pre,code{background:rgba(15,23,42,0.8);border-radius:4px;padding:2px 5px;} table{border-collapse:collapse;width:100%;} th,td{border:1px solid rgba(148,163,184,0.25);padding:6px 10px;text-align:left;}</style>${renderMarkdown(cleanText)}`;
+            } else if (bodyEl) {
+                bodyEl.innerHTML = renderMarkdown(cleanText);
+            }
         } else if (type === 'thought') {
             item.className = 'react-step-node react-node-thought';
             const cleanText = text.replace(/^\[THOUGHT\]\s*/, '');

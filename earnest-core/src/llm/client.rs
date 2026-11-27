@@ -200,6 +200,13 @@ impl LLMClient {
             }
         }
 
+        if tool_calls.is_empty() {
+            tool_calls = extract_text_tool_calls(&content);
+            if tool_calls.is_empty() && !reasoning.is_empty() {
+                tool_calls = extract_text_tool_calls(&reasoning);
+            }
+        }
+
         Ok(ChatResponse {
             content,
             tool_calls,
@@ -326,6 +333,20 @@ impl LLMClient {
             tool_calls.push(ToolCallItem { id: final_id, name, arguments: parsed_args });
         }
 
+        if tool_calls.is_empty() {
+            tool_calls = extract_text_tool_calls(&content);
+            if tool_calls.is_empty() && !reasoning.is_empty() {
+                tool_calls = extract_text_tool_calls(&reasoning);
+            }
+        }
+
+        if tool_calls.is_empty() {
+            tool_calls = extract_text_tool_calls(&content);
+            if tool_calls.is_empty() && !reasoning.is_empty() {
+                tool_calls = extract_text_tool_calls(&reasoning);
+            }
+        }
+
         Ok(ChatResponse {
             content,
             tool_calls,
@@ -335,6 +356,40 @@ impl LLMClient {
             reasoning_content: if reasoning.is_empty() { None } else { Some(reasoning) },
         })
     }
+}
+
+/// Extrait des appels d'outils émis en texte brut (`[TOOL_REQUEST] ... [END_TOOL_REQUEST]`
+/// ou `<tool_call> ... </tool_call>`) par certains petits modèles locaux (ex. Phi).
+pub fn extract_text_tool_calls(text: &str) -> Vec<ToolCallItem> {
+    let mut out = Vec::new();
+    for (start_tag, end_tag) in [
+        ("[TOOL_REQUEST]", "[END_TOOL_REQUEST]"),
+        ("<tool_call>", "</tool_call>"),
+    ] {
+        let mut rest = text;
+        while let Some(s) = rest.find(start_tag) {
+            let after = &rest[s + start_tag.len()..];
+            let Some(e) = after.find(end_tag) else { break };
+            let raw_json = after[..e].trim();
+            let parsed = serde_json::from_str::<Value>(raw_json)
+                .or_else(|_| serde_json::from_str::<Value>(&json_repair::repair(raw_json)));
+            if let Ok(v) = parsed {
+                if let Some(name) = v["name"].as_str().filter(|n| !n.trim().is_empty()) {
+                    let args = if let Some(s) = v["arguments"].as_str() {
+                        parse_tool_args_with_repair(name, s)
+                    } else if v["arguments"].is_object() {
+                        v["arguments"].clone()
+                    } else {
+                        serde_json::json!({})
+                    };
+                    let id = format!("call_{}", &uuid::Uuid::new_v4().to_string().replace('-', "")[..8]);
+                    out.push(ToolCallItem { id, name: name.to_string(), arguments: args });
+                }
+            }
+            rest = &after[e + end_tag.len()..];
+        }
+    }
+    out
 }
 
 /// Parse les arguments JSON d'un appel d'outil avec réparation chirurgicale via `json-repair`
@@ -385,6 +440,15 @@ mod tests {
         let v = parse_tool_args_with_repair("store_memory", raw);
         assert_eq!(v["key"], "status");
         assert_eq!(v["value"], "ok");
+    }
+
+    #[test]
+    fn extracts_phi_text_tool_requests() {
+        let txt = r#"Calling tool: [TOOL_REQUEST] {"name": "web_search", "arguments": {"query": "météo"}} [END_TOOL_REQUEST]"#;
+        let calls = super::extract_text_tool_calls(txt);
+        assert_eq!(calls.len(), 1);
+        assert_eq!(calls[0].name, "web_search");
+        assert_eq!(calls[0].arguments["query"], "météo");
     }
 }
 
